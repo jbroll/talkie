@@ -26,6 +26,8 @@ When suggesting changes to the code, please format your response as follows:
 
 7. When just moving blocks using an ORDER block, there is not need to include the complete block content in the changes.
 
+8. ALL of the change blocks should be in a single artifact in the response
+
 Example:
 
 def new_function():
