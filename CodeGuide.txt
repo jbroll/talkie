@@ -1,0 +1,31 @@
+# Guidelines for Writing Clear and Debuggable Functions
+
+1. **Handle special cases explicitly:**
+   Identify and handle special cases or edge conditions at the beginning of your function. This clarifies the main logic and improves readability.
+
+2. **Use consistent logic patterns:**
+   Apply consistent approaches for similar operations throughout your function. This reduces cognitive load when reading and debugging the code.
+
+3. **Make the order of operations clear:**
+   Structure your function so that the sequence of operations is obvious. Use comments or separate code blocks to delineate different stages of processing.
+
+4. **Prefer explicit logic over implicit assumptions:**
+   Write out steps explicitly rather than relying on implied behavior. This makes the code's intention clearer and easier to debug.
+
+5. **Use descriptive variable names:**
+   Choose variable names that clearly indicate their purpose or content. This aids in understanding the code's flow without needing to track variable values.
+
+6. **Simplify the main logic flow:**
+   Aim for a linear, step-by-step progression in your function. Avoid complex nested conditions where possible.
+
+7. **Centralize similar operations:**
+   Group related operations together. This often allows for more consistent handling and makes it easier to spot potential issues.
+
+8. **Prioritize robustness:**
+   Consider potential error cases and handle them gracefully. This might include validating input, handling missing data, or providing default behaviors.
+
+9. **Use clear data transformations:**
+   When modifying data structures, make the transformations explicit and easy to follow. Consider breaking complex transformations into separate, well-named helper functions.
+
+10. **Maintain a single point of return:**
+    Where possible, structure your function to have a single, clear point where it returns its result. This can make it easier to ensure all cases are handled correctly.
