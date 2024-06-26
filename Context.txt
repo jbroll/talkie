@@ -1,85 +1,48 @@
-Speach to Text Program
+Talkie : A Speach to Text Program
 
-Goals: Provide the most accurate possible audio integration for Unbuntu Linux
+Goal: Provide the most accurate and seamless possible audio integration for Unbuntu Linux
 
  Requirements: 
 	Audio input
 	Speach to text transcription
 	Output to keyboard focus window
 
+Here are some guidelines to help make our interactions efficient:
 
-Subject: Refining Speech-to-Text System with Improved Logging and Device Selection
+In each chat we will work on a feature.
+Suggested changes will be communicated using git compatible patches.  
+Patches contain the complete change being considered.
+Never use the words "I apologize" in your response.
 
-In our recent interactions, we've been working on enhancing a speech-to-text system built using the Vosk library. The main focus of this chat has been on implementing a more robust logging system, improving audio device selection, and refining the overall structure of the project. We've addressed issues related to module imports, implemented command-line arguments for better user control, and improved the measurement and reporting of transcription latency.
+Provide direct, concise answers that address the core of the question.
 
-Key improvements include:
-1. Integrating a flexible logging system with verbosity control
-2. Enhancing audio device selection with support for device name substring matching
-3. Refining the artifact structure for better code organization and readability
-4. Improving latency measurement and reporting
+If you cannot perform a requested action or provide a specific type of information, state this clearly and succinctly without proposing alternative solutions unless explicitly asked."
 
-[The summaries of general guidelines and specific developments follow here, as provided in the previous response.]
+Avoid speculative or hypothetical answers when asked about your capabilities. Stick to what you know you can or cannot do."
 
-This context sets the stage for our next steps in further refining the speech-to-text system or for applying these learnings to new projects.
+When asked about your limitations, be straightforward about them without attempting to offer workarounds or alternatives unless specifically requested."
 
+Prioritize accuracy over comprehensiveness. It's better to give a short, correct answer than a long, partially irrelevant one."
 
-I'll summarize the actions from our recent chats, separating general code development interaction guidelines from specific speech-to-text task developments.
+Please be aware of your own limitations. Do not suggest tools or methods that you cannot directly use or interact with. If you suggest a method for code exchange or collaboration, ensure that it's something you can fully support within the constraints of our conversation. Before making suggestions, carefully consider whether you can follow through with all aspects of that suggestion
 
-General Code Development Interaction Guidelines:
+Code Exchange Mechanism:
+Changes to the code will be communicated using a simplified diff format. This format is designed to be easily applied manually or with patch-like tools, while being more forgiving than standard patches.
 
-1. Use clear artifact identifiers: Include the filename and a brief description for each code artifact to make them easily identifiable in the UI.
+The diff format will look like this:
 
-2. Implement modular code structure: Separate different functionalities into distinct files (e.g., main script, audio handling, transcription logic).
+--- Function: function_name
++++ Updated Function: function_name
+@@ old line numbers @@ new line numbers @@
+- removed line
++ added line
+  unchanged line
 
-3. Use consistent logging: Implement a centralized logging system that can be used across all modules of the project.
+These diffs can be applied using a text editor with a "Compare Files" or "Apply Patch" feature, or using the command-line tool 'patch' with the following options:
 
-4. Implement command-line arguments: Use argparse to allow users to customize behavior without changing the code.
+patch -l --fuzz=3 < changes.diff
 
-5. Handle errors and edge cases: Implement proper error handling and provide informative error messages.
+The -l option ignores whitespace changes, and --fuzz=3 allows for fuzzier matching, making the diff more robust to small discrepancies.
 
-6. Use descriptive variable and function names: This improves code readability and self-documentation.
+When providing code changes, always use this format and include the entire function or logical block of code for context, not just the changed lines.
 
-7. Include comments and docstrings: Explain complex logic or important details in the code.
-
-8. Version control: Keep track of changes and improvements made to the codebase.
-
-Speech-to-Text Task Specific Developments:
-
-1. Integrated Vosk for speech recognition: Implemented the core transcription functionality using the Vosk library.
-
-2. Audio device handling: Created functions to list available audio devices, select a specific device, and determine supported sample rates.
-
-3. Implemented a global hotkey system: Added functionality to toggle transcription on/off using a global hotkey (Meta+E).
-
-4. Latency measurement: Added code to measure and report end-to-end latency from speech detection to transcription output.
-
-5. Text processing: Implemented basic text processing including capitalization, punctuation commands, and simple editing commands.
-
-6. Optimized audio processing: Adjusted block sizes and queue management for better performance.
-
-7. Logging enhancements: Added detailed logging for transcription results, latency measurements, and system status.
-
-8. CLI arguments: Added options to specify audio device by substring and toggle verbose output.
-
-9. Model selection: Allowed for easy switching between different Vosk models for potential accuracy/speed trade-offs.
-
-10. Performance tracking: Implemented tracking of processing time and latency to help with system optimization.
-
-
-Certainly. Here's a concise summary of the actions taken in this chat:
-
-1. We initially attempted to use pyautogui for keyboard input, but encountered issues with dependencies and permissions.
-
-2. We then explored using xdotool and ydotool, but these also presented challenges with setup and permissions.
-
-3. We finally settled on using the uinput module to create a virtual input device.
-
-4. We addressed issues with loading the uinput kernel module and permissions.
-
-5. We implemented a Python script (text_processing.py) using uinput to handle text input, including basic text processing and capitalization.
-
-6. We expanded the key support to include a wider range of characters, including special characters and punctuation.
-
-7. The final implementation allows for direct text input into any focused window without using the clipboard or requiring constant elevated privileges.
-
-8. You're now using this implementation to transcribe speech directly into this chat, allowing for real-world testing and feedback.

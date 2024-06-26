@@ -1,0 +1,40 @@
+Change Block Format Instructions:
+
+When suggesting changes to the code, please format your response as follows:
+
+1. Use block markers to indicate the start of each block:
+   - For functions: Use "def function_name(parameters):"
+   - For other blocks: Use "# @block_name"
+
+2. The HEADER block is special:
+   - It contains content that always appears at the top of the file.
+   - It is not explicitly labeled in the file.
+   - It cannot be updated using a change block.
+   - Any content before the first block marker or function definition is considered part of the HEADER.
+
+3. To specify a new order for blocks, use the ORDER block:
+   # @ORDER
+   block1
+   block2
+   block3
+
+4. Provide the complete content for each block you're changing or adding.
+
+5. Blocks not mentioned will retain their current content and position unless reordered by an ORDER block.
+
+6. New blocks will be added at the start of the file (after the HEADER) unless an ORDER block is specified.
+
+7. When just moving blocks using an ORDER block, there is not need to include the complete block content in the changes.
+
+Example:
+
+def new_function():
+    print("This is a new function")
+
+def existing_function():
+    # This is a modification to an existing function
+    print("Modified existing function")
+
+# @ORDER
+new_function
+existing_function
