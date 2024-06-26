@@ -1,4 +1,4 @@
-Change Block Format Instructions:
+Change Block Format Instructions
 
 When suggesting changes to the code, please format your response as follows:
 
@@ -24,19 +24,36 @@ When suggesting changes to the code, please format your response as follows:
 
 6. New blocks will be added at the start of the file (after the HEADER) unless an ORDER block is specified.
 
-7. When just moving blocks using an ORDER block, there is not need to include the complete block content in the changes.
+7. When just moving blocks using an ORDER block, there is no need to include the complete block content in the changes.
 
-8. ALL of the change blocks should be in a single artifact in the response
+8. ALL of the change blocks should be in a single artifact in the response.
+
+9. For existing code that lacks proper block segmentation:
+   - Suggest appropriate block names for logical sections of the code.
+   - Use these new block names in the ORDER block to reorganize the code.
+   - You don't need to repeat the content of these newly named blocks unless you're modifying them.
+
+10. When introducing new block markers for existing code, use the format:
+    # @new_block_name
+    // Existing code stays here without repeating it
+
+11. In the ORDER block, you can mix function names, existing block names, and newly suggested block names.
+
+12. If you're unsure about the existing structure, ask for clarification before suggesting changes.
 
 Example:
+
+# @new_imports_block
+// Existing import statements stay here
 
 def new_function():
     print("This is a new function")
 
-def existing_function():
-    # This is a modification to an existing function
-    print("Modified existing function")
+# @existing_functions_block
+// Existing functions stay here
 
 # @ORDER
+new_imports_block
 new_function
-existing_function
+existing_functions_block
+
