@@ -3,66 +3,63 @@ Change Block Format Instructions
 
 When suggesting changes to the code, please follow these guidelines:
 
-1. Use block markers to indicate the start of each block:
-   - For functions: Use "def function_name(parameters):"
-   - For other blocks: Use "# @block_name"
+ Block markers indicate the start of each block:
+ - They have the form "# @block_name"
 
-2. The HEADER block is special:
-   - It contains content that always appears at the top of the file.
-   - It is not explicitly labeled in the file.
-   - It cannot be updated using a change block.
-   - Any content before the first block marker or function definition is considered part of the HEADER.
+ The HEADER block is special:
+ - It contains content that always appears at the top of the file.
+ - It is not explicitly labeled in the file.
+ - It cannot be updated using a change block.
+ - Any content before the first block marker is considered part of the HEADER.
 
-3. Only include blocks that you are adding or modifying in your change suggestion.
-   - Do not include blocks that remain unchanged.
-   - Do not use placeholders or comments like "# No changes" for unchanged blocks.
+ Only include blocks that you are adding or modifying in your change suggestion.
+ - Do not include blocks that remain unchanged.
+ - Do not use placeholders or comments like "# No changes" for unchanged blocks, doing to will efectivly delete the content of that block.
 
-4. When adding or modifying a block, provide the complete content for that block.
+ When adding or modifying a block, provide the complete content for that block.
 
-5. To specify a new order for blocks, use the ORDER block:
-   # @ORDER
-   block1
-   block2
-   block3
+ To specify a new order for blocks, use the ORDER block:
+ # @ORDER
+ block1
+ block2
+ block3
 
-6. The ORDER block should list ALL blocks in the desired order, including unchanged blocks.
-   - This provides a complete overview of the file structure.
-   - Blocks listed in ORDER but not included in the changes will retain their current content and position.
+ The ORDER block should list ALL blocks in the desired order, including unchanged blocks.
+ - This provides a complete overview of the file structure.
+ - Blocks listed in ORDER but not included in the changes will retain their current content and position.
 
-7. New blocks will be added at the end of the file unless an ORDER block is specified.
+ New blocks will be added at the end of the file unless an ORDER block is specified.
 
-8. When moving blocks using an ORDER block, there is no need to include the complete block content in the changes unless you're also modifying the content.
+ When moving blocks using an ORDER block, there is no need to include the complete block content in the changes unless you're also modifying the content.
 
-9. ALL of the change blocks should be in a single artifact in the response.
+. ALL of the change blocks should be in a single artifact in the response.
 
-10. For existing code that lacks proper block segmentation:
-    - Suggest appropriate block names for logical sections of the code.
-    - Use these new block names in the ORDER block to reorganize the code.
-    - You don't need to repeat the content of these newly named blocks unless you're modifying them.
+. For existing code that lacks proper block segmentation:
+  - Suggest appropriate block names for logical sections of the code.
+  - Use these new block names in the ORDER block to reorganize the code.
+  - You don't need to repeat the content of these newly named blocks unless you're modifying them.
 
-11. When introducing new block markers for existing code, use the format:
-    # @new_block_name
-    // Existing code stays here without repeating it
-
-12. In the ORDER block, you can mix function names, existing block names, and newly suggested block names.
-
-13. If you're unsure about the existing structure or have any questions, ask for clarification before suggesting changes.
+. If you're unsure about the existing structure or have any questions, ask for clarification before suggesting changes.
 
 Example:
 
-# @new_imports
+# @imports
 import new_module
 
-# @existing_function
-def modified_function():
-    print("This function has been modified")
+# @main_function
+def main():
+    print("This is the main function")
+
+# @helper_functions
+def helper1():
+    pass
+
+def helper2():
+    pass
 
 # @ORDER
-IMPORTS
-new_imports
-existing_function
-unchanged_function1
-unchanged_function2
-new_function
+imports
+main_function
+helper_functions
 
 Remember: Only include the blocks you're changing or adding, and use the ORDER block to specify the complete file structure.
