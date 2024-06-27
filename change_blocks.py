@@ -1,51 +1,50 @@
 #!/bin/env python3
 #
+# @imports
 import sys
 
+# @read_file
 def read_file(filename):
     with open(filename, 'r') as file:
         return file.read()
 
+# @write_file
 def write_file(filename, content):
     with open(filename, 'w') as file:
         file.write(content)
 
+# @parse_blocks
 def parse_blocks(content):
     blocks = {}
     block_start = 0
-    current_block = 'HEADER'       # Start with the special case at the beginning of the file.
+    current_block = 'HEADER'
     lines = content.strip().split('\n')
 
     for i, line in enumerate(lines):
-        if line.startswith('def ') or line.startswith('# @'):
-            blocks[current_block] = '\n'.join(lines[block_start:i]).strip()
-            current_block = line.startswith('def ') and line.split('(')[0][4:] or line[3:].strip()
+        if line.startswith('# @'):
+            if current_block != 'HEADER' or i > 0:
+                blocks[current_block] = '\n'.join(lines[block_start:i]).strip()
+            current_block = line[3:].strip()
             block_start = i
 
     blocks[current_block] = '\n'.join(lines[block_start:]).strip()
 
     return blocks
 
+# @apply_changes
 def apply_changes(original_content, changes_content):
     original_blocks = parse_blocks(original_content)
     changes_blocks = parse_blocks(changes_content)
     order_block = changes_blocks.pop('ORDER', None)
 
-    changes_blocks.pop('HEADER')
+    changes_blocks.pop('HEADER', None)
 
     if order_block is None:
-        # If there is no explicit order, identify new blocks so we can 
-        # move them to the beginning
-        #
-        new_block_keys = []
-        for change_key in changes_blocks.keys():
-            if change_key not in original_blocks:
-                new_block_keys.append(change_key)
-
+        new_block_keys = [key for key in changes_blocks.keys() if key not in original_blocks]
         old_block_keys = list(original_blocks.keys())
-
         block_order = new_block_keys + old_block_keys
-        block_order.remove('HEADER')
+        if 'HEADER' in block_order:
+            block_order.remove('HEADER')
     else:
         block_order = order_block.strip().split('\n')[1:]
 
@@ -53,8 +52,9 @@ def apply_changes(original_content, changes_content):
  
     original_blocks.update(changes_blocks)
 
-    return '\n\n'.join(original_blocks[block] for block in block_order)
+    return '\n\n'.join(original_blocks[block] for block in block_order if block in original_blocks)
 
+# @main
 def main():
     if len(sys.argv) < 2:
         print("Usage: python update_script.py <original_file> [changes_file]")

@@ -1,13 +1,16 @@
 #!/bin/env python3
 #
+# @imports
 import unittest
 from change_blocks import parse_blocks, apply_changes
 
+# @setUp
 class TestChangeBlocks(unittest.TestCase):
 
     def setUp(self):
         self.maxDiff = None
 
+# @test_parse_blocks
     def test_parse_blocks(self):
         content = """In the beginning
 
@@ -26,13 +29,13 @@ if __name__ == "__main__":
 """
         expected = {
             'HEADER': 'In the beginning',
-            'block1': '# @block1\ncontent of block1',
-            'function1': 'def function1():\n    pass',
+            'block1': '# @block1\ncontent of block1\n\ndef function1():\n    pass',
             'block2': '# @block2\ncontent of block2',
             'run': '# @run\nif __name__ == "__main__":\n    main()'
         }
         self.assertEqual(parse_blocks(content), expected)
 
+# @test_apply_changes
     def test_apply_changes(self):
         test_cases = [
             {

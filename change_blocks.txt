@@ -28,7 +28,7 @@ When suggesting changes to the code, please follow these guidelines:
  - This provides a complete overview of the file structure.
  - Blocks listed in ORDER but not included in the changes will retain their current content and position.
 
- New blocks will be added at the end of the file unless an ORDER block is specified.
+ New blocks will be added at the start of the file just after the HEADER content unless an ORDER block is specified.
 
  When moving blocks using an ORDER block, there is no need to include the complete block content in the changes unless you're also modifying the content.
 
