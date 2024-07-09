@@ -1,4 +1,5 @@
 #!/home/john/src/talkie/bin/python3
+#
 
 # @IMPORTS
 import threading
@@ -22,6 +23,27 @@ BLOCK_DURATION = 0.1  # in seconds
 QUEUE_SIZE = 5
 DEFAULT_MODEL_PATH = "/home/john/Downloads/vosk-model-en-us-0.22-lgraph"
 MIN_WORD_LENGTH = 2
+
+# @globals
+transcribing = False
+total_processing_time = 0
+total_chunks_processed = 0
+q = None  # Will be initialized in transcribe function
+speech_start_time = None
+
+last_typed = []
+capitalize_next = True
+MIN_WORD_LENGTH = 2
+
+punctuation = {
+    "period": ".",
+    "comma": ",",
+    "question mark": "?",
+    "exclamation mark": "!",
+    "new line": "\n",
+    "new paragraph": "\n\n"
+}
+
 
 # @logger
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -47,6 +69,7 @@ def setup_logging(verbose=False):
     # Add ch to logger
     logger.addHandler(ch)
 
+# @list_audio_devices
 def list_audio_devices():
     logger.info("Available audio input devices:")
     devices = sd.query_devices()
@@ -55,6 +78,7 @@ def list_audio_devices():
             logger.info(f"{i}: {device['name']}")
     return devices
 
+# @get_supported_samplerates
 def get_supported_samplerates(device_id):
     device_info = sd.query_devices(device_id, 'input')
     try:
@@ -67,6 +91,7 @@ def get_supported_samplerates(device_id):
     logger.debug(f"Supported sample rates for this device: {supported_rates}")
     return supported_rates
 
+# @select_audio_device
 def select_audio_device(device_substring=None):
     devices = list_audio_devices()
     
@@ -116,6 +141,7 @@ def select_audio_device(device_substring=None):
     
     return device_id, samplerate
 
+# @listen_for_hotkey
 def listen_for_hotkey():
     devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
     devices = {dev.fd: dev for dev in devices}
@@ -139,6 +165,7 @@ def listen_for_hotkey():
                             toggle_transcription()
                             print("Hotkey pressed. Transcription toggled.")
 
+# @type_text
 def type_text(text):
     logger.debug(f"Typing text: {text}")
     for char in text:
@@ -178,6 +205,7 @@ def type_text(text):
             logger.warning(f"Unsupported character: {char}")
         time.sleep(0.01)  # Small delay to ensure events are processed
 
+# @smart_capitalize
 def smart_capitalize(text):
     global capitalize_next
     if capitalize_next:
@@ -185,6 +213,7 @@ def smart_capitalize(text):
         capitalize_next = False
     return text
 
+# @process_text
 def process_text(text):
     logger.info(f"Processing text: {text}")
     global capitalize_next
@@ -205,11 +234,13 @@ def process_text(text):
     logger.info(f"Processed and typed text: {result}")
 
 
+# @set_initial_transcription_state
 def set_initial_transcription_state(state):
     global transcribing
     transcribing = state
     logger.info(f"Initial transcription state set to: {'ON' if transcribing else 'OFF'}")
 
+# @callback
 def callback(indata, frames, time_info, status):
     global transcribing, q, speech_start_time
     if status:
@@ -222,6 +253,7 @@ def callback(indata, frames, time_info, status):
     elif transcribing and q.full():
         logger.debug("Queue is full, dropping audio data")
 
+# @toggle_transcription
 def toggle_transcription():
     global transcribing, q, speech_start_time
     transcribing = not transcribing
@@ -236,6 +268,7 @@ def toggle_transcription():
         speech_start_time = None
         logger.debug("Queue cleared")
 
+# @transcribe
 def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
     global transcribing, total_processing_time, total_chunks_processed, q, speech_start_time
 
@@ -350,6 +383,7 @@ special_char_map = {
     '~': (uinput.KEY_LEFTSHIFT, uinput.KEY_GRAVE),
 }
 
+# @virtual_device
 # Create our virtual device
 try:
     device = uinput.Device(events)
@@ -358,13 +392,8 @@ except Exception as e:
     logger.error(f"Failed to create uinput device: {e}")
     raise
 
-# @globals
-transcribing = False
-total_processing_time = 0
-total_chunks_processed = 0
-q = None  # Will be initialized in transcribe function
-speech_start_time = None
 
+# @main
 def main():
     parser = argparse.ArgumentParser(description="Speech-to-Text System using Vosk")
     parser.add_argument("-d", "--device", help="Substring of audio input device name")
@@ -417,19 +446,6 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         logger.info("\nExiting...")
-
-last_typed = []
-capitalize_next = True
-MIN_WORD_LENGTH = 2
-
-punctuation = {
-    "period": ".",
-    "comma": ",",
-    "question mark": "?",
-    "exclamation mark": "!",
-    "new line": "\n",
-    "new paragraph": "\n\n"
-}
 
 # @TKINTER_UI
 class TalkieUI:
