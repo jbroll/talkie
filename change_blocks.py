@@ -21,7 +21,7 @@ def parse_blocks(content):
     lines = content.strip().split('\n')
 
     for i, line in enumerate(lines):
-        if line.startswith('# @'):
+        if line.startswith('# @') or line.startswith('// @'):
             if current_block != 'HEADER' or i > 0:
                 blocks[current_block] = '\n'.join(lines[block_start:i]).strip()
             current_block = line[3:].strip()

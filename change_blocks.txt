@@ -1,65 +1,53 @@
-# @instructions
 Change Block Format Instructions
 
 When suggesting changes to the code, please follow these guidelines:
 
- Block markers indicate the start of each block:
- - They have the form "# @block_name"
+1. Block markers:
+   - For Python files: Use "# @block_name"
+   - For JavaScript files: Use "// @block_name"
+   - For CSS files: Use "/* @block_name */"
 
- The HEADER block is special:
- - It contains content that always appears at the top of the file.
- - It is not explicitly labeled in the file.
- - It cannot be updated using a change block.
- - Any content before the first block marker is considered part of the HEADER.
+2. The HEADER block is special:
+   - It contains content that always appears at the top of the file
+   - It is not explicitly labeled in the file
+   - It cannot be updated using a change block
+   - Any content before the first block marker is considered part of the HEADER
 
- Only include blocks that you are adding or modifying in your change suggestion.
- - Do not include blocks that remain unchanged.
- - Do not use placeholders or comments like "# No changes" for unchanged blocks, doing to will efectivly delete the content of that block.
+3. When updating code:
+   - Only include blocks that you are adding or modifying in your change suggestion
+   - Do not include blocks that remain unchanged
+   - Do not use placeholders or comments for unchanged blocks
 
- When adding or modifying a block, provide the complete content for that block.
+4. When adding or modifying a block, provide the complete content for that block
 
- To specify a new order for blocks, use the ORDER block:
- # @ORDER
- block1
- block2
- block3
+5. To specify a new order for blocks, use the ORDER block:
+   // @ORDER
+   block1
+   block2
+   block3
+   - The ORDER block should list ALL blocks in the desired order, including unchanged blocks
+   - This provides a complete overview of the file structure
+   - Blocks listed in ORDER but not included in the changes will retain their current content and position
+   - The ORDER block is not needed if you are only updating existing blocks without changing their order
 
- The ORDER block should list ALL blocks in the desired order, including unchanged blocks.
- - This provides a complete overview of the file structure.
- - Blocks listed in ORDER but not included in the changes will retain their current content and position.
+6. New blocks will be added at the start of the file just after the HEADER content unless an ORDER block is specified
 
- New blocks will be added at the start of the file just after the HEADER content unless an ORDER block is specified.
+7. ALL of the change blocks for a single file should be in a single artifact in the response
 
- When moving blocks using an ORDER block, there is no need to include the complete block content in the changes unless you're also modifying the content.
+8. For existing code that lacks proper block segmentation:
+   - Suggest appropriate block names for logical sections of the code
+   - Use these new block names in the ORDER block to reorganize the code
+   - You don't need to repeat the content of these newly named blocks unless you're modifying them
 
-. ALL of the change blocks should be in a single artifact in the response.
+9. If you're unsure about the existing structure or have any questions, ask for clarification before suggesting changes
 
-. For existing code that lacks proper block segmentation:
-  - Suggest appropriate block names for logical sections of the code.
-  - Use these new block names in the ORDER block to reorganize the code.
-  - You don't need to repeat the content of these newly named blocks unless you're modifying them.
+10. When updating multiple functions in a single file:
+    - Include all function updates in a single change block response
+    - Use separate block markers for each function
+    - Provide an ORDER block if the function order is changing
 
-. If you're unsure about the existing structure or have any questions, ask for clarification before suggesting changes.
+11. Always include necessary import statements or dependencies at the top of the file in an @imports block
 
-Example:
+13. If a change requires modifications to multiple files, clearly indicate this and provide separate change blocks for each file
 
-# @imports
-import new_module
-
-# @main_function
-def main():
-    print("This is the main function")
-
-# @helper_functions
-def helper1():
-    pass
-
-def helper2():
-    pass
-
-# @ORDER
-imports
-main_function
-helper_functions
-
-Remember: Only include the blocks you're changing or adding, and use the ORDER block to specify the complete file structure.
+Remember: Only include the blocks you're changing or adding, and use the ORDER block to specify the complete file structure when necessary. If you're updating an existing block without changing its order or content structure, you don't need to include an ORDER block.

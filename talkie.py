@@ -15,6 +15,7 @@ import vosk
 import numpy as np
 import json
 import queue
+import tkinter as tk
 
 # @constants
 BLOCK_DURATION = 0.1  # in seconds
@@ -290,6 +291,25 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
             else:
                 time.sleep(0.1)
 
+# @toggle_transcription
+def toggle_transcription():
+    global transcribing, q, speech_start_time
+    transcribing = not transcribing
+    logger.info(f"Transcription toggled: {'ON' if transcribing else 'OFF'}")
+    if not transcribing:
+        # Clear the queue when transcription is turned off
+        while not q.empty():
+            try:
+                q.get_nowait()
+            except queue.Empty:
+                break
+        speech_start_time = None
+        logger.debug("Queue cleared")
+    
+    # Update UI if it exists
+    if 'app' in globals():
+        app.update_ui()
+
 # @uinput_setup
 #
 # Define a more comprehensive set of events
@@ -411,7 +431,98 @@ punctuation = {
     "new paragraph": "\n\n"
 }
 
+# @TKINTER_UI
+class TalkieUI:
+    def __init__(self, master):
+        self.master = master
+        master.title("Talkie")
+
+        self.button = tk.Button(master, text="Start Transcription", command=self.toggle_transcription)
+        self.button.pack(pady=20)
+
+    def toggle_transcription(self):
+        toggle_transcription()
+        self.update_ui()
+
+    def update_ui(self):
+        if transcribing:
+            self.button.config(text="Stop Transcription")
+        else:
+            self.button.config(text="Start Transcription")
+
+# @listen_for_hotkey
+def listen_for_hotkey():
+    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+    devices = {dev.fd: dev for dev in devices}
+    
+    meta_pressed = False
+    
+    while True:
+        r, w, x = select(devices, [], [])
+        for fd in r:
+            for event in devices[fd].read():
+                if event.type == evdev.ecodes.EV_KEY:
+                    key_event = evdev.categorize(event)
+                    
+                    # Check for Meta (Super) key
+                    if key_event.scancode == 125:  # Left Meta key
+                        meta_pressed = key_event.keystate in (key_event.key_down, key_event.key_hold)
+                    
+                    # Check for 'E' key press while Meta is held down
+                    if key_event.scancode == 18 and key_event.keycode == 'KEY_E':
+                        if meta_pressed and key_event.keystate == key_event.key_up:
+                            toggle_transcription()
+                            logger.info("Hotkey pressed. Transcription toggled.")
+
+# @main
+def main():
+    global app  # Make app global so it can be accessed in toggle_transcription
+    parser = argparse.ArgumentParser(description="Speech-to-Text System using Vosk")
+    parser.add_argument("-d", "--device", help="Substring of audio input device name")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (debug) output")
+    parser.add_argument("-m", "--model", help="Path to the Vosk model", default=DEFAULT_MODEL_PATH)
+    parser.add_argument("-t", "--transcribe", action="store_true", help="Start transcription immediately")
+    args = parser.parse_args()
+
+    # Setup logging
+    setup_logging(args.verbose)
+
+    logger.info("Speech-to-Text System using Vosk")
+    logger.info(f"Using model: {args.model}")
+    logger.info(f"Block duration: {BLOCK_DURATION} seconds")
+    logger.info(f"Queue size: {QUEUE_SIZE}")
+
+    # Check if the model path exists
+    if not os.path.exists(args.model):
+        logger.error(f"Model path does not exist: {args.model}")
+        return
+
+    if args.device:
+        device_id, samplerate = select_audio_device(args.device)
+    else:
+        device_id, samplerate = select_audio_device()
+
+    if device_id is None:
+        logger.error("No suitable audio device found. Exiting.")
+        return
+
+    # Set initial transcription state
+    set_initial_transcription_state(args.transcribe)
+
+    # Start transcription thread
+    transcribe_thread = threading.Thread(target=transcribe, args=(device_id, samplerate, BLOCK_DURATION, QUEUE_SIZE, args.model))
+    transcribe_thread.start()
+
+    # Start hotkey listener thread
+    hotkey_thread = threading.Thread(target=listen_for_hotkey)
+    hotkey_thread.start()
+
+    # Create and run Tkinter UI
+    root = tk.Tk()
+    app = TalkieUI(root)
+    app.update_ui()  # Set initial UI state
+    root.mainloop()
+
 # @run
 if __name__ == "__main__":
     main()
-

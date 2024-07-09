@@ -1,3 +1,4 @@
+
 Talkie : A Speach to Text Program
 
 Goal: Provide the most accurate and seamless possible audio integration for Unbuntu Linux
@@ -6,25 +7,4 @@ Goal: Provide the most accurate and seamless possible audio integration for Unbu
 	Audio input
 	Speach to text transcription
 	Output to keyboard focus window
-
-Here are some guidelines to help make our interactions efficient:
-
-In each chat we will work on a feature.
-Suggested changes will be communicated using git compatible patches.  
-Patches contain the complete change being considered.
-Never use the words "I apologize" in your response.
-
-Provide direct, concise answers that address the core of the question.
-
-If you cannot perform a requested action or provide a specific type of information, state this clearly and succinctly without proposing alternative solutions unless explicitly asked."
-
-Avoid speculative or hypothetical answers when asked about your capabilities. Stick to what you know you can or cannot do."
-
-When asked about your limitations, be straightforward about them without attempting to offer workarounds or alternatives unless specifically requested."
-
-Prioritize accuracy over comprehensiveness. It's better to give a short, correct answer than a long, partially irrelevant one."
-
-Please be aware of your own limitations. Do not suggest tools or methods that you cannot directly use or interact with. If you suggest a method for code exchange or collaboration, ensure that it's something you can fully support within the constraints of our conversation. Before making suggestions, carefully consider whether you can follow through with all aspects of that suggestion
-
-Please use artifacts for all code portions of responses.
 
