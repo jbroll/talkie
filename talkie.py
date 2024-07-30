@@ -17,6 +17,8 @@ import numpy as np
 import json
 import queue
 import tkinter as tk
+from tkinter import scrolledtext
+
 
 # @constants
 BLOCK_DURATION = 0.1  # in seconds
@@ -281,25 +283,29 @@ def toggle_transcription():
 
 # @transcribe
 def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
-    global transcribing, total_processing_time, total_chunks_processed, q, speech_start_time
+    global transcribing, q, speech_start_time, app
 
     print("Transcribe function started")
     logger.info("Transcribe function started")
-    logger.info(f"Parameters: device_id={device_id}, samplerate={samplerate}, block_duration={block_duration}, queue_size={queue_size}")
-    logger.info(f"Model path: {model_path}")
 
     vosk.SetLogLevel(-1)  # Disable Vosk logging
     logger.info("Loading Vosk model...")
     model = vosk.Model(model_path)
     logger.info("Vosk model loaded successfully")
     rec = vosk.KaldiRecognizer(model, samplerate)
-    logger.info("KaldiRecognizer initialized")
+    rec.SetWords(True)  # Enable word timings
+    logger.info("KaldiRecognizer initialized with word timings enabled")
     
     q = queue.Queue(maxsize=queue_size)
     logger.info(f"Queue initialized with max size: {queue_size}")
 
     block_size = int(samplerate * block_duration)
     logger.info(f"Calculated block size: {block_size}")
+
+    last_partial = ""
+    word_stability_count = {}
+    sent_words = set()
+    current_utterance = []
 
     logger.info("Initializing audio stream...")
     try:
@@ -316,12 +322,49 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
                         if rec.AcceptWaveform(data):
                             result = json.loads(rec.Result())
                             if result.get('text'):
-                                logger.info(f"Transcribed: {result['text']}")
-                                process_text(result['text'])
+                                final_text = result['text']
+                                logger.info(f"Final: {final_text}")
+                                
+                                # Process any remaining unsent words
+                                unsent_words = [word for word in final_text.split() if word not in sent_words]
+                                if unsent_words:
+                                    process_text(' '.join(unsent_words) + ' ')
+                                
+                                app.clear_partial_text()
+                                word_stability_count.clear()
+                                sent_words.clear()
+                                current_utterance.clear()
                         else:
                             partial = json.loads(rec.PartialResult())
                             if partial.get('partial'):
-                                logger.debug(f"Partial: {partial['partial']}")
+                                new_partial = partial['partial']
+                                if new_partial != last_partial:
+                                    logger.debug(f"Partial: {new_partial}")
+                                    app.update_partial_text(new_partial)
+                                    
+                                    words = new_partial.split()
+                                    stable_words = []
+                                    
+                                    for word in words:
+                                        if word not in word_stability_count:
+                                            word_stability_count[word] = 1
+                                        else:
+                                            word_stability_count[word] += 1
+                                        
+                                        if word_stability_count[word] >= 3 and word not in sent_words:
+                                            stable_words.append(word)
+                                            sent_words.add(word)
+                                    
+                                    if stable_words:
+                                        stable_text = ' '.join(stable_words)
+                                        process_text(stable_text + ' ')
+                                        current_utterance.extend(stable_words)
+                                    
+                                    # Update the partial text display to show sent and unsent words differently
+                                    display_text = ' '.join(['<sent>' + w + '</sent>' if w in sent_words else w for w in words])
+                                    app.update_partial_text(display_text)
+                                    
+                                    last_partial = new_partial
                     except queue.Empty:
                         logger.debug("Queue empty, continuing")
                 else:
@@ -470,7 +513,17 @@ class TalkieUI:
         master.title("Talkie")
 
         self.button = tk.Button(master, text="Start Transcription", command=self.toggle_transcription)
-        self.button.pack(pady=20)
+        self.button.pack(pady=10)
+
+        self.partial_text = scrolledtext.ScrolledText(master, wrap=tk.WORD, width=60, height=10)
+        self.partial_text.pack(pady=10)
+        
+        # Configure tags for sent and unsent words
+        self.partial_text.tag_configure("sent", foreground="gray")
+        self.partial_text.tag_configure("unsent", foreground="black")
+
+        self.status_label = tk.Label(master, text="Transcription: OFF")
+        self.status_label.pack(pady=5)
 
     def toggle_transcription(self):
         toggle_transcription()
@@ -479,8 +532,22 @@ class TalkieUI:
     def update_ui(self):
         if transcribing:
             self.button.config(text="Stop Transcription")
+            self.status_label.config(text="Transcription: ON")
         else:
             self.button.config(text="Start Transcription")
+            self.status_label.config(text="Transcription: OFF")
+
+    def update_partial_text(self, text):
+        self.partial_text.delete(1.0, tk.END)
+        words = text.split()
+        for word in words:
+            if word.startswith('<sent>') and word.endswith('</sent>'):
+                self.partial_text.insert(tk.END, word[6:-7] + ' ', "sent")
+            else:
+                self.partial_text.insert(tk.END, word + ' ', "unsent")
+
+    def clear_partial_text(self):
+        self.partial_text.delete(1.0, tk.END)
 
 # @run
 if __name__ == "__main__":
