@@ -249,10 +249,13 @@ def set_initial_transcription_state(state):
 
 # @callback
 def callback(indata, frames, time_info, status):
-    global transcribing, q
+    global transcribing, q, speech_start_time
     if status:
         logger.debug(f"Status: {status}")
     if transcribing and not q.full():
+        # Check if this chunk contains speech (simple energy threshold)
+        if speech_start_time is None and np.abs(indata).mean() > 0.01:
+            speech_start_time = time.time()
         q.put(bytes(indata))
     elif transcribing and q.full():
         logger.debug("Queue is full, dropping audio data")
@@ -280,7 +283,7 @@ def toggle_transcription():
 def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
     global transcribing, total_processing_time, total_chunks_processed, q, speech_start_time
 
-    print("Transcribe function started")  # Direct print for immediate feedback
+    print("Transcribe function started")
     logger.info("Transcribe function started")
     logger.info(f"Parameters: device_id={device_id}, samplerate={samplerate}, block_duration={block_duration}, queue_size={queue_size}")
     logger.info(f"Model path: {model_path}")
@@ -304,21 +307,21 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
             logger.info(f"Audio stream initialized: device={sd.query_devices(device_id)['name']}, samplerate={samplerate} Hz")
             logger.info(f"Initial transcription state: {'ON' if transcribing else 'OFF'}")
             
-            print("Entering main processing loop")  # Direct print for immediate feedback
+            print("Entering main processing loop")
             logger.info("Entering main processing loop")
-            loop_count = 0
             while True:
-                loop_count += 1
-                if loop_count % 100 == 0:  # Log every 100 iterations
-                    logger.debug(f"Main loop iteration: {loop_count}")
-                
                 if transcribing:
                     try:
                         data = q.get(timeout=0.1)
-                        logger.debug(f"Received audio chunk of size: {len(data)} bytes")
-                        
-                        # ... (rest of the processing logic)
-                        
+                        if rec.AcceptWaveform(data):
+                            result = json.loads(rec.Result())
+                            if result.get('text'):
+                                logger.info(f"Transcribed: {result['text']}")
+                                process_text(result['text'])
+                        else:
+                            partial = json.loads(rec.PartialResult())
+                            if partial.get('partial'):
+                                logger.debug(f"Partial: {partial['partial']}")
                     except queue.Empty:
                         logger.debug("Queue empty, continuing")
                 else:
@@ -326,10 +329,10 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
                     time.sleep(0.1)
     except Exception as e:
         logger.error(f"Error in audio stream: {e}")
-        print(f"Error in audio stream: {e}")  # Direct print for immediate feedback
+        print(f"Error in audio stream: {e}")
 
     logger.info("Transcribe function ending")
-    print("Transcribe function ending")  # Direct print for immediate feedback
+    print("Transcribe function ending")
 
 # @uinput_setup
 #
