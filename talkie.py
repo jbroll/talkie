@@ -44,7 +44,6 @@ punctuation = {
     "new paragraph": "\n\n"
 }
 
-
 # @logger
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -163,7 +162,7 @@ def listen_for_hotkey():
                     if key_event.scancode == 18 and key_event.keycode == 'KEY_E':
                         if meta_pressed and key_event.keystate == key_event.key_up:
                             toggle_transcription()
-                            print("Hotkey pressed. Transcription toggled.")
+                            logger.info("Hotkey pressed. Transcription toggled.")
 
 # @type_text
 def type_text(text):
@@ -217,22 +216,30 @@ def smart_capitalize(text):
 def process_text(text):
     logger.info(f"Processing text: {text}")
     global capitalize_next
-    words = text.split()
+    sentences = text.split('.')  # Split text into sentences
     output = []
-    for word in words:
-        if word in punctuation:
-            output.append(punctuation[word])
-            if punctuation[word] in ['.', '!', '?']:
-                capitalize_next = True
-        else:
-            processed_word = word.strip().lower()
-            if len(processed_word) >= MIN_WORD_LENGTH:
-                output.append(smart_capitalize(processed_word))
+    
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if sentence:
+            words = sentence.split()
+            processed_sentence = []
+            for word in words:
+                if word in punctuation:
+                    processed_sentence.append(punctuation[word])
+                    if punctuation[word] in ['.', '!', '?']:
+                        capitalize_next = True
+                else:
+                    processed_word = word.strip().lower()
+                    if len(processed_word) >= MIN_WORD_LENGTH:
+                        processed_sentence.append(smart_capitalize(processed_word))
+            
+            output.append(' '.join(processed_sentence) + '.')
     
     result = ' '.join(output)
-    type_text(result)
+    type_text(result + ' ')
+    
     logger.info(f"Processed and typed text: {result}")
-
 
 # @set_initial_transcription_state
 def set_initial_transcription_state(state):
@@ -242,87 +249,13 @@ def set_initial_transcription_state(state):
 
 # @callback
 def callback(indata, frames, time_info, status):
-    global transcribing, q, speech_start_time
+    global transcribing, q
     if status:
         logger.debug(f"Status: {status}")
     if transcribing and not q.full():
-        # Check if this chunk contains speech (simple energy threshold)
-        if speech_start_time is None and np.abs(indata).mean() > 0.01:
-            speech_start_time = time.time()
         q.put(bytes(indata))
     elif transcribing and q.full():
         logger.debug("Queue is full, dropping audio data")
-
-# @toggle_transcription
-def toggle_transcription():
-    global transcribing, q, speech_start_time
-    transcribing = not transcribing
-    logger.info(f"Transcription toggled: {'ON' if transcribing else 'OFF'}")
-    if not transcribing:
-        # Clear the queue when transcription is turned off
-        while not q.empty():
-            try:
-                q.get_nowait()
-            except queue.Empty:
-                break
-        speech_start_time = None
-        logger.debug("Queue cleared")
-
-# @transcribe
-def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
-    global transcribing, total_processing_time, total_chunks_processed, q, speech_start_time
-
-    vosk.SetLogLevel(-1)  # Disable Vosk logging
-    logger.info(f"Loading model from: {model_path}")
-    model = vosk.Model(model_path)
-    rec = vosk.KaldiRecognizer(model, samplerate)
-    
-    q = queue.Queue(maxsize=queue_size)
-
-    block_size = int(samplerate * block_duration)
-    with sd.RawInputStream(samplerate=samplerate, blocksize=block_size, device=device_id, dtype='int16', channels=1, callback=callback):
-        logger.info(f"Listening on device: {sd.query_devices(device_id)['name']} at {samplerate} Hz")
-        logger.info(f"Block size: {block_size} samples ({block_duration} seconds)")
-        logger.info(f"Transcription is {'ON' if transcribing else 'OFF'}")
-        
-        total_latency = 0
-        total_latency_measurements = 0
-        
-        while True:
-            if transcribing:
-                try:
-                    data = q.get(timeout=0.1)
-                    if rec.AcceptWaveform(data):
-                        result = json.loads(rec.Result())
-                        text = result['text']
-                        
-                        if text:
-                            end_time = time.time()
-                            if speech_start_time is not None:
-                                latency = end_time - speech_start_time
-                                total_latency += latency
-                                total_latency_measurements += 1
-                                avg_latency = total_latency / total_latency_measurements
-                                
-                                logger.info(f"Transcribed: {text}")
-                                logger.debug(f"End-to-end latency: {latency:.2f}s, Avg latency: {avg_latency:.2f}s")
-                                
-                                process_text(text)  # This will type the text using xdotool
-                                
-                                # Reset speech_start_time for the next utterance
-                                speech_start_time = None
-                            else:
-                                logger.info(f"Transcribed: {text}")
-                                logger.debug("Latency measurement unavailable for this segment.")
-                                process_text(text)  # This will type the text using xdotool
-                    
-                    total_chunks_processed += 1
-                    
-                except queue.Empty:
-                    # This is now expected behavior when the queue is empty
-                    pass
-            else:
-                time.sleep(0.1)
 
 # @toggle_transcription
 def toggle_transcription():
@@ -342,6 +275,61 @@ def toggle_transcription():
     # Update UI if it exists
     if 'app' in globals():
         app.update_ui()
+
+# @transcribe
+def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
+    global transcribing, total_processing_time, total_chunks_processed, q, speech_start_time
+
+    print("Transcribe function started")  # Direct print for immediate feedback
+    logger.info("Transcribe function started")
+    logger.info(f"Parameters: device_id={device_id}, samplerate={samplerate}, block_duration={block_duration}, queue_size={queue_size}")
+    logger.info(f"Model path: {model_path}")
+
+    vosk.SetLogLevel(-1)  # Disable Vosk logging
+    logger.info("Loading Vosk model...")
+    model = vosk.Model(model_path)
+    logger.info("Vosk model loaded successfully")
+    rec = vosk.KaldiRecognizer(model, samplerate)
+    logger.info("KaldiRecognizer initialized")
+    
+    q = queue.Queue(maxsize=queue_size)
+    logger.info(f"Queue initialized with max size: {queue_size}")
+
+    block_size = int(samplerate * block_duration)
+    logger.info(f"Calculated block size: {block_size}")
+
+    logger.info("Initializing audio stream...")
+    try:
+        with sd.RawInputStream(samplerate=samplerate, blocksize=block_size, device=device_id, dtype='int16', channels=1, callback=callback):
+            logger.info(f"Audio stream initialized: device={sd.query_devices(device_id)['name']}, samplerate={samplerate} Hz")
+            logger.info(f"Initial transcription state: {'ON' if transcribing else 'OFF'}")
+            
+            print("Entering main processing loop")  # Direct print for immediate feedback
+            logger.info("Entering main processing loop")
+            loop_count = 0
+            while True:
+                loop_count += 1
+                if loop_count % 100 == 0:  # Log every 100 iterations
+                    logger.debug(f"Main loop iteration: {loop_count}")
+                
+                if transcribing:
+                    try:
+                        data = q.get(timeout=0.1)
+                        logger.debug(f"Received audio chunk of size: {len(data)} bytes")
+                        
+                        # ... (rest of the processing logic)
+                        
+                    except queue.Empty:
+                        logger.debug("Queue empty, continuing")
+                else:
+                    logger.debug("Transcription is off, waiting")
+                    time.sleep(0.1)
+    except Exception as e:
+        logger.error(f"Error in audio stream: {e}")
+        print(f"Error in audio stream: {e}")  # Direct print for immediate feedback
+
+    logger.info("Transcribe function ending")
+    print("Transcribe function ending")  # Direct print for immediate feedback
 
 # @uinput_setup
 #
@@ -392,9 +380,9 @@ except Exception as e:
     logger.error(f"Failed to create uinput device: {e}")
     raise
 
-
 # @main
 def main():
+    global app  # Make app global so it can be accessed in toggle_transcription
     parser = argparse.ArgumentParser(description="Speech-to-Text System using Vosk")
     parser.add_argument("-d", "--device", help="Substring of audio input device name")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (debug) output")
@@ -405,7 +393,7 @@ def main():
     # Setup logging
     setup_logging(args.verbose)
 
-    logger.info("Speech-to-Text System using Vosk")
+    logger.info("Speech-to-Text System using Vosk - Starting up")
     logger.info(f"Using model: {args.model}")
     logger.info(f"Block duration: {BLOCK_DURATION} seconds")
     logger.info(f"Queue size: {QUEUE_SIZE}")
@@ -415,22 +403,44 @@ def main():
         logger.error(f"Model path does not exist: {args.model}")
         return
 
-    if args.device:
-        device_id, samplerate = select_audio_device(args.device)
-    else:
-        device_id, samplerate = select_audio_device()
+    logger.debug("Selecting audio device")
+    try:
+        if args.device:
+            device_id, samplerate = select_audio_device(args.device)
+        else:
+            device_id, samplerate = select_audio_device()
 
-    if device_id is None:
-        logger.error("No suitable audio device found. Exiting.")
+        if device_id is None or samplerate is None:
+            logger.error("Failed to select a valid audio device or sample rate.")
+            return
+
+        logger.info(f"Selected device ID: {device_id}, Sample rate: {samplerate}")
+    except Exception as e:
+        logger.error(f"Error during audio device selection: {e}")
         return
 
     # Set initial transcription state
     set_initial_transcription_state(args.transcribe)
 
-    # Start transcription thread
-    transcribe_thread = threading.Thread(target=transcribe, args=(device_id, samplerate, BLOCK_DURATION, QUEUE_SIZE, args.model))
-    transcribe_thread.start()
+    logger.info("Preparing to start transcription thread")
+    try:
+        transcribe_thread = threading.Thread(target=transcribe, args=(device_id, samplerate, BLOCK_DURATION, QUEUE_SIZE, args.model))
+        logger.info("Transcription thread created")
+        
+        transcribe_thread.start()
+        logger.info("Transcription thread started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start transcription thread: {e}")
+        return
 
+    logger.info("Checking if transcription thread is alive")
+    if transcribe_thread.is_alive():
+        logger.info("Transcription thread is running")
+    else:
+        logger.error("Transcription thread is not running")
+        return
+
+    logger.debug("Starting hotkey listener thread")
     # Start hotkey listener thread
     hotkey_thread = threading.Thread(target=listen_for_hotkey)
     hotkey_thread.start()
@@ -440,12 +450,15 @@ def main():
     logger.info("Use voice commands like 'period', 'comma', 'question mark', 'exclamation mark', 'new line', or 'new paragraph' for punctuation.")
     logger.info("Use 'delete last word' or 'undo last sentence' for editing.")
 
-    # Keep the main thread alive
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("\nExiting...")
+    # Create and run Tkinter UI
+    logger.debug("Initializing Tkinter UI")
+    root = tk.Tk()
+    app = TalkieUI(root)
+    app.update_ui()  # Set initial UI state
+    logger.info("GUI initialized. Starting main loop.")
+    root.mainloop()
+
+    logger.info("Main loop exited. Shutting down.")
 
 # @TKINTER_UI
 class TalkieUI:
@@ -465,79 +478,6 @@ class TalkieUI:
             self.button.config(text="Stop Transcription")
         else:
             self.button.config(text="Start Transcription")
-
-# @listen_for_hotkey
-def listen_for_hotkey():
-    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
-    devices = {dev.fd: dev for dev in devices}
-    
-    meta_pressed = False
-    
-    while True:
-        r, w, x = select(devices, [], [])
-        for fd in r:
-            for event in devices[fd].read():
-                if event.type == evdev.ecodes.EV_KEY:
-                    key_event = evdev.categorize(event)
-                    
-                    # Check for Meta (Super) key
-                    if key_event.scancode == 125:  # Left Meta key
-                        meta_pressed = key_event.keystate in (key_event.key_down, key_event.key_hold)
-                    
-                    # Check for 'E' key press while Meta is held down
-                    if key_event.scancode == 18 and key_event.keycode == 'KEY_E':
-                        if meta_pressed and key_event.keystate == key_event.key_up:
-                            toggle_transcription()
-                            logger.info("Hotkey pressed. Transcription toggled.")
-
-# @main
-def main():
-    global app  # Make app global so it can be accessed in toggle_transcription
-    parser = argparse.ArgumentParser(description="Speech-to-Text System using Vosk")
-    parser.add_argument("-d", "--device", help="Substring of audio input device name")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (debug) output")
-    parser.add_argument("-m", "--model", help="Path to the Vosk model", default=DEFAULT_MODEL_PATH)
-    parser.add_argument("-t", "--transcribe", action="store_true", help="Start transcription immediately")
-    args = parser.parse_args()
-
-    # Setup logging
-    setup_logging(args.verbose)
-
-    logger.info("Speech-to-Text System using Vosk")
-    logger.info(f"Using model: {args.model}")
-    logger.info(f"Block duration: {BLOCK_DURATION} seconds")
-    logger.info(f"Queue size: {QUEUE_SIZE}")
-
-    # Check if the model path exists
-    if not os.path.exists(args.model):
-        logger.error(f"Model path does not exist: {args.model}")
-        return
-
-    if args.device:
-        device_id, samplerate = select_audio_device(args.device)
-    else:
-        device_id, samplerate = select_audio_device()
-
-    if device_id is None:
-        logger.error("No suitable audio device found. Exiting.")
-        return
-
-    # Set initial transcription state
-    set_initial_transcription_state(args.transcribe)
-
-    # Start transcription thread
-    transcribe_thread = threading.Thread(target=transcribe, args=(device_id, samplerate, BLOCK_DURATION, QUEUE_SIZE, args.model))
-    transcribe_thread.start()
-
-    # Start hotkey listener thread
-    hotkey_thread = threading.Thread(target=listen_for_hotkey)
-    hotkey_thread.start()
-
-    # Create and run Tkinter UI
-    root = tk.Tk()
-    app = TalkieUI(root)
-    app.update_ui()  # Set initial UI state
-    root.mainloop()
 
 # @run
 if __name__ == "__main__":
