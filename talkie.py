@@ -299,9 +299,9 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
 
     last_partial = ""
     word_stability_count = {}
-    sent_words = set()
+    sent_word_count = {}
     current_utterance = []
-    STABILITY_THRESHOLD = 5  # Increased from 3 to 5
+    STABILITY_THRESHOLD = 5
 
     logger.info("Initializing audio stream...")
     try:
@@ -321,14 +321,12 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
                                 final_text = result['text']
                                 logger.info(f"Final: {final_text}")
                                 
-                                # Process any remaining unsent words
-                                unsent_words = [word for word in final_text.split() if word not in sent_words]
-                                if unsent_words:
-                                    process_text(' '.join(unsent_words), is_final=True)
+                                # Process the entire final text
+                                process_text(final_text, is_final=True)
                                 
                                 app.clear_partial_text()
                                 word_stability_count.clear()
-                                sent_words.clear()
+                                sent_word_count.clear()
                                 current_utterance.clear()
                         else:
                             partial = json.loads(rec.PartialResult())
@@ -341,15 +339,19 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
                                     words = new_partial.split()
                                     stable_words = []
                                     
-                                    for word in words:
+                                    for i, word in enumerate(words):
                                         if word not in word_stability_count:
                                             word_stability_count[word] = 1
                                         else:
                                             word_stability_count[word] += 1
                                         
-                                        if word_stability_count[word] >= STABILITY_THRESHOLD and word not in sent_words:
-                                            stable_words.append(word)
-                                            sent_words.add(word)
+                                        if word_stability_count[word] >= STABILITY_THRESHOLD:
+                                            if word not in sent_word_count:
+                                                sent_word_count[word] = 0
+                                            
+                                            if sent_word_count[word] < words[:i+1].count(word):
+                                                stable_words.append(word)
+                                                sent_word_count[word] += 1
                                     
                                     if stable_words:
                                         stable_text = ' '.join(stable_words)
@@ -357,7 +359,7 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
                                         current_utterance.extend(stable_words)
                                     
                                     # Update the partial text display to show sent and unsent words differently
-                                    display_text = ' '.join(['<sent>' + w + '</sent>' if w in sent_words else w for w in words])
+                                    display_text = ' '.join(['<sent>' + w + '</sent>' if sent_word_count.get(w, 0) > 0 else w for w in words])
                                     app.update_partial_text(display_text)
                                     
                                     last_partial = new_partial
