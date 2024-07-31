@@ -23,12 +23,14 @@ import sys
 import termios
 import tty
 import atexit
+from word2number import w2n
 
 # @constants
 BLOCK_DURATION = 0.1  # in seconds
 QUEUE_SIZE = 5
 DEFAULT_MODEL_PATH = "/home/john/Downloads/vosk-model-en-us-0.22-lgraph"
 MIN_WORD_LENGTH = 2
+MAX_NUMBER_BUFFER_SIZE = 20  # Maximum number of words to buffer for number conversion
 
 # @globals
 transcribing = False
@@ -239,21 +241,56 @@ def process_text(text, is_final=False):
     global capitalize_next
     words = text.split()
     output = []
+    number_buffer = []
+
+    def process_number_buffer():
+        if number_buffer:
+            try:
+                number_phrase = ' '.join(number_buffer)
+                number = w2n.word_to_num(number_phrase)
+                output.append(str(number))
+                logger.debug(f"Converted number buffer to: {number}")
+                return True
+            except ValueError:
+                logger.debug(f"Failed to convert number buffer: {' '.join(number_buffer)}")
+                return False
+        return True
+
     for word in words:
-        if word in punctuation:
+        if word.lower() in ['and', 'point']:
+            number_buffer.append(word.lower())
+        elif word in punctuation:
+            if not process_number_buffer():
+                output.extend([smart_capitalize(w) for w in number_buffer])
+            number_buffer.clear()
             if is_final:  # Only add punctuation for final results
                 output.append(punctuation[word])
                 if punctuation[word] in ['.', '!', '?']:
                     capitalize_next = True
         else:
             processed_word = word.strip().lower()
-            if len(processed_word) >= MIN_WORD_LENGTH:
+            try:
+                # Try to convert the word to a number to check if it's a number word
+                w2n.word_to_num(processed_word)
+                number_buffer.append(processed_word)
+            except ValueError:
+                # If it's not a number word, process the number buffer
+                if not process_number_buffer():
+                    output.extend([smart_capitalize(w) for w in number_buffer])
+                number_buffer.clear()
                 output.append(smart_capitalize(processed_word))
-    
+
+    # Process any remaining words in the number buffer
+    if number_buffer:
+        if not process_number_buffer():
+            output.extend([smart_capitalize(w) for w in number_buffer])
+
     result = ' '.join(output)
     if is_final:
-        result = result.strip() + '.'  # Add a period at the end of final results
-    
+        result = result.strip()
+        if not result.endswith(('.', '!', '?')):
+            result += '.'  # Add a period at the end of final results if no punctuation
+
     type_text(result + (' ' if not is_final else ''))
     logger.info(f"Processed and typed text: {result}")
 
@@ -323,7 +360,7 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
     logger.info("Initializing audio stream...")
     try:
         with sd.RawInputStream(samplerate=samplerate, blocksize=block_size, device=device_id, dtype='int16', channels=1, callback=callback):
-            logger.info(f"Audio stream initialized: device={sd.query_devices(device_id)['name']}, samplerate={samplerate} Hz")
+            logger.info(f"Audio stream initialized: device={device_id}, samplerate={samplerate} Hz")
             logger.info(f"Initial transcription state: {'ON' if transcribing else 'OFF'}")
             
             print("Entering main processing loop")
@@ -348,7 +385,7 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
                                     process_text(final_text, is_final=True)
                                 
                                 app.clear_partial_text()
-                                last_sent_text = ""
+                                last_sent_text = final_text
                                 last_partial = ""
                         else:
                             partial = json.loads(rec.PartialResult())
@@ -356,7 +393,6 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
                                 new_partial = partial['partial']
                                 if new_partial != last_partial:
                                     logger.debug(f"Partial: {new_partial}")
-                                    app.update_partial_text(new_partial)
                                     
                                     # Split the new partial into words
                                     new_words = new_partial.split()
