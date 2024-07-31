@@ -215,32 +215,27 @@ def smart_capitalize(text):
     return text
 
 # @process_text
-def process_text(text):
+def process_text(text, is_final=False):
     logger.info(f"Processing text: {text}")
     global capitalize_next
-    sentences = text.split('.')  # Split text into sentences
+    words = text.split()
     output = []
-    
-    for sentence in sentences:
-        sentence = sentence.strip()
-        if sentence:
-            words = sentence.split()
-            processed_sentence = []
-            for word in words:
-                if word in punctuation:
-                    processed_sentence.append(punctuation[word])
-                    if punctuation[word] in ['.', '!', '?']:
-                        capitalize_next = True
-                else:
-                    processed_word = word.strip().lower()
-                    if len(processed_word) >= MIN_WORD_LENGTH:
-                        processed_sentence.append(smart_capitalize(processed_word))
-            
-            output.append(' '.join(processed_sentence) + '.')
+    for word in words:
+        if word in punctuation:
+            if is_final:  # Only add punctuation for final results
+                output.append(punctuation[word])
+                if punctuation[word] in ['.', '!', '?']:
+                    capitalize_next = True
+        else:
+            processed_word = word.strip().lower()
+            if len(processed_word) >= MIN_WORD_LENGTH:
+                output.append(smart_capitalize(processed_word))
     
     result = ' '.join(output)
-    type_text(result + ' ')
+    if is_final:
+        result = result.strip() + '.'  # Add a period at the end of final results
     
+    type_text(result + (' ' if not is_final else ''))
     logger.info(f"Processed and typed text: {result}")
 
 # @set_initial_transcription_state
@@ -306,6 +301,7 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
     word_stability_count = {}
     sent_words = set()
     current_utterance = []
+    STABILITY_THRESHOLD = 5  # Increased from 3 to 5
 
     logger.info("Initializing audio stream...")
     try:
@@ -328,7 +324,7 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
                                 # Process any remaining unsent words
                                 unsent_words = [word for word in final_text.split() if word not in sent_words]
                                 if unsent_words:
-                                    process_text(' '.join(unsent_words) + ' ')
+                                    process_text(' '.join(unsent_words), is_final=True)
                                 
                                 app.clear_partial_text()
                                 word_stability_count.clear()
@@ -351,13 +347,13 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
                                         else:
                                             word_stability_count[word] += 1
                                         
-                                        if word_stability_count[word] >= 3 and word not in sent_words:
+                                        if word_stability_count[word] >= STABILITY_THRESHOLD and word not in sent_words:
                                             stable_words.append(word)
                                             sent_words.add(word)
                                     
                                     if stable_words:
                                         stable_text = ' '.join(stable_words)
-                                        process_text(stable_text + ' ')
+                                        process_text(stable_text, is_final=False)
                                         current_utterance.extend(stable_words)
                                     
                                     # Update the partial text display to show sent and unsent words differently
