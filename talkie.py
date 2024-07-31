@@ -1,40 +1,6 @@
 #!/home/john/src/talkie/bin/python3
 #
 
-# @restore_terminal
-def restore_terminal():
-    global original_terminal_settings
-    if original_terminal_settings:
-        logger.info("Restoring terminal settings...")
-        termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, original_terminal_settings)
-        logger.info("Terminal settings restored.")
-
-# @tk_cleanup
-def tk_cleanup():
-    global tk_root, running
-    logger.info("Tkinter cleanup initiated...")
-    running = False
-    if tk_root:
-        tk_root.quit()
-    cleanup()
-
-# @keyboard_interrupt_monitor
-def keyboard_interrupt_monitor():
-    global running, original_terminal_settings
-    fd = sys.stdin.fileno()
-    original_terminal_settings = termios.tcgetattr(fd)
-
-    def handle_interrupt(signum, frame):
-        logger.info("Interrupt received. Initiating shutdown...")
-        tk_cleanup()
-
-    signal.signal(signal.SIGINT, handle_interrupt)
-
-    while running:
-        time.sleep(0.1)  # Short sleep to reduce CPU usage
-
-    logger.info("Keyboard interrupt monitor exiting.")
-
 # @imports
 import threading
 import time
@@ -51,7 +17,7 @@ import numpy as np
 import json
 import queue
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import scrolledtext, Menu
 import signal
 import sys
 import termios
@@ -482,6 +448,99 @@ def cleanup():
     restore_terminal()
     logger.info("Cleanup complete.")
 
+# @restore_terminal
+def restore_terminal():
+    global original_terminal_settings
+    if original_terminal_settings:
+        logger.info("Restoring terminal settings...")
+        termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, original_terminal_settings)
+        logger.info("Terminal settings restored.")
+
+# @tk_cleanup
+def tk_cleanup():
+    global tk_root, running
+    logger.info("Tkinter cleanup initiated...")
+    running = False
+    if tk_root:
+        tk_root.quit()
+    cleanup()
+
+# @keyboard_interrupt_monitor
+def keyboard_interrupt_monitor():
+    global running, original_terminal_settings
+    fd = sys.stdin.fileno()
+    original_terminal_settings = termios.tcgetattr(fd)
+
+    def handle_interrupt(signum, frame):
+        logger.info("Interrupt received. Initiating shutdown...")
+        tk_cleanup()
+
+    signal.signal(signal.SIGINT, handle_interrupt)
+
+    while running:
+        time.sleep(0.1)  # Short sleep to reduce CPU usage
+
+    logger.info("Keyboard interrupt monitor exiting.")
+
+# @TKINTER_UI
+class TalkieUI:
+    def __init__(self, master):
+        self.master = master
+        master.title("Talkie")
+
+        # Create menu bar
+        self.menu_bar = Menu(master)
+        master.config(menu=self.menu_bar)
+
+        # Create File menu
+        self.file_menu = Menu(self.menu_bar, tearoff=0)
+        self.menu_bar.add_cascade(label="File", menu=self.file_menu)
+        self.file_menu.add_command(label="Quit", command=self.quit_app, accelerator="Alt+Q")
+
+        # Bind Alt+Q to quit_app function
+        master.bind("<Alt-q>", lambda event: self.quit_app())
+
+        self.button = tk.Button(master, text="Start Transcription", command=self.toggle_transcription)
+        self.button.pack(pady=10)
+
+        self.partial_text = scrolledtext.ScrolledText(master, wrap=tk.WORD, width=60, height=10)
+        self.partial_text.pack(pady=10)
+        
+        # Configure tags for sent and unsent words
+        self.partial_text.tag_configure("sent", foreground="gray")
+        self.partial_text.tag_configure("unsent", foreground="black")
+
+        self.status_label = tk.Label(master, text="Transcription: OFF")
+        self.status_label.pack(pady=5)
+
+    def toggle_transcription(self):
+        toggle_transcription()
+        self.update_ui()
+
+    def update_ui(self):
+        if transcribing:
+            self.button.config(text="Stop Transcription")
+            self.status_label.config(text="Transcription: ON")
+        else:
+            self.button.config(text="Start Transcription")
+            self.status_label.config(text="Transcription: OFF")
+
+    def update_partial_text(self, text):
+        self.partial_text.delete(1.0, tk.END)
+        words = text.split()
+        for word in words:
+            if word.startswith('<sent>') and word.endswith('</sent>'):
+                self.partial_text.insert(tk.END, word[6:-7] + ' ', "sent")
+            else:
+                self.partial_text.insert(tk.END, word + ' ', "unsent")
+
+    def clear_partial_text(self):
+        self.partial_text.delete(1.0, tk.END)
+
+    def quit_app(self):
+        logger.info("Quit option selected. Initiating shutdown...")
+        tk_cleanup()
+
 # @main
 def main():
     global app, tk_root, transcribe_thread, hotkey_thread, running
@@ -558,6 +617,7 @@ def main():
     logger.info("Press Meta+E to toggle transcription on/off (works globally).")
     logger.info("Use voice commands like 'period', 'comma', 'question mark', 'exclamation mark', 'new line', or 'new paragraph' for punctuation.")
     logger.info("Use 'delete last word' or 'undo last sentence' for editing.")
+    logger.info("Use Alt+Q or File > Quit to exit the application.")
 
     # Create and run Tkinter UI
     logger.debug("Initializing Tkinter UI")
@@ -586,52 +646,6 @@ def main():
         cleanup()
 
     logger.info("Main loop exited. Shutting down.")
-
-# Register cleanup function to be called at exit
-atexit.register(restore_terminal)
-
-# @TKINTER_UI
-class TalkieUI:
-    def __init__(self, master):
-        self.master = master
-        master.title("Talkie")
-
-        self.button = tk.Button(master, text="Start Transcription", command=self.toggle_transcription)
-        self.button.pack(pady=10)
-
-        self.partial_text = scrolledtext.ScrolledText(master, wrap=tk.WORD, width=60, height=10)
-        self.partial_text.pack(pady=10)
-        
-        # Configure tags for sent and unsent words
-        self.partial_text.tag_configure("sent", foreground="gray")
-        self.partial_text.tag_configure("unsent", foreground="black")
-
-        self.status_label = tk.Label(master, text="Transcription: OFF")
-        self.status_label.pack(pady=5)
-
-    def toggle_transcription(self):
-        toggle_transcription()
-        self.update_ui()
-
-    def update_ui(self):
-        if transcribing:
-            self.button.config(text="Stop Transcription")
-            self.status_label.config(text="Transcription: ON")
-        else:
-            self.button.config(text="Start Transcription")
-            self.status_label.config(text="Transcription: OFF")
-
-    def update_partial_text(self, text):
-        self.partial_text.delete(1.0, tk.END)
-        words = text.split()
-        for word in words:
-            if word.startswith('<sent>') and word.endswith('</sent>'):
-                self.partial_text.insert(tk.END, word[6:-7] + ' ', "sent")
-            else:
-                self.partial_text.insert(tk.END, word + ' ', "unsent")
-
-    def clear_partial_text(self):
-        self.partial_text.delete(1.0, tk.END)
 
 # @run
 if __name__ == "__main__":
