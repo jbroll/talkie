@@ -60,6 +60,11 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 logger = logging.getLogger(__name__)
 
 def setup_logging(verbose=False):
+    global logger
+    # Remove all handlers associated with the logger object
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    
     # Set the logging level based on the verbose flag
     level = logging.DEBUG if verbose else logging.INFO
     
@@ -78,6 +83,9 @@ def setup_logging(verbose=False):
     
     # Add ch to logger
     logger.addHandler(ch)
+
+    # Disable propagation to the root logger
+    logger.propagate = False
 
 # @list_audio_devices
 def list_audio_devices():
