@@ -1,21 +1,38 @@
 #!/home/john/src/talkie/bin/python3
 #
 
+# @restore_terminal
+def restore_terminal():
+    global original_terminal_settings
+    if original_terminal_settings:
+        logger.info("Restoring terminal settings...")
+        termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, original_terminal_settings)
+        logger.info("Terminal settings restored.")
+
+# @tk_cleanup
+def tk_cleanup():
+    global tk_root, running
+    logger.info("Tkinter cleanup initiated...")
+    running = False
+    if tk_root:
+        tk_root.quit()
+    cleanup()
+
 # @keyboard_interrupt_monitor
 def keyboard_interrupt_monitor():
-    global running
+    global running, original_terminal_settings
     fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        while running:
-            ch = sys.stdin.read(1)
-            if ch == '\x03':  # Ctrl+C
-                logger.info("Ctrl+C detected. Initiating graceful shutdown...")
-                cleanup()
-                break
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    original_terminal_settings = termios.tcgetattr(fd)
+
+    def handle_interrupt(signum, frame):
+        logger.info("Interrupt received. Initiating shutdown...")
+        tk_cleanup()
+
+    signal.signal(signal.SIGINT, handle_interrupt)
+
+    while running:
+        time.sleep(0.1)  # Short sleep to reduce CPU usage
+
     logger.info("Keyboard interrupt monitor exiting.")
 
 # @imports
@@ -39,6 +56,7 @@ import signal
 import sys
 import termios
 import tty
+import atexit
 
 # @constants
 BLOCK_DURATION = 0.1  # in seconds
@@ -68,6 +86,8 @@ punctuation = {
 
 running = True  # Global flag to control thread execution
 cleanup_done = False  # Flag to prevent multiple cleanup calls
+original_terminal_settings = None
+tk_root = None  # Global reference to Tkinter root
 
 # @logger
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -450,7 +470,7 @@ except Exception as e:
 
 # @cleanup
 def cleanup():
-    global transcribing, root, running, cleanup_done
+    global transcribing, running, cleanup_done
     if cleanup_done:
         return
     cleanup_done = True
@@ -459,15 +479,12 @@ def cleanup():
     transcribing = False
     running = False  # Signal all threads to stop
     
-    if 'root' in globals() and root.winfo_exists():
-        logger.info("Stopping Tkinter main loop...")
-        root.after(0, root.quit)
-    
+    restore_terminal()
     logger.info("Cleanup complete.")
 
 # @main
 def main():
-    global app, root, transcribe_thread, hotkey_thread, running
+    global app, tk_root, transcribe_thread, hotkey_thread, running
     parser = argparse.ArgumentParser(description="Speech-to-Text System using Vosk")
     parser.add_argument("-d", "--device", help="Substring of audio input device name")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (debug) output")
@@ -544,25 +561,34 @@ def main():
 
     # Create and run Tkinter UI
     logger.debug("Initializing Tkinter UI")
-    root = tk.Tk()
-    app = TalkieUI(root)
+    tk_root = tk.Tk()
+    app = TalkieUI(tk_root)
     app.update_ui()  # Set initial UI state
+    
+    # Set up protocol for window close event
+    tk_root.protocol("WM_DELETE_WINDOW", tk_cleanup)
+    
     logger.info("GUI initialized. Starting main loop.")
     
     def check_running():
         if running:
-            root.after(100, check_running)
+            tk_root.after(100, check_running)
         else:
-            root.quit()
+            tk_root.quit()
 
-    root.after(100, check_running)
+    tk_root.after(100, check_running)
     
     try:
-        root.mainloop()
+        tk_root.mainloop()
+    except Exception as e:
+        logger.error(f"Error in main loop: {e}")
     finally:
         cleanup()
 
     logger.info("Main loop exited. Shutting down.")
+
+# Register cleanup function to be called at exit
+atexit.register(restore_terminal)
 
 # @TKINTER_UI
 class TalkieUI:
