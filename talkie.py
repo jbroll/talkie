@@ -1,7 +1,24 @@
 #!/home/john/src/talkie/bin/python3
 #
 
-# @IMPORTS
+# @keyboard_interrupt_monitor
+def keyboard_interrupt_monitor():
+    global running
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        while running:
+            ch = sys.stdin.read(1)
+            if ch == '\x03':  # Ctrl+C
+                logger.info("Ctrl+C detected. Initiating graceful shutdown...")
+                cleanup()
+                break
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    logger.info("Keyboard interrupt monitor exiting.")
+
+# @imports
 import threading
 import time
 import argparse
@@ -18,7 +35,10 @@ import json
 import queue
 import tkinter as tk
 from tkinter import scrolledtext
-
+import signal
+import sys
+import termios
+import tty
 
 # @constants
 BLOCK_DURATION = 0.1  # in seconds
@@ -45,6 +65,9 @@ punctuation = {
     "new line": "\n",
     "new paragraph": "\n\n"
 }
+
+running = True  # Global flag to control thread execution
+cleanup_done = False  # Flag to prevent multiple cleanup calls
 
 # @logger
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -144,13 +167,14 @@ def select_audio_device(device_substring=None):
 
 # @listen_for_hotkey
 def listen_for_hotkey():
+    global running
     devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
     devices = {dev.fd: dev for dev in devices}
     
     meta_pressed = False
     
-    while True:
-        r, w, x = select(devices, [], [])
+    while running:
+        r, w, x = select(devices, [], [], 1)  # 1 second timeout
         for fd in r:
             for event in devices[fd].read():
                 if event.type == evdev.ecodes.EV_KEY:
@@ -165,6 +189,7 @@ def listen_for_hotkey():
                         if meta_pressed and key_event.keystate == key_event.key_up:
                             toggle_transcription()
                             logger.info("Hotkey pressed. Transcription toggled.")
+    logger.info("Hotkey listener thread exiting.")
 
 # @type_text
 def type_text(text):
@@ -278,7 +303,7 @@ def toggle_transcription():
 
 # @transcribe
 def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
-    global transcribing, q, speech_start_time, app
+    global transcribing, q, speech_start_time, app, running
 
     print("Transcribe function started")
     logger.info("Transcribe function started")
@@ -309,7 +334,7 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
             
             print("Entering main processing loop")
             logger.info("Entering main processing loop")
-            while True:
+            while running:
                 if transcribing:
                     try:
                         data = q.get(timeout=0.1)
@@ -423,9 +448,26 @@ except Exception as e:
     logger.error(f"Failed to create uinput device: {e}")
     raise
 
+# @cleanup
+def cleanup():
+    global transcribing, root, running, cleanup_done
+    if cleanup_done:
+        return
+    cleanup_done = True
+    
+    logger.info("Cleaning up and shutting down...")
+    transcribing = False
+    running = False  # Signal all threads to stop
+    
+    if 'root' in globals() and root.winfo_exists():
+        logger.info("Stopping Tkinter main loop...")
+        root.after(0, root.quit)
+    
+    logger.info("Cleanup complete.")
+
 # @main
 def main():
-    global app  # Make app global so it can be accessed in toggle_transcription
+    global app, root, transcribe_thread, hotkey_thread, running
     parser = argparse.ArgumentParser(description="Speech-to-Text System using Vosk")
     parser.add_argument("-d", "--device", help="Substring of audio input device name")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (debug) output")
@@ -468,6 +510,7 @@ def main():
     logger.info("Preparing to start transcription thread")
     try:
         transcribe_thread = threading.Thread(target=transcribe, args=(device_id, samplerate, BLOCK_DURATION, QUEUE_SIZE, args.model))
+        transcribe_thread.daemon = True
         logger.info("Transcription thread created")
         
         transcribe_thread.start()
@@ -486,7 +529,13 @@ def main():
     logger.debug("Starting hotkey listener thread")
     # Start hotkey listener thread
     hotkey_thread = threading.Thread(target=listen_for_hotkey)
+    hotkey_thread.daemon = True
     hotkey_thread.start()
+
+    # Start keyboard interrupt monitor thread
+    keyboard_thread = threading.Thread(target=keyboard_interrupt_monitor)
+    keyboard_thread.daemon = True
+    keyboard_thread.start()
 
     logger.info(f"Transcription is {'ON' if args.transcribe else 'OFF'} by default.")
     logger.info("Press Meta+E to toggle transcription on/off (works globally).")
@@ -499,7 +548,19 @@ def main():
     app = TalkieUI(root)
     app.update_ui()  # Set initial UI state
     logger.info("GUI initialized. Starting main loop.")
-    root.mainloop()
+    
+    def check_running():
+        if running:
+            root.after(100, check_running)
+        else:
+            root.quit()
+
+    root.after(100, check_running)
+    
+    try:
+        root.mainloop()
+    finally:
+        cleanup()
 
     logger.info("Main loop exited. Shutting down.")
 
