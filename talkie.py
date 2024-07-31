@@ -298,9 +298,7 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
     logger.info(f"Calculated block size: {block_size}")
 
     last_partial = ""
-    word_stability_count = {}
-    sent_word_count = {}
-    current_utterance = []
+    last_sent_text = ""
     STABILITY_THRESHOLD = 5
 
     logger.info("Initializing audio stream...")
@@ -321,13 +319,18 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
                                 final_text = result['text']
                                 logger.info(f"Final: {final_text}")
                                 
-                                # Process the entire final text
-                                process_text(final_text, is_final=True)
+                                # Process only the part of final text that hasn't been sent yet
+                                if final_text.startswith(last_sent_text):
+                                    unsent_text = final_text[len(last_sent_text):].strip()
+                                    if unsent_text:
+                                        process_text(unsent_text, is_final=True)
+                                else:
+                                    # If the final text doesn't match what we've sent, send the whole thing
+                                    process_text(final_text, is_final=True)
                                 
                                 app.clear_partial_text()
-                                word_stability_count.clear()
-                                sent_word_count.clear()
-                                current_utterance.clear()
+                                last_sent_text = ""
+                                last_partial = ""
                         else:
                             partial = json.loads(rec.PartialResult())
                             if partial.get('partial'):
@@ -336,30 +339,26 @@ def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
                                     logger.debug(f"Partial: {new_partial}")
                                     app.update_partial_text(new_partial)
                                     
-                                    words = new_partial.split()
-                                    stable_words = []
+                                    # Split the new partial into words
+                                    new_words = new_partial.split()
                                     
-                                    for i, word in enumerate(words):
-                                        if word not in word_stability_count:
-                                            word_stability_count[word] = 1
-                                        else:
-                                            word_stability_count[word] += 1
-                                        
-                                        if word_stability_count[word] >= STABILITY_THRESHOLD:
-                                            if word not in sent_word_count:
-                                                sent_word_count[word] = 0
-                                            
-                                            if sent_word_count[word] < words[:i+1].count(word):
-                                                stable_words.append(word)
-                                                sent_word_count[word] += 1
+                                    # Find the common prefix between last_sent_text and new_partial
+                                    common_prefix = os.path.commonprefix([last_sent_text, new_partial])
+                                    common_word_count = len(common_prefix.split())
                                     
-                                    if stable_words:
-                                        stable_text = ' '.join(stable_words)
-                                        process_text(stable_text, is_final=False)
-                                        current_utterance.extend(stable_words)
+                                    # Identify new stable text
+                                    if len(new_words) - common_word_count >= STABILITY_THRESHOLD:
+                                        stable_text = ' '.join(new_words[:len(new_words) - STABILITY_THRESHOLD + 1])
+                                        if stable_text != last_sent_text:
+                                            # Send only the new stable text
+                                            new_text_to_send = stable_text[len(last_sent_text):].strip()
+                                            if new_text_to_send:
+                                                process_text(new_text_to_send, is_final=False)
+                                                last_sent_text = stable_text
                                     
-                                    # Update the partial text display to show sent and unsent words differently
-                                    display_text = ' '.join(['<sent>' + w + '</sent>' if sent_word_count.get(w, 0) > 0 else w for w in words])
+                                    # Update the partial text display
+                                    sent_word_count = len(last_sent_text.split())
+                                    display_text = ' '.join(['<sent>' + w + '</sent>' if i < sent_word_count else w for i, w in enumerate(new_words)])
                                     app.update_partial_text(display_text)
                                     
                                     last_partial = new_partial
