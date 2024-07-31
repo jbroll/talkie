@@ -43,11 +43,43 @@ last_typed = []
 capitalize_next = True
 MIN_WORD_LENGTH = 2
 
+
+# @punctuation
 punctuation = {
     "period": ".",
     "comma": ",",
     "question mark": "?",
     "exclamation mark": "!",
+    "exclamation point": "!",
+    "colon": ":",
+    "semicolon": ";",
+    "dash": "-",
+    "hyphen": "-",
+    "underscore": "_",
+    "plus": "+",
+    "equals": "=",
+    "at sign": "@",
+    "hash": "#",
+    "dollar sign": "$",
+    "percent": "%",
+    "caret": "^",
+    "ampersand": "&",
+    "asterisk": "*",
+    "left parenthesis": "(",
+    "right parenthesis": ")",
+    "left bracket": "[",
+    "right bracket": "]",
+    "left brace": "{",
+    "right brace": "}",
+    "backslash": "\\",
+    "forward slash": "/",
+    "vertical bar": "|",
+    "less than": "<",
+    "greater than": ">",
+    "tilde": "~",
+    "backtick": "`",
+    "single quote": "'",
+    "double quote": '"',
     "new line": "\n",
     "new paragraph": "\n\n"
 }
@@ -259,7 +291,7 @@ def process_text(text, is_final=False):
     for word in words:
         if word.lower() in ['and', 'point']:
             number_buffer.append(word.lower())
-        elif word in punctuation:
+        elif word.lower() in punctuation:
             if not process_number_buffer():
                 output.extend([smart_capitalize(w) for w in number_buffer])
             number_buffer.clear()
@@ -288,8 +320,6 @@ def process_text(text, is_final=False):
     result = ' '.join(output)
     if is_final:
         result = result.strip()
-        if not result.endswith(('.', '!', '?')):
-            result += '.'  # Add a period at the end of final results if no punctuation
 
     type_text(result + (' ' if not is_final else ''))
     logger.info(f"Processed and typed text: {result}")
