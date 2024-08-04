@@ -1,9 +1,6 @@
 
-word2number - python module.
-
-Process puctuation, no automatic periods, capitolize only after explicit end of
-sentence.
-
+Switch models
+Switch inputs
 
 Recognize when the focus is in the text preview and don't send text + allow
 corrections to partial results?
