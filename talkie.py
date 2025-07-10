@@ -297,7 +297,10 @@ def set_initial_transcription_state(state):
     logger.info(f"Initial transcription state set to: {'ON' if transcribing else 'OFF'}")
 
 # @set_transcribing
-def set_transcribing(transcribing):
+def set_transcribing(state):
+    global transcribing
+    transcribing = state
+
     logger.info(f"Transcription: {'ON' if transcribing else 'OFF'}")
     if not transcribing:
         # Clear the queue when transcription is turned off
@@ -511,32 +514,6 @@ def select_audio_device(device_substring=None):
     
     return device_id, samplerate
 
-# @listen_for_hotkey
-def listen_for_hotkey():
-    global running
-    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
-    devices = {dev.fd: dev for dev in devices}
-    
-    meta_pressed = False
-    
-    while running:
-        r, w, x = select(devices, [], [], 1)  # 1 second timeout
-        for fd in r:
-            for event in devices[fd].read():
-                if event.type == evdev.ecodes.EV_KEY:
-                    key_event = evdev.categorize(event)
-                    
-                    # Check for Meta (Super) key
-                    if key_event.scancode == 125:  # Left Meta key
-                        meta_pressed = key_event.keystate in (key_event.key_down, key_event.key_hold)
-                    
-                    # Check for 'E' key press while Meta is held down
-                    if key_event.scancode == 18 and key_event.keycode == 'KEY_E':
-                        if meta_pressed and key_event.keystate == key_event.key_up:
-                            toggle_transcription()
-                            logger.info("Hotkey pressed. Transcription toggled.")
-    logger.info("Hotkey listener thread exiting.")
-
 # @type_text
 def type_text(text):
     logger.debug(f"Typing text: {text}")
@@ -735,7 +712,7 @@ class TalkieUI:
 
 # @main
 def main():
-    global app, tk_root, transcribe_thread, hotkey_thread, running
+    global app, tk_root, transcribe_thread, running
     parser = argparse.ArgumentParser(description="Speech-to-Text System using Vosk")
     parser.add_argument("-d", "--device", help="Substring of audio input device name")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (debug) output")
@@ -793,12 +770,6 @@ def main():
     else:
         logger.error("Transcription thread is not running")
         return
-
-    logger.debug("Starting hotkey listener thread")
-    # Start hotkey listener thread
-    hotkey_thread = threading.Thread(target=listen_for_hotkey)
-    hotkey_thread.daemon = True
-    hotkey_thread.start()
 
     # Start keyboard interrupt monitor thread
     keyboard_thread = threading.Thread(target=keyboard_interrupt_monitor)
