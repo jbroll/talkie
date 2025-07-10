@@ -24,6 +24,10 @@ import termios
 import tty
 import atexit
 from word2number import w2n
+from enum import Enum
+from pathlib import Path
+
+from JSONFileMonitor import JSONFileMonitor
 
 # @constants
 BLOCK_DURATION = 0.1  # in seconds
@@ -31,6 +35,12 @@ QUEUE_SIZE = 5
 DEFAULT_MODEL_PATH = "/home/john/Downloads/vosk-model-en-us-0.22-lgraph"
 MIN_WORD_LENGTH = 2
 MAX_NUMBER_BUFFER_SIZE = 20  # Maximum number of words to buffer for number conversion
+NUMBER_TIMEOUT = 2.0  # Seconds to wait before processing number buffer
+
+# @state_enum
+class ProcessingState(Enum):
+    NORMAL = "normal"
+    NUMBER = "number"
 
 # @globals
 transcribing = False
@@ -43,6 +53,11 @@ last_typed = []
 capitalize_next = True
 MIN_WORD_LENGTH = 2
 
+# State machine variables
+processing_state = ProcessingState.NORMAL
+number_buffer = []
+number_mode_start_time = None
+last_word_time = None
 
 # @punctuation
 punctuation = {
@@ -120,6 +135,309 @@ def setup_logging(verbose=False):
 
     # Disable propagation to the root logger
     logger.propagate = False
+
+# @smart_capitalize
+def smart_capitalize(text):
+    global capitalize_next
+    if capitalize_next:
+        text = text.capitalize()
+        capitalize_next = False
+    return text
+
+# @process_text
+def process_text(text, is_final=False):
+    logger.info(f"Processing text: {text}")
+    global capitalize_next, processing_state, number_buffer, number_mode_start_time, last_word_time
+    
+    words = text.split()
+    output = []
+    current_time = time.time()
+
+    def is_number_word(word):
+        """Check if a word can be converted to a number"""
+        try:
+            w2n.word_to_num(word.lower())
+            return True
+        except ValueError:
+            return False
+
+    def process_number_buffer():
+        """Process accumulated number buffer"""
+        global processing_state, number_buffer, number_mode_start_time
+        
+        if number_buffer:
+            try:
+                number_phrase = ' '.join(number_buffer)
+                number = w2n.word_to_num(number_phrase)
+                output.append(str(number))
+                logger.debug(f"Converted number buffer to: {number}")
+                success = True
+            except ValueError:
+                # Failed to convert - output words as-is
+                logger.debug(f"Failed to convert number buffer: {' '.join(number_buffer)}")
+                output.extend([smart_capitalize(w) for w in number_buffer])
+                success = False
+            
+            # Reset state
+            number_buffer.clear()
+            processing_state = ProcessingState.NORMAL
+            number_mode_start_time = None
+            return success
+        return True
+
+    def check_number_timeout():
+        """Check if number mode has timed out"""
+        if (processing_state == ProcessingState.NUMBER and 
+            number_mode_start_time and 
+            current_time - number_mode_start_time > NUMBER_TIMEOUT):
+            logger.debug("Number mode timed out")
+            process_number_buffer()
+
+    # Check for timeout before processing new words
+    check_number_timeout()
+
+    for i, word in enumerate(words):
+        word_lower = word.lower()
+        last_word_time = current_time
+        
+        # Handle based on current state
+        if processing_state == ProcessingState.NORMAL:
+            # In NORMAL state
+            if is_number_word(word_lower):
+                # Transition to NUMBER state
+                processing_state = ProcessingState.NUMBER
+                number_mode_start_time = current_time
+                number_buffer = [word_lower]
+                logger.debug(f"Entering NUMBER state with: {word_lower}")
+            elif word_lower == "point" and i + 1 < len(words) and is_number_word(words[i + 1].lower()):
+                # Look-ahead for "point" followed by number
+                processing_state = ProcessingState.NUMBER
+                number_mode_start_time = current_time
+                number_buffer = [word_lower]
+                logger.debug("Entering NUMBER state with 'point'")
+            elif word_lower in punctuation:
+                # Handle punctuation
+                if is_final:  # Only add punctuation for final results
+                    output.append(punctuation[word_lower])
+                    if punctuation[word_lower] in ['.', '!', '?']:
+                        capitalize_next = True
+            else:
+                # Regular word
+                output.append(smart_capitalize(word))
+        
+        else:  # ProcessingState.NUMBER
+            # In NUMBER state
+            if is_number_word(word_lower):
+                # Continue collecting number words
+                if len(number_buffer) < MAX_NUMBER_BUFFER_SIZE:
+                    number_buffer.append(word_lower)
+                    logger.debug(f"Added to number buffer: {word_lower}")
+                else:
+                    # Buffer full - process and start new
+                    process_number_buffer()
+                    processing_state = ProcessingState.NUMBER
+                    number_mode_start_time = current_time
+                    number_buffer = [word_lower]
+            elif word_lower == "and" and len(number_buffer) > 0:
+                # "and" is valid in number context
+                if len(number_buffer) < MAX_NUMBER_BUFFER_SIZE:
+                    number_buffer.append(word_lower)
+                    logger.debug("Added 'and' to number buffer")
+            elif word_lower == "point":
+                # "point" is valid in number context
+                if len(number_buffer) < MAX_NUMBER_BUFFER_SIZE:
+                    number_buffer.append(word_lower)
+                    logger.debug("Added 'point' to number buffer")
+            elif word_lower in punctuation:
+                # Punctuation ends number mode
+                process_number_buffer()
+                if is_final:
+                    output.append(punctuation[word_lower])
+                    if punctuation[word_lower] in ['.', '!', '?']:
+                        capitalize_next = True
+            else:
+                # Non-number word ends number mode
+                process_number_buffer()
+                output.append(smart_capitalize(word))
+
+    # Handle any remaining buffer at the end
+    if is_final and number_buffer:
+        process_number_buffer()
+    
+    # Only check timeout if we're still collecting numbers and this is a partial result
+    elif not is_final and processing_state == ProcessingState.NUMBER:
+        # Keep the buffer for next partial/final result
+        pass
+
+    result = ' '.join(output)
+    if is_final:
+        result = result.strip()
+
+    if result:  # Only type if there's something to type
+        type_text(result + (' ' if not is_final else ''))
+        logger.info(f"Processed and typed text: {result}")
+
+# @callback
+def callback(indata, frames, time_info, status):
+    global transcribing, q, speech_start_time
+    if status:
+        logger.debug(f"Status: {status}")
+    if transcribing and not q.full():
+        # Check if this chunk contains speech (simple energy threshold)
+        if speech_start_time is None and np.abs(indata).mean() > 0.01:
+            speech_start_time = time.time()
+        q.put(bytes(indata))
+    elif transcribing and q.full():
+        logger.debug("Queue is full, dropping audio data")
+
+# @set_initial_transcription_state
+def set_initial_transcription_state(state):
+    global transcribing
+    transcribing = state
+    logger.info(f"Initial transcription state set to: {'ON' if transcribing else 'OFF'}")
+
+# @set_transcribing
+def set_transcribing(transcribing):
+    logger.info(f"Transcription: {'ON' if transcribing else 'OFF'}")
+    if not transcribing:
+        # Clear the queue when transcription is turned off
+        while not q.empty():
+            try:
+                q.get_nowait()
+            except queue.Empty:
+                break
+        speech_start_time = None
+        logger.debug("Queue cleared")
+    
+    # Update UI if it exists
+    if 'app' in globals():
+        app.update_ui()
+
+# @toggle_transcription
+def toggle_transcription():
+    global transcribing, q, speech_start_time
+    transcribing = not transcribing
+    set_transcribing(transcribing)
+
+def on_file_change(state):
+    set_transcribing(state.transcribing)
+
+# @transcribe
+def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
+    global transcribing, q, speech_start_time, app, running, processing_state, number_buffer, number_mode_start_time
+
+    print("Transcribe function started")
+    logger.info("Transcribe function started")
+
+    vosk.SetLogLevel(-1)  # Disable Vosk logging
+    logger.info("Loading Vosk model...")
+    model = vosk.Model(model_path)
+    logger.info("Vosk model loaded successfully")
+    rec = vosk.KaldiRecognizer(model, samplerate)
+    rec.SetWords(True)  # Enable word timings
+    logger.info("KaldiRecognizer initialized with word timings enabled")
+    
+    q = queue.Queue(maxsize=queue_size)
+    logger.info(f"Queue initialized with max size: {queue_size}")
+
+    block_size = int(samplerate * block_duration)
+    logger.info(f"Calculated block size: {block_size}")
+
+    last_partial = ""
+    last_sent_text = ""
+    STABILITY_THRESHOLD = 5
+
+    file_monitor = JSONFileMonitor(Path.home() / ".talkie", on_file_change)
+    file_monitor.start()
+
+    logger.info("Initializing audio stream...")
+    try:
+        with sd.RawInputStream(samplerate=samplerate, blocksize=block_size, device=device_id, dtype='int16', channels=1, callback=callback):
+            logger.info(f"Audio stream initialized: device={device_id}, samplerate={samplerate} Hz")
+            logger.info(f"Initial transcription state: {'ON' if transcribing else 'OFF'}")
+            
+            print("Entering main processing loop")
+            logger.info("Entering main processing loop")
+            while running:
+                if transcribing:
+                    try:
+                        # Check for number timeout even when no new audio
+                        if processing_state == ProcessingState.NUMBER and number_mode_start_time:
+                            if time.time() - number_mode_start_time > NUMBER_TIMEOUT:
+                                logger.debug("Number timeout in main loop")
+                                # Process the timeout by sending empty text to trigger buffer processing
+                                process_text("", is_final=True)
+                        
+                        data = q.get(timeout=0.1)
+                        if rec.AcceptWaveform(data):
+                            result = json.loads(rec.Result())
+                            if result.get('text'):
+                                final_text = result['text']
+                                logger.info(f"Final: {final_text}")
+                                
+                                # Process only the part of final text that hasn't been sent yet
+                                if final_text.startswith(last_sent_text):
+                                    unsent_text = final_text[len(last_sent_text):].strip()
+                                    if unsent_text:
+                                        process_text(unsent_text, is_final=True)
+                                else:
+                                    # If the final text doesn't match what we've sent, send the whole thing
+                                    process_text(final_text, is_final=True)
+                                
+                                app.clear_partial_text()
+                                last_sent_text = final_text
+                                last_partial = ""
+                        else:
+                            partial = json.loads(rec.PartialResult())
+                            if partial.get('partial'):
+                                new_partial = partial['partial']
+                                if new_partial != last_partial:
+                                    logger.debug(f"Partial: {new_partial}")
+                                    
+                                    # Split the new partial into words
+                                    new_words = new_partial.split()
+                                    
+                                    # Find the common prefix between last_sent_text and new_partial
+                                    common_prefix = os.path.commonprefix([last_sent_text, new_partial])
+                                    common_word_count = len(common_prefix.split())
+                                    
+                                    # Identify new stable text
+                                    if len(new_words) - common_word_count >= STABILITY_THRESHOLD:
+                                        stable_text = ' '.join(new_words[:len(new_words) - STABILITY_THRESHOLD + 1])
+                                        if stable_text != last_sent_text:
+                                            # Send only the new stable text
+                                            new_text_to_send = stable_text[len(last_sent_text):].strip()
+                                            if new_text_to_send:
+                                                process_text(new_text_to_send, is_final=False)
+                                                last_sent_text = stable_text
+                                    
+                                    # Update the partial text display
+                                    sent_word_count = len(last_sent_text.split())
+                                    display_text = ' '.join(['<sent>' + w + '</sent>' if i < sent_word_count else w for i, w in enumerate(new_words)])
+                                    app.update_partial_text(display_text)
+                                    
+                                    last_partial = new_partial
+                    except queue.Empty:
+                        logger.debug("Queue empty, continuing")
+                        # Still check for timeout even with empty queue
+                        if processing_state == ProcessingState.NUMBER and number_mode_start_time:
+                            if time.time() - number_mode_start_time > NUMBER_TIMEOUT:
+                                logger.debug("Number timeout on empty queue")
+                                process_text("", is_final=True)
+                else:
+                    logger.debug("Transcription is off, waiting")
+                    # Reset state when transcription is off
+                    if processing_state == ProcessingState.NUMBER:
+                        processing_state = ProcessingState.NORMAL
+                        number_buffer.clear()
+                        number_mode_start_time = None
+                    time.sleep(0.1)
+    except Exception as e:
+        logger.error(f"Error in audio stream: {e}")
+        print(f"Error in audio stream: {e}")
+
+    logger.info("Transcribe function ending")
+    print("Transcribe function ending")
 
 # @list_audio_devices
 def list_audio_devices():
@@ -258,206 +576,6 @@ def type_text(text):
         else:
             logger.warning(f"Unsupported character: {char}")
         time.sleep(0.01)  # Small delay to ensure events are processed
-
-# @smart_capitalize
-def smart_capitalize(text):
-    global capitalize_next
-    if capitalize_next:
-        text = text.capitalize()
-        capitalize_next = False
-    return text
-
-# @process_text
-def process_text(text, is_final=False):
-    logger.info(f"Processing text: {text}")
-    global capitalize_next
-    words = text.split()
-    output = []
-    number_buffer = []
-
-    def process_number_buffer():
-        if number_buffer:
-            try:
-                number_phrase = ' '.join(number_buffer)
-                number = w2n.word_to_num(number_phrase)
-                output.append(str(number))
-                logger.debug(f"Converted number buffer to: {number}")
-                return True
-            except ValueError:
-                logger.debug(f"Failed to convert number buffer: {' '.join(number_buffer)}")
-                return False
-        return True
-
-    for word in words:
-        if word.lower() in ['and', 'point']:
-            number_buffer.append(word.lower())
-        elif word.lower() in punctuation:
-            if not process_number_buffer():
-                output.extend([smart_capitalize(w) for w in number_buffer])
-            number_buffer.clear()
-            if is_final:  # Only add punctuation for final results
-                output.append(punctuation[word])
-                if punctuation[word] in ['.', '!', '?']:
-                    capitalize_next = True
-        else:
-            processed_word = word.strip().lower()
-            try:
-                # Try to convert the word to a number to check if it's a number word
-                w2n.word_to_num(processed_word)
-                number_buffer.append(processed_word)
-            except ValueError:
-                # If it's not a number word, process the number buffer
-                if not process_number_buffer():
-                    output.extend([smart_capitalize(w) for w in number_buffer])
-                number_buffer.clear()
-                output.append(smart_capitalize(processed_word))
-
-    # Process any remaining words in the number buffer
-    if number_buffer:
-        if not process_number_buffer():
-            output.extend([smart_capitalize(w) for w in number_buffer])
-
-    result = ' '.join(output)
-    if is_final:
-        result = result.strip()
-
-    type_text(result + (' ' if not is_final else ''))
-    logger.info(f"Processed and typed text: {result}")
-
-# @set_initial_transcription_state
-def set_initial_transcription_state(state):
-    global transcribing
-    transcribing = state
-    logger.info(f"Initial transcription state set to: {'ON' if transcribing else 'OFF'}")
-
-# @callback
-def callback(indata, frames, time_info, status):
-    global transcribing, q, speech_start_time
-    if status:
-        logger.debug(f"Status: {status}")
-    if transcribing and not q.full():
-        # Check if this chunk contains speech (simple energy threshold)
-        if speech_start_time is None and np.abs(indata).mean() > 0.01:
-            speech_start_time = time.time()
-        q.put(bytes(indata))
-    elif transcribing and q.full():
-        logger.debug("Queue is full, dropping audio data")
-
-# @toggle_transcription
-def toggle_transcription():
-    global transcribing, q, speech_start_time
-    transcribing = not transcribing
-    logger.info(f"Transcription toggled: {'ON' if transcribing else 'OFF'}")
-    if not transcribing:
-        # Clear the queue when transcription is turned off
-        while not q.empty():
-            try:
-                q.get_nowait()
-            except queue.Empty:
-                break
-        speech_start_time = None
-        logger.debug("Queue cleared")
-    
-    # Update UI if it exists
-    if 'app' in globals():
-        app.update_ui()
-
-# @transcribe
-def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
-    global transcribing, q, speech_start_time, app, running
-
-    print("Transcribe function started")
-    logger.info("Transcribe function started")
-
-    vosk.SetLogLevel(-1)  # Disable Vosk logging
-    logger.info("Loading Vosk model...")
-    model = vosk.Model(model_path)
-    logger.info("Vosk model loaded successfully")
-    rec = vosk.KaldiRecognizer(model, samplerate)
-    rec.SetWords(True)  # Enable word timings
-    logger.info("KaldiRecognizer initialized with word timings enabled")
-    
-    q = queue.Queue(maxsize=queue_size)
-    logger.info(f"Queue initialized with max size: {queue_size}")
-
-    block_size = int(samplerate * block_duration)
-    logger.info(f"Calculated block size: {block_size}")
-
-    last_partial = ""
-    last_sent_text = ""
-    STABILITY_THRESHOLD = 5
-
-    logger.info("Initializing audio stream...")
-    try:
-        with sd.RawInputStream(samplerate=samplerate, blocksize=block_size, device=device_id, dtype='int16', channels=1, callback=callback):
-            logger.info(f"Audio stream initialized: device={device_id}, samplerate={samplerate} Hz")
-            logger.info(f"Initial transcription state: {'ON' if transcribing else 'OFF'}")
-            
-            print("Entering main processing loop")
-            logger.info("Entering main processing loop")
-            while running:
-                if transcribing:
-                    try:
-                        data = q.get(timeout=0.1)
-                        if rec.AcceptWaveform(data):
-                            result = json.loads(rec.Result())
-                            if result.get('text'):
-                                final_text = result['text']
-                                logger.info(f"Final: {final_text}")
-                                
-                                # Process only the part of final text that hasn't been sent yet
-                                if final_text.startswith(last_sent_text):
-                                    unsent_text = final_text[len(last_sent_text):].strip()
-                                    if unsent_text:
-                                        process_text(unsent_text, is_final=True)
-                                else:
-                                    # If the final text doesn't match what we've sent, send the whole thing
-                                    process_text(final_text, is_final=True)
-                                
-                                app.clear_partial_text()
-                                last_sent_text = final_text
-                                last_partial = ""
-                        else:
-                            partial = json.loads(rec.PartialResult())
-                            if partial.get('partial'):
-                                new_partial = partial['partial']
-                                if new_partial != last_partial:
-                                    logger.debug(f"Partial: {new_partial}")
-                                    
-                                    # Split the new partial into words
-                                    new_words = new_partial.split()
-                                    
-                                    # Find the common prefix between last_sent_text and new_partial
-                                    common_prefix = os.path.commonprefix([last_sent_text, new_partial])
-                                    common_word_count = len(common_prefix.split())
-                                    
-                                    # Identify new stable text
-                                    if len(new_words) - common_word_count >= STABILITY_THRESHOLD:
-                                        stable_text = ' '.join(new_words[:len(new_words) - STABILITY_THRESHOLD + 1])
-                                        if stable_text != last_sent_text:
-                                            # Send only the new stable text
-                                            new_text_to_send = stable_text[len(last_sent_text):].strip()
-                                            if new_text_to_send:
-                                                process_text(new_text_to_send, is_final=False)
-                                                last_sent_text = stable_text
-                                    
-                                    # Update the partial text display
-                                    sent_word_count = len(last_sent_text.split())
-                                    display_text = ' '.join(['<sent>' + w + '</sent>' if i < sent_word_count else w for i, w in enumerate(new_words)])
-                                    app.update_partial_text(display_text)
-                                    
-                                    last_partial = new_partial
-                    except queue.Empty:
-                        logger.debug("Queue empty, continuing")
-                else:
-                    logger.debug("Transcription is off, waiting")
-                    time.sleep(0.1)
-    except Exception as e:
-        logger.error(f"Error in audio stream: {e}")
-        print(f"Error in audio stream: {e}")
-
-    logger.info("Transcribe function ending")
-    print("Transcribe function ending")
 
 # @uinput_setup
 #
