@@ -1,5 +1,7 @@
 vosk
+sherpa-onnx
 sounddevice
 numpy
 pyinput
 addict
+word2number

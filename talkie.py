@@ -28,6 +28,8 @@ from enum import Enum
 from pathlib import Path
 
 from JSONFileMonitor import JSONFileMonitor
+from speech.speech_engine import SpeechManager, SpeechEngineType, SpeechResult
+from speech.OpenVINO_Whisper_engine import detect_intel_npu, check_npu_requirements
 
 # @constants
 BLOCK_DURATION = 0.1  # in seconds
@@ -326,119 +328,108 @@ def on_file_change(state):
     set_transcribing(state.transcribing)
 
 # @transcribe
-def transcribe(device_id, samplerate, block_duration, queue_size, model_path):
+def transcribe(device_id, samplerate, block_duration, queue_size, engine_config):
     global transcribing, q, speech_start_time, app, running, processing_state, number_buffer, number_mode_start_time
 
     print("Transcribe function started")
     logger.info("Transcribe function started")
 
-    vosk.SetLogLevel(-1)  # Disable Vosk logging
-    logger.info("Loading Vosk model...")
-    model = vosk.Model(model_path)
-    logger.info("Vosk model loaded successfully")
-    rec = vosk.KaldiRecognizer(model, samplerate)
-    rec.SetWords(True)  # Enable word timings
-    logger.info("KaldiRecognizer initialized with word timings enabled")
+    # Initialize speech manager with selected engine
+    def handle_speech_result(result: SpeechResult):
+        if transcribing:
+            if result.is_final:
+                logger.info(f"Final: {result.text}")
+                process_text(result.text, is_final=True)
+                if app:
+                    app.clear_partial_text()
+            else:
+                logger.debug(f"Partial: {result.text}")
+                if app:
+                    app.update_partial_text(result.text)
+
+    # Create speech manager with fallback
+    engine_type = engine_config.pop('engine_type')
+    speech_manager = SpeechManager(
+        engine_type=engine_type,
+        result_callback=handle_speech_result,
+        **engine_config
+    )
     
+    if not speech_manager.initialize():
+        logger.error(f"Failed to initialize {engine_type.value} engine")
+        
+        # Try fallback to Vosk if faster-whisper or OpenVINO failed
+        if engine_type in [SpeechEngineType.FASTER_WHISPER, SpeechEngineType.OPENVINO_WHISPER]:
+            logger.info("Attempting fallback to Vosk engine...")
+            speech_manager = SpeechManager(
+                engine_type=SpeechEngineType.VOSK,
+                result_callback=handle_speech_result,
+                model_path=DEFAULT_MODEL_PATH,
+                samplerate=samplerate  # Use actual device sample rate
+            )
+            
+            if not speech_manager.initialize():
+                logger.error("Failed to initialize Vosk fallback engine")
+                return
+            else:
+                logger.info("Successfully fell back to Vosk engine")
+        else:
+            return
+        
+    # Don't start separate thread - we'll process directly in main loop
+    # speech_manager.start()
+    
+    # Initialize audio queue and processing
     q = queue.Queue(maxsize=queue_size)
-    logger.info(f"Queue initialized with max size: {queue_size}")
-
     block_size = int(samplerate * block_duration)
-    logger.info(f"Calculated block size: {block_size}")
-
-    last_partial = ""
-    last_sent_text = ""
-    STABILITY_THRESHOLD = 5
-
+    
     file_monitor = JSONFileMonitor(Path.home() / ".talkie", on_file_change)
     file_monitor.start()
 
     logger.info("Initializing audio stream...")
     try:
-        with sd.RawInputStream(samplerate=samplerate, blocksize=block_size, device=device_id, dtype='int16', channels=1, callback=callback):
+        with sd.RawInputStream(samplerate=samplerate, blocksize=block_size, 
+                              device=device_id, dtype='int16', channels=1, 
+                              callback=callback):
             logger.info(f"Audio stream initialized: device={device_id}, samplerate={samplerate} Hz")
-            logger.info(f"Initial transcription state: {'ON' if transcribing else 'OFF'}")
             
-            print("Entering main processing loop")
-            logger.info("Entering main processing loop")
             while running:
                 if transcribing:
                     try:
-                        # Check for number timeout even when no new audio
+                        # Handle number timeout
                         if processing_state == ProcessingState.NUMBER and number_mode_start_time:
                             if time.time() - number_mode_start_time > NUMBER_TIMEOUT:
                                 logger.debug("Number timeout in main loop")
-                                # Process the timeout by sending empty text to trigger buffer processing
                                 process_text("", is_final=True)
                         
+                        # Get audio data and process directly (like working version)
                         data = q.get(timeout=0.1)
-                        if rec.AcceptWaveform(data):
-                            result = json.loads(rec.Result())
-                            if result.get('text'):
-                                final_text = result['text']
-                                logger.info(f"Final: {final_text}")
-                                
-                                # Process only the part of final text that hasn't been sent yet
-                                if final_text.startswith(last_sent_text):
-                                    unsent_text = final_text[len(last_sent_text):].strip()
-                                    if unsent_text:
-                                        process_text(unsent_text, is_final=True)
-                                else:
-                                    # If the final text doesn't match what we've sent, send the whole thing
-                                    process_text(final_text, is_final=True)
-                                
-                                app.clear_partial_text()
-                                last_sent_text = final_text
-                                last_partial = ""
-                        else:
-                            partial = json.loads(rec.PartialResult())
-                            if partial.get('partial'):
-                                new_partial = partial['partial']
-                                if new_partial != last_partial:
-                                    logger.debug(f"Partial: {new_partial}")
-                                    
-                                    # Split the new partial into words
-                                    new_words = new_partial.split()
-                                    
-                                    # Find the common prefix between last_sent_text and new_partial
-                                    common_prefix = os.path.commonprefix([last_sent_text, new_partial])
-                                    common_word_count = len(common_prefix.split())
-                                    
-                                    # Identify new stable text
-                                    if len(new_words) - common_word_count >= STABILITY_THRESHOLD:
-                                        stable_text = ' '.join(new_words[:len(new_words) - STABILITY_THRESHOLD + 1])
-                                        if stable_text != last_sent_text:
-                                            # Send only the new stable text
-                                            new_text_to_send = stable_text[len(last_sent_text):].strip()
-                                            if new_text_to_send:
-                                                process_text(new_text_to_send, is_final=False)
-                                                last_sent_text = stable_text
-                                    
-                                    # Update the partial text display
-                                    sent_word_count = len(last_sent_text.split())
-                                    display_text = ' '.join(['<sent>' + w + '</sent>' if i < sent_word_count else w for i, w in enumerate(new_words)])
-                                    app.update_partial_text(display_text)
-                                    
-                                    last_partial = new_partial
+                        result = speech_manager.adapter.process_audio(data)
+                        if result:
+                            handle_speech_result(result)
+                        
                     except queue.Empty:
-                        logger.debug("Queue empty, continuing")
-                        # Still check for timeout even with empty queue
+                        # Handle timeout logic
                         if processing_state == ProcessingState.NUMBER and number_mode_start_time:
                             if time.time() - number_mode_start_time > NUMBER_TIMEOUT:
                                 logger.debug("Number timeout on empty queue")
                                 process_text("", is_final=True)
                 else:
-                    logger.debug("Transcription is off, waiting")
-                    # Reset state when transcription is off
+                    # Reset logic when transcription is off
                     if processing_state == ProcessingState.NUMBER:
                         processing_state = ProcessingState.NORMAL
                         number_buffer.clear()
                         number_mode_start_time = None
                     time.sleep(0.1)
+                    
     except Exception as e:
         logger.error(f"Error in audio stream: {e}")
         print(f"Error in audio stream: {e}")
-
+    finally:
+        if speech_manager:
+            speech_manager.cleanup()
+        file_monitor.stop()
+    
     logger.info("Transcribe function ending")
     print("Transcribe function ending")
 
@@ -710,28 +701,102 @@ class TalkieUI:
         logger.info("Quit option selected. Initiating shutdown...")
         tk_cleanup()
 
+# @engine_detection  
+def detect_best_engine():
+    """Detect best available speech engine with faster-whisper preferred"""
+    logger = logging.getLogger(__name__)
+    
+    # Try faster-whisper first (best accuracy + GPU/NPU support)
+    try:
+        import torch
+        from faster_whisper import WhisperModel
+        
+        # Check for GPU availability
+        if torch.cuda.is_available():
+            gpu_name = torch.cuda.get_device_name()
+            logger.info(f"CUDA GPU detected: {gpu_name} - using faster-whisper with GPU")
+            return SpeechEngineType.FASTER_WHISPER, {
+                'model_path': 'base',  # Good balance of speed/accuracy
+                'device': 'auto',  # Will select GPU
+                'compute_type': 'auto',
+                'samplerate': 16000
+            }
+        else:
+            logger.info("No GPU detected - using faster-whisper with CPU")
+            return SpeechEngineType.FASTER_WHISPER, {
+                'model_path': 'tiny',  # Faster on CPU
+                'device': 'cpu',
+                'compute_type': 'int8',
+                'samplerate': 16000
+            }
+            
+    except ImportError:
+        logger.info("faster-whisper not available")
+    except Exception as e:
+        logger.warning(f"Error checking faster-whisper: {e}")
+    
+    # Fallback to Vosk (reliable CPU-based option)
+    logger.info("Using Vosk engine as fallback")
+    return SpeechEngineType.VOSK, {
+        'model_path': DEFAULT_MODEL_PATH,
+        'samplerate': 16000
+    }
+
 # @main
 def main():
     global app, tk_root, transcribe_thread, running
-    parser = argparse.ArgumentParser(description="Speech-to-Text System using Vosk")
+    parser = argparse.ArgumentParser(description="Talkie - Speech to Text with OpenVINO Whisper")
     parser.add_argument("-d", "--device", help="Substring of audio input device name")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (debug) output")
-    parser.add_argument("-m", "--model", help="Path to the Vosk model", default=DEFAULT_MODEL_PATH)
+    parser.add_argument("-m", "--model", help="Path to Vosk model (fallback only)")
     parser.add_argument("-t", "--transcribe", action="store_true", help="Start transcription immediately")
+    parser.add_argument("--whisper-model", default="openai/whisper-base", 
+                       help="OpenVINO Whisper model name (default: openai/whisper-base)")
+    parser.add_argument("--engine", choices=["auto", "faster-whisper", "vosk", "openvino"], 
+                       default="auto", help="Force specific engine (default: auto)")
+    parser.add_argument("--ov-device", default="AUTO",
+                       help="OpenVINO device (NPU, GPU, CPU, AUTO) (default: AUTO)")
     args = parser.parse_args()
 
     # Setup logging
     setup_logging(args.verbose)
 
-    logger.info("Speech-to-Text System using Vosk - Starting up")
-    logger.info(f"Using model: {args.model}")
+    logger.info("Talkie - Speech to Text with OpenVINO Whisper - Starting up")
     logger.info(f"Block duration: {BLOCK_DURATION} seconds")
     logger.info(f"Queue size: {QUEUE_SIZE}")
 
-    # Check if the model path exists
-    if not os.path.exists(args.model):
-        logger.error(f"Model path does not exist: {args.model}")
-        return
+    # Determine engine configuration
+    if args.engine == 'faster-whisper':
+        engine_config = {
+            'engine_type': SpeechEngineType.FASTER_WHISPER,
+            'model_path': 'base',  # Good default model
+            'device': 'auto',
+            'compute_type': 'auto',
+            'samplerate': 16000
+        }
+    elif args.engine == 'vosk':
+        engine_config = {
+            'engine_type': SpeechEngineType.VOSK,
+            'model_path': args.model or DEFAULT_MODEL_PATH,
+            'samplerate': 16000
+        }
+        # Check if the Vosk model path exists
+        if not os.path.exists(engine_config['model_path']):
+            logger.error(f"Vosk model path does not exist: {engine_config['model_path']}")
+            return
+    elif args.engine == 'openvino':
+        engine_config = {
+            'engine_type': SpeechEngineType.OPENVINO_WHISPER,
+            'model_path': args.whisper_model,
+            'device': args.ov_device,
+            'samplerate': 16000
+        }
+    else:  # auto
+        engine_type, engine_params = detect_best_engine()
+        engine_config = {'engine_type': engine_type, **engine_params}
+
+    logger.info(f"Using engine: {engine_config['engine_type'].value}")
+    logger.info(f"Engine config: {engine_config}")
 
     logger.debug("Selecting audio device")
     try:
@@ -745,16 +810,33 @@ def main():
             return
 
         logger.info(f"Selected device ID: {device_id}, Sample rate: {samplerate}")
+        
+        # Update engine config with actual device sample rate
+        engine_config['samplerate'] = samplerate
+        logger.info(f"Updated engine config with device sample rate: {samplerate}")
     except Exception as e:
         logger.error(f"Error during audio device selection: {e}")
         return
 
     # Set initial transcription state
+    # Set initial transcription state and update state file if needed
+    if args.transcribe:
+        # Write to state file to ensure consistency
+        talkie_state_file = Path.home() / ".talkie"
+        try:
+            import json
+            state_data = {"transcribing": True}
+            with open(talkie_state_file, 'w') as f:
+                json.dump(state_data, f)
+            logger.info("Updated ~/.talkie state file to enable transcription")
+        except Exception as e:
+            logger.warning(f"Could not update state file: {e}")
+    
     set_initial_transcription_state(args.transcribe)
 
     logger.info("Preparing to start transcription thread")
     try:
-        transcribe_thread = threading.Thread(target=transcribe, args=(device_id, samplerate, BLOCK_DURATION, QUEUE_SIZE, args.model))
+        transcribe_thread = threading.Thread(target=transcribe, args=(device_id, samplerate, BLOCK_DURATION, QUEUE_SIZE, engine_config))
         transcribe_thread.daemon = True
         logger.info("Transcription thread created")
         

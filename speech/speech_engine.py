@@ -8,11 +8,8 @@ from enum import Enum
 
 # @base_adapter
 class SpeechEngineType(Enum):
-    VOSK = "vosk"
-    WHISPER = "whisper"
-    FASTER_WHISPER = "faster_whisper"
-    DISTIL_WHISPER = "distil_whisper"
-    SPEECHBRAIN = "speechbrain"
+    SHERPA_ONNX = "sherpa_onnx"  # Primary streaming recommendation  
+    VOSK = "vosk"  # Secondary streaming option
 
 class SpeechResult:
     """Standardized result format for all engines"""
@@ -50,20 +47,24 @@ class SpeechEngine(abc.ABC):
     def cleanup(self):
         """Clean up resources"""
         pass
+        
+    def get_final_result(self) -> Optional['SpeechResult']:
+        """Get final result after all audio has been processed (optional)"""
+        return None
 
 # @engine_factory
 class SpeechEngineFactory:
     """Factory for creating speech engine adapters"""
     
     _adapters = {
-        SpeechEngineType.VOSK: VoskAdapter,
-        SpeechEngineType.FASTER_WHISPER: WhisperAdapter,
-        # Add more engines as needed
+        # Adapters are registered dynamically
+        # SpeechEngineType.VOSK: VoskAdapter,
+        # SpeechEngineType.FASTER_WHISPER: WhisperAdapter,
     }
     
     @classmethod
     def create_adapter(cls, engine_type: SpeechEngineType, 
-                      model_path: str, **kwargs) -> SpeechEngineAdapter:
+                      model_path: str, **kwargs) -> SpeechEngine:
         """Create a speech engine adapter"""
         if engine_type not in cls._adapters:
             raise ValueError(f"Unsupported engine type: {engine_type}")
@@ -95,9 +96,16 @@ class SpeechManager:
     def initialize(self) -> bool:
         """Initialize the speech manager"""
         try:
-            self.adapter = SpeechEngineFactory.create_adapter(
-                self.engine_type, self.model_path, **self.kwargs
-            )
+            # Direct instantiation instead of factory pattern
+            if self.engine_type == SpeechEngineType.SHERPA_ONNX:
+                from .SherpaONNX_engine import SherpaONNXAdapter
+                self.adapter = SherpaONNXAdapter(self.model_path, **self.kwargs)
+            elif self.engine_type == SpeechEngineType.VOSK:
+                from .Vosk_engine import VoskAdapter
+                self.adapter = VoskAdapter(self.model_path, **self.kwargs)
+            else:
+                raise ValueError(f"Unsupported engine type: {self.engine_type}")
+                
             return self.adapter.initialize()
         except Exception as e:
             print(f"Failed to initialize speech manager: {e}")
@@ -181,11 +189,11 @@ def example_usage():
         # manager.add_audio(audio_data)
         
         # Switch to Whisper
+        # Switch to Sherpa-ONNX
         manager.switch_engine(
-            SpeechEngineType.FASTER_WHISPER,
-            "base.en",  # or path to local model
-            device="cpu",
-            compute_type="int8"
+            SpeechEngineType.SHERPA_ONNX,
+            "models/sherpa-onnx/sherpa-onnx-streaming-zipformer-en-2023-06-26",
+            use_int8=True
         )
         
         manager.cleanup()

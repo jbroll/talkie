@@ -1,7 +1,6 @@
 Here are some guidelines to help make our interactions efficient:
 
 In each chat we will work on a feature.
-Never use the words "I apologize" in your response.
 
 Provide direct, concise answers that address the core of the question.
 

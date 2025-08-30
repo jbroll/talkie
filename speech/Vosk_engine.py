@@ -1,4 +1,8 @@
-class VoskAdapter(SpeechEngineAdapter):
+import json
+from typing import Optional
+from .speech_engine import SpeechEngine, SpeechResult
+
+class VoskAdapter(SpeechEngine):
     """Adapter for Vosk speech engine"""
     
     def __init__(self, model_path: str, samplerate: int = 16000):
@@ -46,6 +50,23 @@ class VoskAdapter(SpeechEngineAdapter):
             self.recognizer = vosk.KaldiRecognizer(self.model, self.samplerate)
             self.recognizer.SetWords(True)
             
+    def get_final_result(self) -> Optional[SpeechResult]:
+        """Get the final result from Vosk after all audio has been processed"""
+        if not self.is_initialized or not self.recognizer:
+            return None
+            
+        try:
+            result = json.loads(self.recognizer.FinalResult())
+            if result.get('text'):
+                return SpeechResult(
+                    text=result['text'],
+                    is_final=True,
+                    confidence=result.get('confidence', 0.0)
+                )
+        except Exception as e:
+            print(f"Error getting Vosk final result: {e}")
+        return None
+        
     def cleanup(self):
         self.model = None
         self.recognizer = None
