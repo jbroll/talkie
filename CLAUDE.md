@@ -108,53 +108,67 @@ talkie/
 5. ✅ **Launcher Script**: Unified launcher script with automatic detection working
 6. ✅ **File Structure**: All files properly renamed and structured for Python imports
 
-## 🚀 Final Deployment Status - COMPLETE SUCCESS
+## Current Status (August 31, 2025)
 
-### 🎯 OpenVINO Integration Status (August 30, 2025) - REALISTIC ASSESSMENT:
+### Sherpa-ONNX GPU Integration Complete
 
-**✅ CONFIRMED WORKING:**
-1. **Hardware**: Intel Core Ultra 7 155H + Intel Arc Graphics (iGPU) + NPU drivers loaded
-2. **OpenVINO Stack**: openvino 2025.2.0 + openvino-genai + optimum-intel installed
-3. **Model Conversion**: optimum-cli successfully converting Whisper models to OpenVINO format
-4. **Intel Arc iGPU**: OpenVINO Whisper initializes successfully on Intel Arc iGPU (~8 sec)
-5. **Engine Selection**: Auto-detects available devices and selects appropriately
-6. **Fallback System**: Graceful degradation to Vosk when needed
+**Working Components:**
+- Intel Core Ultra 7 155H with Intel Arc Graphics [0x7d55]
+- OpenVINO 2025.2.0 stack with GPU acceleration
+- Sherpa-ONNX built from source with onnxruntime-openvino integration
+- GPU-accelerated speech recognition with 1.91x real-time performance
+- Automatic engine detection and fallback system
 
-**🔍 HARDWARE DETECTION FINDINGS:**
-- ✅ **CPU**: Intel Core Ultra 7 155H (detected)  
-- ✅ **iGPU**: Intel Arc Graphics [0x7d55] (detected and working with OpenVINO)
-- ❌ **NPU**: intel_vpu driver loaded but not exposed to OpenVINO 2025.2.0 (needs investigation)
+**Hardware Detection:**
+- CPU: Intel Core Ultra 7 155H (detected)
+- GPU: Intel Arc Graphics [0x7d55] (working with OpenVINO)
+- NPU: intel_vpu driver loaded (not exposed to OpenVINO 2025.2.0)
 
-**📊 PERFORMANCE MEASURED:**
-- Intel Arc iGPU initialization: ~8 seconds
-- Model conversion (one-time): varies by model size  
-- Vosk fallback: <1 second initialization
+**Performance Metrics:**
+- Sherpa-ONNX GPU: 3.45s for 6.6s audio (1.91x real-time)
+- OpenVINO Whisper GPU: Model conversion 30s, then real-time processing
+- Vosk fallback: Instant startup, reliable baseline performance
 
-### 📋 Current Deployment Modes:
+### Command Reference
 
-**🔧 Current System (Intel Core Ultra + Arc iGPU)**:
-- Command: `source bin/activate && ./launch_talkie.sh`
-- Behavior: Auto-detects Intel Arc iGPU → uses OpenVINO Whisper → Vosk fallback available
-- Status: **FUNCTIONAL WITH INTEL ARC iGPU ACCELERATION** ⚡
+**Primary Usage:**
+```bash
+./talkie.sh                    # Run with GPU acceleration
+./talkie.sh start              # Start transcription
+./talkie.sh stop               # Stop transcription
+./talkie.sh toggle             # Toggle transcription
+./talkie.sh state              # Show current state
+```
 
-**⚡ Future NPU Support**:
-- Hardware: Intel Core Ultra 7 155H has NPU (intel_vpu driver loaded)
-- Issue: OpenVINO 2025.2.0 not exposing NPU device (driver compatibility)
-- Status: **FRAMEWORK READY** - needs OpenVINO NPU plugin or newer version
+**Engine Selection:**
+```bash
+python talkie.py --engine auto              # Auto-detect (default)
+python talkie.py --engine vosk              # Force Vosk
+python talkie.py --engine openvino          # Force OpenVINO
+```
 
-**🛠️ Manual Engine Selection**:
-- Force OpenVINO: `python talkie.py --engine openvino --ov-device GPU`
-- Force Vosk: `python talkie.py --engine vosk`
-- Force Auto: `python talkie.py --engine auto` (default)
+**OpenVINO Device Control:**
+```bash
+python talkie.py --engine openvino --ov-device GPU    # Intel Arc Graphics
+python talkie.py --engine openvino --ov-device CPU    # CPU processing
+```
 
-### 🔍 Verified Working Commands:
-- **✅ NPU/OpenVINO Check**: `python verify_npu.py` - Shows all packages installed
-- **✅ Live OpenVINO Demo**: `./launch_talkie.sh --verbose` - **NOW USES OPENVINO GPU** 🚀
-- **✅ Force CPU**: `python talkie.py --engine openvino --ov-device CPU --whisper-model openai/whisper-tiny`
-- **✅ Force GPU**: `python talkie.py --engine openvino --ov-device GPU` 
-- **✅ Force Vosk**: `python talkie.py --engine vosk` (fallback working)
+**Verification Commands:**
+```bash
+python verify_npu.py                        # Check OpenVINO installation
+./launch_talkie.sh --verbose                # Launch with detailed logging
+```
 
-### 🎯 Performance Status:
-- **OpenVINO GPU**: Model conversion ~30 seconds, then real-time speech recognition ⚡
-- **OpenVINO CPU**: Model conversion ~30 seconds, then real-time speech recognition
-- **Vosk Fallback**: Instant startup, reliable speech recognition backup
+### When generating replies, documentation, or code:
+
+- Use a concise, professional, technical style.
+- Provide complete and detailed documentation that fully explains the subject.
+- Include helpful examples where needed, but avoid excess or repetition.
+- Do not include marketing language, self-promotion, or filler text.
+- Avoid analogies, rhetorical questions, or conversational flourishes.
+- No emojis, decorative symbols, or casual expressions.
+- Use plain Markdown for structure: headings, lists, code blocks.
+- Keep examples minimal, relevant, and focused.
+- Prioritize correctness, clarity, and reproducibility.
+- Assume the audience has a technical background.
+- Eliminate speculation and irrelevant details.

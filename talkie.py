@@ -29,7 +29,7 @@ from pathlib import Path
 
 from JSONFileMonitor import JSONFileMonitor
 from speech.speech_engine import SpeechManager, SpeechEngineType, SpeechResult
-from speech.OpenVINO_Whisper_engine import detect_intel_npu, check_npu_requirements
+# from speech.OpenVINO_Whisper_engine import detect_intel_npu, check_npu_requirements
 
 # @constants
 BLOCK_DURATION = 0.1  # in seconds
@@ -752,10 +752,13 @@ def main():
     parser.add_argument("-t", "--transcribe", action="store_true", help="Start transcription immediately")
     parser.add_argument("--whisper-model", default="openai/whisper-base", 
                        help="OpenVINO Whisper model name (default: openai/whisper-base)")
-    parser.add_argument("--engine", choices=["auto", "faster-whisper", "vosk", "openvino"], 
+    parser.add_argument("--engine", choices=["auto", "faster-whisper", "vosk", "openvino", "sherpa-onnx"], 
                        default="auto", help="Force specific engine (default: auto)")
     parser.add_argument("--ov-device", default="AUTO",
                        help="OpenVINO device (NPU, GPU, CPU, AUTO) (default: AUTO)")
+    parser.add_argument("--sherpa-provider", default="auto", 
+                       choices=["auto", "cpu", "gpu", "npu"],
+                       help="Sherpa-ONNX provider (auto, cpu, gpu, npu) (default: auto)")
     args = parser.parse_args()
 
     # Setup logging
@@ -789,6 +792,14 @@ def main():
             'engine_type': SpeechEngineType.OPENVINO_WHISPER,
             'model_path': args.whisper_model,
             'device': args.ov_device,
+            'samplerate': 16000
+        }
+    elif args.engine == 'sherpa-onnx':
+        engine_config = {
+            'engine_type': SpeechEngineType.SHERPA_ONNX,
+            'model_path': 'models/sherpa-onnx/sherpa-onnx-streaming-zipformer-en-2023-06-26',
+            'provider': args.sherpa_provider,
+            'use_int8': True,
             'samplerate': 16000
         }
     else:  # auto

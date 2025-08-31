@@ -8,8 +8,8 @@ from enum import Enum
 
 # @base_adapter
 class SpeechEngineType(Enum):
-    SHERPA_ONNX = "sherpa_onnx"  # Primary streaming recommendation  
-    VOSK = "vosk"  # Secondary streaming option
+    SHERPA_ONNX = "sherpa_onnx"  # Primary with GPU acceleration
+    VOSK = "vosk"  # Reliable CPU fallback
 
 class SpeechResult:
     """Standardized result format for all engines"""

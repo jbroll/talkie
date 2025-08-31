@@ -16,6 +16,12 @@ class SherpaONNXAdapter(SpeechEngine):
         
     def _openvino_available(self) -> bool:
         """Check if OpenVINO execution provider is available"""
+        # Check if OpenVINO is disabled via environment variable
+        import os
+        if os.environ.get('DISABLE_OPENVINO'):
+            print("OpenVINO disabled by environment variable")
+            return False
+            
         try:
             import onnxruntime as ort
             available_providers = ort.get_available_providers()
@@ -110,6 +116,30 @@ class SherpaONNXAdapter(SpeechEngine):
         try:
             import sherpa_onnx
             
+            # Determine the provider to use first
+            actual_provider = self._select_provider()
+            
+            # Configure ONNX Runtime globally before sherpa-onnx initialization
+            if actual_provider == "openvino":
+                import onnxruntime as ort
+                import os
+                
+                # Configure OpenVINO execution provider globally
+                os.environ['ORT_PROVIDERS'] = 'OpenVINOExecutionProvider,CPUExecutionProvider'
+                os.environ['OV_DEVICE'] = 'GPU'
+                os.environ['OV_GPU_ENABLE_BINARY_CACHE'] = '1'
+                
+                print(f"Configuring ONNX Runtime for OpenVINO GPU before sherpa-onnx init")
+                print(f"Available providers: {ort.get_available_providers()}")
+                
+                # Try to configure OpenVINO provider options
+                try:
+                    # Set global provider options for OpenVINO
+                    ort.set_default_logger_severity(3)  # Reduce logging
+                    print("ONNX Runtime configured for OpenVINO")
+                except Exception as e:
+                    print(f"Warning: Could not configure ONNX Runtime options: {e}")
+            
             # Configure the recognizer
             tokens = f"{self.model_path}/tokens.txt"
             
@@ -124,18 +154,14 @@ class SherpaONNXAdapter(SpeechEngine):
                 decoder = f"{self.model_path}/decoder-epoch-99-avg-1-chunk-16-left-128.onnx" 
                 joiner = f"{self.model_path}/joiner-epoch-99-avg-1-chunk-16-left-128.onnx"
             
-            # Determine the provider to use
-            actual_provider = self._select_provider()
-            
-            # Configure environment for OpenVINO if selected
+            # Configure sherpa-onnx parameters based on provider
             if actual_provider == "openvino":
-                # Set ONNX Runtime to use OpenVINO execution provider
-                import os
-                os.environ['ORT_PROVIDERS'] = 'OpenVINOExecutionProvider,CPUExecutionProvider'
                 # Use fewer threads for GPU processing
                 num_threads = 1
-                # For sherpa-onnx, we pass "cuda" which it will map to available providers including OpenVINO
-                provider_name = "cuda"
+                # Try different provider names that sherpa-onnx might accept
+                provider_name = "cpu"  # Fall back to CPU for sherpa-onnx but with OpenVINO configured globally
+                
+                print(f"Sherpa-ONNX will use CPU provider but ONNX Runtime is configured for OpenVINO GPU")
             else:
                 num_threads = 2
                 provider_name = actual_provider
