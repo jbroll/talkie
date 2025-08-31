@@ -29,7 +29,6 @@ from pathlib import Path
 
 from JSONFileMonitor import JSONFileMonitor
 from speech.speech_engine import SpeechManager, SpeechEngineType, SpeechResult
-# from speech.OpenVINO_Whisper_engine import detect_intel_npu, check_npu_requirements
 
 # @constants
 BLOCK_DURATION = 0.1  # in seconds
@@ -358,8 +357,8 @@ def transcribe(device_id, samplerate, block_duration, queue_size, engine_config)
     if not speech_manager.initialize():
         logger.error(f"Failed to initialize {engine_type.value} engine")
         
-        # Try fallback to Vosk if faster-whisper or OpenVINO failed
-        if engine_type in [SpeechEngineType.FASTER_WHISPER, SpeechEngineType.OPENVINO_WHISPER]:
+        # Try fallback to Vosk if sherpa-onnx failed
+        if engine_type == SpeechEngineType.SHERPA_ONNX:
             logger.info("Attempting fallback to Vosk engine...")
             speech_manager = SpeechManager(
                 engine_type=SpeechEngineType.VOSK,
@@ -701,39 +700,66 @@ class TalkieUI:
         logger.info("Quit option selected. Initiating shutdown...")
         tk_cleanup()
 
+# @engine_environment_setup
+def setup_engine_environment(engine_config):
+    """Setup environment variables based on selected engine configuration"""
+    import os
+    from pathlib import Path
+    
+    # Always set LD_LIBRARY_PATH for onnxruntime
+    talkie_root = Path.home() / "src" / "talkie"
+    onnx_lib_path = talkie_root / "lib" / "python3.12" / "site-packages" / "onnxruntime" / "capi"
+    
+    if onnx_lib_path.exists():
+        current_ld_path = os.environ.get('LD_LIBRARY_PATH', '')
+        if current_ld_path:
+            os.environ['LD_LIBRARY_PATH'] = f"{onnx_lib_path}:{current_ld_path}"
+        else:
+            os.environ['LD_LIBRARY_PATH'] = str(onnx_lib_path)
+        logger.debug(f"Set LD_LIBRARY_PATH: {os.environ['LD_LIBRARY_PATH']}")
+    
+    # Configure providers based on engine type and provider
+    if engine_config.get('engine_type') == SpeechEngineType.SHERPA_ONNX:
+        provider = engine_config.get('provider', 'cpu')
+        
+        if provider == 'gpu':
+            # GPU configuration
+            os.environ['ORT_PROVIDERS'] = 'OpenVINOExecutionProvider,CPUExecutionProvider'
+            os.environ['OV_DEVICE'] = 'GPU'
+            os.environ['OV_GPU_ENABLE_BINARY_CACHE'] = '1'
+            logger.info("Configured environment for GPU-accelerated Sherpa-ONNX")
+        else:
+            # CPU configuration (default) - don't override ONNX Runtime providers
+            # Let Sherpa-ONNX handle provider selection internally
+            # Clean up any existing GPU environment variables
+            for gpu_var in ['ORT_PROVIDERS', 'OV_DEVICE', 'OV_GPU_ENABLE_BINARY_CACHE']:
+                if gpu_var in os.environ:
+                    del os.environ[gpu_var]
+            logger.info("Configured environment for CPU-based Sherpa-ONNX")
+
 # @engine_detection  
 def detect_best_engine():
-    """Detect best available speech engine with faster-whisper preferred"""
+    """Detect best available speech engine with sherpa-onnx CPU preferred"""
     logger = logging.getLogger(__name__)
     
-    # Try faster-whisper first (best accuracy + GPU/NPU support)
+    # Try sherpa-onnx with CPU first (preferred default for optimal performance)
     try:
-        import torch
-        from faster_whisper import WhisperModel
+        import sherpa_onnx
+        import os
         
-        # Check for GPU availability
-        if torch.cuda.is_available():
-            gpu_name = torch.cuda.get_device_name()
-            logger.info(f"CUDA GPU detected: {gpu_name} - using faster-whisper with GPU")
-            return SpeechEngineType.FASTER_WHISPER, {
-                'model_path': 'base',  # Good balance of speed/accuracy
-                'device': 'auto',  # Will select GPU
-                'compute_type': 'auto',
-                'samplerate': 16000
-            }
-        else:
-            logger.info("No GPU detected - using faster-whisper with CPU")
-            return SpeechEngineType.FASTER_WHISPER, {
-                'model_path': 'tiny',  # Faster on CPU
-                'device': 'cpu',
-                'compute_type': 'int8',
-                'samplerate': 16000
-            }
-            
+        # Use sherpa-onnx with CPU as the default choice
+        logger.info("Using sherpa-onnx with CPU (default)")
+        return SpeechEngineType.SHERPA_ONNX, {
+            'model_path': 'models/sherpa-onnx/sherpa-onnx-streaming-zipformer-en-2023-06-26',
+            'provider': 'cpu',
+            'use_int8': True,
+            'samplerate': 16000
+        }
+        
     except ImportError:
-        logger.info("faster-whisper not available")
+        logger.info("sherpa-onnx not available")
     except Exception as e:
-        logger.warning(f"Error checking faster-whisper: {e}")
+        logger.warning(f"Error checking sherpa-onnx: {e}")
     
     # Fallback to Vosk (reliable CPU-based option)
     logger.info("Using Vosk engine as fallback")
@@ -745,39 +771,27 @@ def detect_best_engine():
 # @main
 def main():
     global app, tk_root, transcribe_thread, running
-    parser = argparse.ArgumentParser(description="Talkie - Speech to Text with OpenVINO Whisper")
+    parser = argparse.ArgumentParser(description="Talkie - Speech to Text with Sherpa-ONNX")
     parser.add_argument("-d", "--device", help="Substring of audio input device name")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (debug) output")
     parser.add_argument("-m", "--model", help="Path to Vosk model (fallback only)")
     parser.add_argument("-t", "--transcribe", action="store_true", help="Start transcription immediately")
-    parser.add_argument("--whisper-model", default="openai/whisper-base", 
-                       help="OpenVINO Whisper model name (default: openai/whisper-base)")
-    parser.add_argument("--engine", choices=["auto", "faster-whisper", "vosk", "openvino", "sherpa-onnx"], 
-                       default="auto", help="Force specific engine (default: auto)")
-    parser.add_argument("--ov-device", default="AUTO",
-                       help="OpenVINO device (NPU, GPU, CPU, AUTO) (default: AUTO)")
+    parser.add_argument("--engine", choices=["auto", "vosk", "sherpa-onnx"], 
+                       default="auto", help="Speech engine (default: auto)")
     parser.add_argument("--sherpa-provider", default="auto", 
-                       choices=["auto", "cpu", "gpu", "npu"],
-                       help="Sherpa-ONNX provider (auto, cpu, gpu, npu) (default: auto)")
+                       choices=["auto", "cpu", "gpu"],
+                       help="Sherpa-ONNX provider (auto, cpu, gpu) (default: auto)")
     args = parser.parse_args()
 
     # Setup logging
     setup_logging(args.verbose)
 
-    logger.info("Talkie - Speech to Text with OpenVINO Whisper - Starting up")
+    logger.info("Talkie - Speech to Text with Sherpa-ONNX - Starting up")
     logger.info(f"Block duration: {BLOCK_DURATION} seconds")
     logger.info(f"Queue size: {QUEUE_SIZE}")
 
     # Determine engine configuration
-    if args.engine == 'faster-whisper':
-        engine_config = {
-            'engine_type': SpeechEngineType.FASTER_WHISPER,
-            'model_path': 'base',  # Good default model
-            'device': 'auto',
-            'compute_type': 'auto',
-            'samplerate': 16000
-        }
-    elif args.engine == 'vosk':
+    if args.engine == 'vosk':
         engine_config = {
             'engine_type': SpeechEngineType.VOSK,
             'model_path': args.model or DEFAULT_MODEL_PATH,
@@ -787,13 +801,6 @@ def main():
         if not os.path.exists(engine_config['model_path']):
             logger.error(f"Vosk model path does not exist: {engine_config['model_path']}")
             return
-    elif args.engine == 'openvino':
-        engine_config = {
-            'engine_type': SpeechEngineType.OPENVINO_WHISPER,
-            'model_path': args.whisper_model,
-            'device': args.ov_device,
-            'samplerate': 16000
-        }
     elif args.engine == 'sherpa-onnx':
         engine_config = {
             'engine_type': SpeechEngineType.SHERPA_ONNX,
@@ -806,6 +813,9 @@ def main():
         engine_type, engine_params = detect_best_engine()
         engine_config = {'engine_type': engine_type, **engine_params}
 
+    # Setup environment variables based on engine configuration
+    setup_engine_environment(engine_config)
+    
     logger.info(f"Using engine: {engine_config['engine_type'].value}")
     logger.info(f"Engine config: {engine_config}")
 
