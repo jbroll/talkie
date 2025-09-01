@@ -704,69 +704,55 @@ class TalkieUI:
 def setup_engine_environment(engine_config):
     """Setup environment variables based on selected engine configuration"""
     import os
-    from pathlib import Path
     
-    # Always set LD_LIBRARY_PATH for onnxruntime
-    talkie_root = Path.home() / "src" / "talkie"
-    onnx_lib_path = talkie_root / "lib" / "python3.12" / "site-packages" / "onnxruntime" / "capi"
-    
-    if onnx_lib_path.exists():
-        current_ld_path = os.environ.get('LD_LIBRARY_PATH', '')
-        if current_ld_path:
-            os.environ['LD_LIBRARY_PATH'] = f"{onnx_lib_path}:{current_ld_path}"
-        else:
-            os.environ['LD_LIBRARY_PATH'] = str(onnx_lib_path)
-        logger.debug(f"Set LD_LIBRARY_PATH: {os.environ['LD_LIBRARY_PATH']}")
-    
-    # Configure providers based on engine type and provider
-    if engine_config.get('engine_type') == SpeechEngineType.SHERPA_ONNX:
-        provider = engine_config.get('provider', 'cpu')
-        
-        if provider == 'gpu':
-            # GPU configuration
-            os.environ['ORT_PROVIDERS'] = 'OpenVINOExecutionProvider,CPUExecutionProvider'
-            os.environ['OV_DEVICE'] = 'GPU'
-            os.environ['OV_GPU_ENABLE_BINARY_CACHE'] = '1'
-            logger.info("Configured environment for GPU-accelerated Sherpa-ONNX")
-        else:
-            # CPU configuration (default) - don't override ONNX Runtime providers
-            # Let Sherpa-ONNX handle provider selection internally
-            # Clean up any existing GPU environment variables
-            for gpu_var in ['ORT_PROVIDERS', 'OV_DEVICE', 'OV_GPU_ENABLE_BINARY_CACHE']:
-                if gpu_var in os.environ:
-                    del os.environ[gpu_var]
-            logger.info("Configured environment for CPU-based Sherpa-ONNX")
+    # Configure environment based on engine type
+    engine_type = engine_config.get('engine_type')
+    if engine_type == SpeechEngineType.SHERPA_ONNX:
+        # Clean up any existing GPU environment variables for CPU-only operation
+        for gpu_var in ['ORT_PROVIDERS', 'OV_DEVICE', 'OV_GPU_ENABLE_BINARY_CACHE']:
+            if gpu_var in os.environ:
+                del os.environ[gpu_var]
+        logger.info("Configured environment for CPU-based Sherpa-ONNX")
+    elif engine_type == SpeechEngineType.VOSK:
+        # Vosk doesn't need special environment configuration
+        logger.debug("Using Vosk engine - no special environment setup needed")
 
 # @engine_detection  
 def detect_best_engine():
-    """Detect best available speech engine with sherpa-onnx CPU preferred"""
+    """Detect best available speech engine with Vosk preferred for accuracy"""
     logger = logging.getLogger(__name__)
     
-    # Try sherpa-onnx with CPU first (preferred default for optimal performance)
+    # Try Vosk first (preferred default for accuracy and reliability)
     try:
-        import sherpa_onnx
+        import vosk
         import os
         
-        # Use sherpa-onnx with CPU as the default choice
-        logger.info("Using sherpa-onnx with CPU (default)")
+        # Check if the Vosk model path exists
+        if os.path.exists(DEFAULT_MODEL_PATH):
+            logger.info("Using Vosk engine (default)")
+            return SpeechEngineType.VOSK, {
+                'model_path': DEFAULT_MODEL_PATH,
+                'samplerate': 16000
+            }
+        else:
+            logger.warning(f"Vosk model not found at {DEFAULT_MODEL_PATH}")
+    except ImportError:
+        logger.info("Vosk not available")
+    except Exception as e:
+        logger.warning(f"Error checking Vosk: {e}")
+    
+    # Fallback to Sherpa-ONNX if Vosk unavailable
+    try:
+        import sherpa_onnx
+        logger.info("Using Sherpa-ONNX engine as fallback")
         return SpeechEngineType.SHERPA_ONNX, {
             'model_path': 'models/sherpa-onnx/sherpa-onnx-streaming-zipformer-en-2023-06-26',
-            'provider': 'cpu',
             'use_int8': True,
             'samplerate': 16000
         }
-        
     except ImportError:
-        logger.info("sherpa-onnx not available")
-    except Exception as e:
-        logger.warning(f"Error checking sherpa-onnx: {e}")
-    
-    # Fallback to Vosk (reliable CPU-based option)
-    logger.info("Using Vosk engine as fallback")
-    return SpeechEngineType.VOSK, {
-        'model_path': DEFAULT_MODEL_PATH,
-        'samplerate': 16000
-    }
+        logger.error("Neither Vosk nor Sherpa-ONNX available")
+        return None, None
 
 # @main
 def main():
@@ -778,9 +764,6 @@ def main():
     parser.add_argument("-t", "--transcribe", action="store_true", help="Start transcription immediately")
     parser.add_argument("--engine", choices=["auto", "vosk", "sherpa-onnx"], 
                        default="auto", help="Speech engine (default: auto)")
-    parser.add_argument("--sherpa-provider", default="auto", 
-                       choices=["auto", "cpu", "gpu"],
-                       help="Sherpa-ONNX provider (auto, cpu, gpu) (default: auto)")
     args = parser.parse_args()
 
     # Setup logging
@@ -805,12 +788,14 @@ def main():
         engine_config = {
             'engine_type': SpeechEngineType.SHERPA_ONNX,
             'model_path': 'models/sherpa-onnx/sherpa-onnx-streaming-zipformer-en-2023-06-26',
-            'provider': args.sherpa_provider,
             'use_int8': True,
             'samplerate': 16000
         }
     else:  # auto
         engine_type, engine_params = detect_best_engine()
+        if engine_type is None:
+            logger.error("No speech engines available")
+            return
         engine_config = {'engine_type': engine_type, **engine_params}
 
     # Setup environment variables based on engine configuration

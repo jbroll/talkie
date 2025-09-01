@@ -66,22 +66,19 @@ The project uses an adapter pattern for speech engines:
 - Queue size: 5 blocks
 - Uses 16kHz sample rate for audio processing
 
-### File Structure (Updated August 30, 2025)
+### File Structure (Updated August 31, 2025)
 ```
 talkie/
-├── talkie.py                          # Main application with OpenVINO integration
-├── talkie-with-engine.py              # Reference implementation 
+├── talkie.py                          # Main application with CPU speech engines
+├── talkie.sh                          # Unified shell launcher
 ├── JSONFileMonitor.py                 # File watcher for state management
-├── launch_talkie.sh                   # New unified launcher
-├── verify_npu.py                      # NPU verification tool
-├── test_engines.py                    # Engine testing framework
-├── requirements.txt                   # Updated with OpenVINO dependencies
+├── test_speech_engines.py             # Comprehensive engine testing
+├── requirements.txt                   # Clean CPU-only dependencies
 └── speech/
-    ├── __init__.py                    # Python package marker
+    ├── __init__.py                    # Python package marker  
     ├── speech_engine.py               # Base classes and factory
-    ├── OpenVINO_Whisper_engine.py     # OpenVINO Whisper adapter
-    ├── Vosk_engine.py                 # Vosk adapter
-    └── FasterWhisper_engine.py        # FasterWhisper adapter
+    ├── SherpaONNX_engine.py           # Sherpa-ONNX CPU adapter
+    └── Vosk_engine.py                 # Vosk adapter
 ```
 
 ## Implementation Status (August 30, 2025)
@@ -110,30 +107,24 @@ talkie/
 
 ## Current Status (August 31, 2025)
 
-### Sherpa-ONNX GPU Integration Complete
+### Vosk Primary Engine Integration Complete
 
 **Working Components:**
-- Intel Core Ultra 7 155H with Intel Arc Graphics [0x7d55]
-- OpenVINO 2025.2.0 stack with GPU acceleration
-- Sherpa-ONNX built from source with onnxruntime-openvino integration
-- GPU-accelerated speech recognition with 1.91x real-time performance
+- Intel Core Ultra 7 155H with reliable CPU processing
+- Vosk speech recognition with proven accuracy and reliability
+- CPU-based speech recognition with excellent quality and performance
 - Automatic engine detection and fallback system
 
-**Hardware Detection:**
-- CPU: Intel Core Ultra 7 155H (detected)
-- GPU: Intel Arc Graphics [0x7d55] (working with OpenVINO)
-- NPU: intel_vpu driver loaded (not exposed to OpenVINO 2025.2.0)
-
-**Performance Metrics:**
-- Sherpa-ONNX GPU: 3.45s for 6.6s audio (1.91x real-time)
-- OpenVINO Whisper GPU: Model conversion 30s, then real-time processing
-- Vosk fallback: Instant startup, reliable baseline performance
+**Current Implementation:**
+- **Primary:** Vosk (optimized for accuracy and reliability)
+- **Fallback:** Sherpa-ONNX CPU (if Vosk unavailable)
+- Clean, simplified codebase focused on accuracy
 
 ### Command Reference
 
 **Primary Usage:**
 ```bash
-./talkie.sh                    # Run with GPU acceleration
+./talkie.sh                    # Run with Vosk engine (default)
 ./talkie.sh start              # Start transcription
 ./talkie.sh stop               # Stop transcription
 ./talkie.sh toggle             # Toggle transcription
@@ -142,22 +133,35 @@ talkie/
 
 **Engine Selection:**
 ```bash
-python talkie.py --engine auto              # Auto-detect (default)
-python talkie.py --engine vosk              # Force Vosk
-python talkie.py --engine openvino          # Force OpenVINO
+./talkie.sh --engine auto              # Auto-detect (default: Vosk)
+./talkie.sh --engine vosk              # Force Vosk (recommended)
+./talkie.sh --engine sherpa-onnx       # Force Sherpa-ONNX CPU
 ```
 
-**OpenVINO Device Control:**
-```bash
-python talkie.py --engine openvino --ov-device GPU    # Intel Arc Graphics
-python talkie.py --engine openvino --ov-device CPU    # CPU processing
-```
+### Intel ARC Graphics Integration Process (Reference)
 
-**Verification Commands:**
-```bash
-python verify_npu.py                        # Check OpenVINO installation
-./launch_talkie.sh --verbose                # Launch with detailed logging
-```
+**Note:** The following documents the successful ARC Graphics GPU acceleration process that was implemented and tested. While removed from the current codebase for simplicity, this process can be referenced for future GPU integration work.
+
+**Successfully Validated Hardware:**
+- Intel Core Ultra 7 155H with Intel Arc Graphics [0x7d55]
+- OpenVINO 2025.2.0 stack with GPU acceleration
+- Sherpa-ONNX built from source with onnxruntime-openvino integration
+
+**Achieved Performance Metrics:**
+- Sherpa-ONNX GPU: 3.45s for 6.6s audio (1.91x real-time performance)
+- GPU acceleration successfully implemented and tested
+
+**Integration Steps (Reference):**
+1. **Environment Setup:** LD_LIBRARY_PATH, ORT_PROVIDERS, OV_DEVICE configuration
+2. **OpenVINO Detection:** GPU device availability checking
+3. **Sherpa-ONNX Configuration:** Provider selection and model loading
+4. **Runtime Optimization:** INT8 quantization with OpenVINO execution
+
+**Key Files for Future GPU Work:**
+- Environment variable management in main application
+- Provider selection logic in speech engine adapters
+- OpenVINO device detection and configuration
+- Performance benchmarking and validation tools
 
 ### When generating replies, documentation, or code:
 
