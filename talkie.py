@@ -16,7 +16,7 @@ import numpy as np
 import json
 import queue
 import tkinter as tk
-from tkinter import scrolledtext, Menu
+from tkinter import scrolledtext, Menu, ttk
 import signal
 import sys
 import termios
@@ -28,6 +28,7 @@ from pathlib import Path
 
 from JSONFileMonitor import JSONFileMonitor
 from speech.speech_engine import SpeechManager, SpeechEngineType, SpeechResult
+import os
 
 # @constants
 BLOCK_DURATION = 0.1  # in seconds
@@ -36,6 +37,17 @@ DEFAULT_MODEL_PATH = "/home/john/Downloads/vosk-model-en-us-0.22-lgraph"
 MIN_WORD_LENGTH = 2
 MAX_NUMBER_BUFFER_SIZE = 20  # Maximum number of words to buffer for number conversion
 NUMBER_TIMEOUT = 2.0  # Seconds to wait before processing number buffer
+
+# Config file management
+CONFIG_FILE = Path.home() / ".talkie.conf"
+DEFAULT_CONFIG = {
+    "audio_device": "pulse",
+    "voice_threshold": 50.0,
+    "silence_trailing_duration": 0.5,
+    "speech_timeout": 3.0,
+    "engine": "vosk",
+    "model_path": DEFAULT_MODEL_PATH
+}
 
 # @state_enum
 class ProcessingState(Enum):
@@ -66,6 +78,9 @@ last_speech_time = None
 
 # Lookback buffer for catching word leading edges
 previous_audio_buffer = None
+
+# Utterance boundary tracking for proper spacing
+last_utterance_completed = False
 
 # State machine variables
 processing_state = ProcessingState.NORMAL
@@ -150,6 +165,48 @@ def setup_logging(verbose=False):
     # Disable propagation to the root logger
     logger.propagate = False
 
+# @config_management
+def load_config():
+    """Load configuration from JSON file, creating default if not exists"""
+    global voice_threshold, silence_trailing_duration, speech_timeout
+    
+    try:
+        if CONFIG_FILE.exists():
+            with open(CONFIG_FILE, 'r') as f:
+                config = json.load(f)
+            logger.info(f"Loaded config from {CONFIG_FILE}")
+        else:
+            config = DEFAULT_CONFIG.copy()
+            save_config(config)
+            logger.info(f"Created default config at {CONFIG_FILE}")
+        
+        # Update global variables from config
+        voice_threshold = config.get("voice_threshold", DEFAULT_CONFIG["voice_threshold"])
+        silence_trailing_duration = config.get("silence_trailing_duration", DEFAULT_CONFIG["silence_trailing_duration"])
+        speech_timeout = config.get("speech_timeout", DEFAULT_CONFIG["speech_timeout"])
+        
+        return config
+        
+    except Exception as e:
+        logger.error(f"Error loading config: {e}")
+        return DEFAULT_CONFIG.copy()
+
+def save_config(config):
+    """Save configuration to JSON file"""
+    try:
+        with open(CONFIG_FILE, 'w') as f:
+            json.dump(config, f, indent=2)
+        logger.debug(f"Saved config to {CONFIG_FILE}")
+    except Exception as e:
+        logger.error(f"Error saving config: {e}")
+
+def update_config_param(key, value):
+    """Update a single parameter in the config file"""
+    config = load_config()
+    config[key] = value
+    save_config(config)
+    logger.debug(f"Updated config: {key} = {value}")
+
 # @smart_capitalize
 def smart_capitalize(text):
     global capitalize_next
@@ -162,10 +219,18 @@ def smart_capitalize(text):
 def process_text(text, is_final=False):
     logger.info(f"Processing text: {text}")
     global capitalize_next, processing_state, number_buffer, number_mode_start_time, last_word_time
+    global last_utterance_completed
     
     words = text.split()
     output = []
     current_time = time.time()
+    
+    # Add space at beginning of new utterance if we just completed a previous utterance
+    add_leading_space = False
+    if last_utterance_completed and len(words) > 0:
+        add_leading_space = True
+        last_utterance_completed = False  # Reset the flag
+        logger.debug("Adding leading space for new utterance")
 
     def is_number_word(word):
         """Check if a word can be converted to a number"""
@@ -288,8 +353,16 @@ def process_text(text, is_final=False):
         result = result.strip()
 
     if result:  # Only type if there's something to type
+        # Add leading space for new utterance if needed
+        if add_leading_space:
+            result = ' ' + result
+        
         type_text(result + (' ' if not is_final else ''))
         logger.info(f"Processed and typed text: {result}")
+    elif add_leading_space:
+        # Even if no words, we might need to add just a space for separation
+        type_text(' ')
+        logger.debug("Typed leading space for utterance separation")
 
 # @callback
 def callback(indata, frames, time_info, status):
@@ -407,10 +480,12 @@ def transcribe(device_id, samplerate, block_duration, queue_size, engine_config)
 
     # Initialize speech manager with selected engine
     def handle_speech_result(result: SpeechResult):
+        global last_utterance_completed
         if transcribing:
             if result.is_final:
                 logger.info(f"Final: {result.text}")
                 process_text(result.text, is_final=True)
+                last_utterance_completed = True  # Mark that we completed an utterance
                 if app:
                     app.clear_partial_text()
             else:
@@ -532,6 +607,17 @@ def list_audio_devices():
             logger.info(f"{i}: {device['name']}")
     return devices
 
+def get_input_devices_for_ui():
+    """Get a list of input devices formatted for UI dropdown"""
+    devices = sd.query_devices()
+    input_devices = []
+    for i, device in enumerate(devices):
+        if device['max_input_channels'] > 0:
+            # Format: "device_name (ID: device_id)"
+            display_name = f"{device['name']} (ID: {i})"
+            input_devices.append((display_name, i, device['name']))
+    return input_devices
+
 # @get_supported_samplerates
 def get_supported_samplerates(device_id):
     device_info = sd.query_devices(device_id, 'input')
@@ -546,40 +632,74 @@ def get_supported_samplerates(device_id):
     return supported_rates
 
 # @select_audio_device
-def select_audio_device(device_substring=None):
+def select_audio_device(device_substring=None, config=None):
     devices = list_audio_devices()
     
+    # If no device specified, try to use config
+    if not device_substring and config:
+        device_substring = config.get("audio_device")
+        logger.info(f"Using audio device from config: {device_substring}")
+    
     if device_substring:
-        matching_devices = [
-            (i, device) for i, device in enumerate(devices)
-            if device['max_input_channels'] > 0 and device_substring.lower() in device['name'].lower()
-        ]
+        device_id = None
+        device_info = None
         
-        if matching_devices:
-            if len(matching_devices) > 1:
-                logger.info("Multiple matching devices found:")
-                for i, device in matching_devices:
-                    logger.info(f"{i}: {device['name']}")
-                device_id = int(input("Enter the number of the input device you want to use: "))
-            else:
-                device_id = matching_devices[0][0]
-            
-            device_info = devices[device_id]
-            logger.info(f"Selected device: {device_info['name']}")
-        else:
-            logger.error(f"No device matching '{device_substring}' found.")
-            return None, None
-    else:
-        while True:
-            try:
-                device_id = int(input("Enter the number of the input device you want to use: "))
+        # First try numeric input (existing behavior)
+        try:
+            device_id = int(device_substring)
+            if 0 <= device_id < len(devices) and devices[device_id]['max_input_channels'] > 0:
                 device_info = devices[device_id]
-                if device_info['max_input_channels'] > 0:
-                    break
+                logger.info(f"Selected device by number: {device_info['name']}")
+            else:
+                logger.error(f"Device {device_id} not found or has no input channels.")
+                return None, None
+        except ValueError:
+            # Not a number, try name matching
+            # Common device name aliases
+            device_aliases = {
+                'pulse': 'pulse',
+                'default': 'default',
+                'system': 'sysdefault',
+                'sys': 'sysdefault'
+            }
+            
+            # Check aliases first
+            search_term = device_aliases.get(device_substring.lower(), device_substring.lower())
+            
+            matching_devices = [
+                (i, device) for i, device in enumerate(devices)
+                if device['max_input_channels'] > 0 and search_term in device['name'].lower()
+            ]
+            
+            if matching_devices:
+                if len(matching_devices) > 1:
+                    logger.info("Multiple matching devices found:")
+                    for i, device in matching_devices:
+                        logger.info(f"{i}: {device['name']}")
+                    # Auto-select the first matching device (prefer exact matches)
+                    exact_matches = [d for d in matching_devices if search_term == d[1]['name'].lower()]
+                    if exact_matches:
+                        device_id, device_info = exact_matches[0]
+                        logger.info(f"Selected exact match: {device_info['name']}")
+                    else:
+                        device_id, device_info = matching_devices[0]
+                        logger.info(f"Selected first match: {device_info['name']}")
                 else:
-                    logger.error("Invalid input device. Please choose a device with input channels.")
-            except (ValueError, IndexError):
-                logger.error("Invalid input. Please enter a valid device number.")
+                    device_id, device_info = matching_devices[0]
+                
+                logger.info(f"Selected device: {device_info['name']}")
+            else:
+                logger.error(f"No device matching '{device_substring}' found.")
+                return None, None
+    else:
+        # No device specified and no config - use defaults
+        logger.error("No audio device specified. Use --device <name> or configure in ~/.talkie.conf")
+        logger.info("Available devices:")
+        for i, device in enumerate(devices):
+            if device['max_input_channels'] > 0:
+                logger.info(f"  {i}: {device['name']}")
+        logger.info("Example: ./talkie.sh --device pulse")
+        return None, None
     
     supported_rates = get_supported_samplerates(device_id)
     if not supported_rates:
@@ -753,6 +873,28 @@ class TalkieUI:
         self.button = tk.Button(master, text="Start Transcription", command=self.toggle_transcription)
         self.button.pack(pady=10)
 
+        # Audio device selection frame
+        self.device_frame = tk.Frame(master)
+        self.device_frame.pack(pady=5)
+        
+        tk.Label(self.device_frame, text="Audio Device:").pack(side=tk.LEFT)
+        
+        # Get available devices
+        self.available_devices = get_input_devices_for_ui()
+        device_names = [device[0] for device in self.available_devices]  # Display names
+        
+        self.device_var = tk.StringVar()
+        self.device_combo = ttk.Combobox(self.device_frame, 
+                                        textvariable=self.device_var,
+                                        values=device_names,
+                                        state="readonly",
+                                        width=30)
+        self.device_combo.pack(side=tk.LEFT, padx=5)
+        self.device_combo.bind("<<ComboboxSelected>>", self.on_device_change)
+        
+        # Set current device from config
+        self.set_current_device_from_config()
+
         # Voice threshold controls frame
         self.controls_frame = tk.Frame(master)
         self.controls_frame.pack(pady=5)
@@ -813,12 +955,14 @@ class TalkieUI:
         """Update the global voice threshold when slider changes"""
         global voice_threshold
         voice_threshold = float(value)
+        update_config_param("voice_threshold", voice_threshold)
         logger.debug(f"Voice threshold updated to: {voice_threshold}")
 
     def update_silence_duration(self, value):
         """Update the global silence trailing duration when slider changes"""
         global silence_trailing_duration, max_silence_frames
         silence_trailing_duration = float(value)
+        update_config_param("silence_trailing_duration", silence_trailing_duration)
         # Recalculate max_silence_frames based on current block duration
         max_silence_frames = int(silence_trailing_duration / BLOCK_DURATION)
         logger.debug(f"Silence trailing duration updated to: {silence_trailing_duration}s ({max_silence_frames} frames)")
@@ -827,7 +971,58 @@ class TalkieUI:
         """Update the global speech timeout when slider changes"""
         global speech_timeout
         speech_timeout = float(value)
+        update_config_param("speech_timeout", speech_timeout)
         logger.debug(f"Speech timeout updated to: {speech_timeout}s")
+
+    def set_current_device_from_config(self):
+        """Set the dropdown to show the current configured device"""
+        try:
+            config = load_config()
+            current_device = config.get("audio_device", "pulse")
+            
+            # Find matching device in the list
+            for display_name, device_id, device_name in self.available_devices:
+                # Check if the config device matches by name or ID
+                if (current_device.lower() in device_name.lower() or 
+                    (current_device.isdigit() and int(current_device) == device_id)):
+                    self.device_var.set(display_name)
+                    logger.debug(f"Set UI device to: {display_name}")
+                    break
+            else:
+                # Fallback to first device if no match found
+                if self.available_devices:
+                    self.device_var.set(self.available_devices[0][0])
+                    logger.warning(f"Device '{current_device}' not found, using first available")
+        except Exception as e:
+            logger.error(f"Error setting current device from config: {e}")
+
+    def on_device_change(self, event=None):
+        """Handle audio device change from dropdown"""
+        try:
+            selected_display_name = self.device_var.get()
+            
+            # Find the selected device info
+            selected_device = None
+            for display_name, device_id, device_name in self.available_devices:
+                if display_name == selected_display_name:
+                    selected_device = (display_name, device_id, device_name)
+                    break
+            
+            if selected_device:
+                display_name, device_id, device_name = selected_device
+                logger.info(f"Device changed to: {device_name} (ID: {device_id})")
+                
+                # Update config with device name for consistency
+                update_config_param("audio_device", device_name.lower())
+                
+                # Show a message that restart is needed for device change
+                logger.info("Device changed in config. Restart talkie to use the new device.")
+                
+                # Update the window title to show pending restart
+                self.master.title("Talkie - Restart required for device change")
+                
+        except Exception as e:
+            logger.error(f"Error changing audio device: {e}")
 
     def update_energy_display(self):
         """Update the audio energy display in real-time"""
@@ -935,6 +1130,10 @@ def main():
     # Setup logging
     setup_logging(args.verbose)
 
+    # Load configuration
+    config = load_config()
+    logger.info(f"Loaded configuration: {config}")
+
     logger.info("Talkie - Speech to Text with Sherpa-ONNX - Starting up")
     logger.info(f"Block duration: {BLOCK_DURATION} seconds")
     logger.info(f"Queue size: {QUEUE_SIZE}")
@@ -974,11 +1173,14 @@ def main():
     try:
         if args.device:
             device_id, samplerate = select_audio_device(args.device)
+            # Save device choice to config if it was manually specified
+            update_config_param("audio_device", args.device)
         else:
-            device_id, samplerate = select_audio_device()
+            device_id, samplerate = select_audio_device(config=config)
 
         if device_id is None or samplerate is None:
             logger.error("Failed to select a valid audio device or sample rate.")
+            logger.error("Available devices: " + str([f"{i}: {d['name']}" for i, d in enumerate(sd.query_devices()) if d['max_input_channels'] > 0]))
             return
 
         logger.info(f"Selected device ID: {device_id}, Sample rate: {samplerate}")
