@@ -206,6 +206,7 @@ class TalkieApplication:
                 logger.info(f"Final: {result.text}")
                 self.text_processor.process_text(result.text, is_final=True)
                 if self.gui:
+                    self.gui.add_final_result(result.text)  # Add to final results buffer
                     self.gui.clear_partial_text()
             else:
                 logger.debug(f"Partial: {result.text}")

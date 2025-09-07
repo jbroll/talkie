@@ -2,7 +2,7 @@
 
 import logging
 import tkinter as tk
-from tkinter import scrolledtext, Menu, ttk
+from tkinter import scrolledtext, ttk
 
 logger = logging.getLogger(__name__)
 
@@ -26,38 +26,33 @@ class TalkieGUI:
         """Initialize the main UI components"""
         self.master.title("Talkie")
         
-        # Create menu bar
-        self.menu_bar = Menu(self.master)
-        self.master.config(menu=self.menu_bar)
-        
-        # Create File menu
-        self.file_menu = Menu(self.menu_bar, tearoff=0)
-        self.menu_bar.add_cascade(label="File", menu=self.file_menu)
-        self.file_menu.add_command(label="Quit", command=self.quit_app, accelerator="Alt+Q")
-        
         # Bind Alt+Q to quit_app function
         self.master.bind("<Alt-q>", lambda event: self.quit_app())
         
-        # Main transcription toggle button
-        self.button = tk.Button(self.master, text="Start Transcription", command=self.toggle_transcription)
-        self.button.pack(pady=10)
+        # Button row frame
+        button_frame = tk.Frame(self.master)
+        button_frame.pack(fill=tk.X, pady=10)
         
-        # Audio device selection frame
-        self._setup_device_frame()
+        # Main transcription toggle button (flush left)
+        self.button = tk.Button(button_frame, text="Start Transcription", command=self.toggle_transcription)
+        self.button.pack(side=tk.LEFT, pady=0)
         
-        # Voice threshold and controls
-        self._setup_controls_frame()
+        # Audio energy display (center) - styled like a button, same row
+        self.energy_label = tk.Label(button_frame, text="Audio: 0", 
+                                    relief="raised", bd=2, 
+                                    padx=10, pady=5, 
+                                    font=("Arial", 10))
+        self.energy_label.pack(side=tk.LEFT, expand=True, padx=10, pady=0)
         
-        # Second row of controls
-        self._setup_controls_frame2()
+        # Quit button (flush right)
+        self.quit_button = tk.Button(button_frame, text="Quit", command=self.quit_app)
+        self.quit_button.pack(side=tk.RIGHT, pady=0)
         
-        # Partial text display
-        self.partial_text = scrolledtext.ScrolledText(self.master, wrap=tk.WORD, width=60, height=10)
-        self.partial_text.pack(pady=10)
+        # All controls in single column
+        self._setup_controls_column()
         
-        # Configure tags for sent and unsent words
-        self.partial_text.tag_configure("sent", foreground="gray")
-        self.partial_text.tag_configure("unsent", foreground="black")
+        # Text display areas
+        self._setup_text_areas()
         
         # Status label
         self.status_label = tk.Label(self.master, text="Transcription: OFF")
@@ -163,6 +158,129 @@ class TalkieGUI:
         self.lookback_info = tk.Label(self.controls_frame3, text="(0.5s @ 44kHz)", fg="gray")
         self.lookback_info.pack(side=tk.LEFT, padx=5)
     
+    def _setup_text_areas(self):
+        """Setup dual text display areas"""
+        from collections import deque
+        
+        # Frame for text areas
+        text_frame = tk.Frame(self.master)
+        text_frame.pack(pady=10, fill=tk.BOTH, expand=True)
+        
+        # Final results history (top)
+        self.final_text = scrolledtext.ScrolledText(text_frame, wrap=tk.WORD, width=80, height=12)
+        self.final_text.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
+        
+        # Configure tags for final results
+        self.final_text.tag_configure("final", foreground="black")
+        self.final_text.tag_configure("timestamp", foreground="gray", font=("Arial", 8))
+        
+        # Rolling buffer for final results (max 15 entries)
+        self.final_results_buffer = deque(maxlen=15)
+        
+        # Current partial text (bottom, smaller)
+        self.partial_text = scrolledtext.ScrolledText(text_frame, wrap=tk.WORD, width=80, height=3)
+        self.partial_text.pack(fill=tk.X, pady=(5, 0))
+        
+        # Configure tags for partial results
+        self.partial_text.tag_configure("sent", foreground="gray")
+        self.partial_text.tag_configure("unsent", foreground="black")
+    
+    def _setup_controls_column(self):
+        """Setup all controls in a single column with labels left, controls right"""
+        # Main controls frame
+        controls_container = tk.Frame(self.master)
+        controls_container.pack(pady=10, padx=20, fill=tk.X)
+        
+        # Audio Device row
+        device_frame = tk.Frame(controls_container)
+        device_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Label(device_frame, text="Audio Device:", width=20, anchor="w").pack(side=tk.LEFT)
+        
+        # Get available devices
+        self.available_devices = self.audio_manager.get_input_devices_for_ui()
+        device_names = [device[0] for device in self.available_devices]
+        
+        device_control_frame = tk.Frame(device_frame)
+        device_control_frame.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        
+        self.device_var = tk.StringVar()
+        self.device_combo = ttk.Combobox(device_control_frame, 
+                                        textvariable=self.device_var,
+                                        values=device_names,
+                                        state="readonly")
+        self.device_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.device_combo.bind("<<ComboboxSelected>>", self.on_device_change)
+        
+        # Set current device from config
+        self._setup_device_selection()
+        
+        # Voice Threshold row
+        threshold_frame = tk.Frame(controls_container)
+        threshold_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Label(threshold_frame, text="Voice Threshold:", width=20, anchor="w").pack(side=tk.LEFT)
+        
+        threshold_control_frame = tk.Frame(threshold_frame)
+        threshold_control_frame.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        
+        self.threshold_var = tk.DoubleVar(value=self.audio_manager.voice_threshold)
+        self.threshold_scale = tk.Scale(threshold_control_frame, from_=10, to=300, 
+                                       resolution=5, orient=tk.HORIZONTAL, 
+                                       variable=self.threshold_var,
+                                       command=self.update_threshold)
+        self.threshold_scale.pack(fill=tk.X, expand=True)
+        
+        # Silence Trailing Duration row
+        silence_frame = tk.Frame(controls_container)
+        silence_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Label(silence_frame, text="Silence Trailing (s):", width=20, anchor="w").pack(side=tk.LEFT)
+        
+        silence_control_frame = tk.Frame(silence_frame)
+        silence_control_frame.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        
+        self.silence_var = tk.DoubleVar(value=self.audio_manager.silence_trailing_duration)
+        self.silence_scale = tk.Scale(silence_control_frame, from_=0.1, to=2.0, 
+                                     resolution=0.1, orient=tk.HORIZONTAL, 
+                                     variable=self.silence_var,
+                                     command=self.update_silence_duration)
+        self.silence_scale.pack(fill=tk.X, expand=True)
+        
+        # Speech Timeout row
+        timeout_frame = tk.Frame(controls_container)
+        timeout_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Label(timeout_frame, text="Speech Timeout (s):", width=20, anchor="w").pack(side=tk.LEFT)
+        
+        timeout_control_frame = tk.Frame(timeout_frame)
+        timeout_control_frame.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        
+        self.timeout_var = tk.DoubleVar(value=self.audio_manager.speech_timeout)
+        self.timeout_scale = tk.Scale(timeout_control_frame, from_=1.0, to=10.0, 
+                                     resolution=0.5, orient=tk.HORIZONTAL, 
+                                     variable=self.timeout_var,
+                                     command=self.update_speech_timeout)
+        self.timeout_scale.pack(fill=tk.X, expand=True)
+        
+        # Lookback Frames row
+        lookback_frame = tk.Frame(controls_container)
+        lookback_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Label(lookback_frame, text="Lookback Frames (ms):", width=20, anchor="w").pack(side=tk.LEFT)
+        
+        lookback_control_frame = tk.Frame(lookback_frame)
+        lookback_control_frame.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        
+        # Convert frames to milliseconds for display
+        initial_ms = self.audio_manager.lookback_frames * 100
+        self.lookback_var = tk.IntVar(value=initial_ms)
+        self.lookback_scale = tk.Scale(lookback_control_frame, from_=100, to=2000, 
+                                      resolution=100, orient=tk.HORIZONTAL, 
+                                      variable=self.lookback_var,
+                                      command=self.update_lookback_frames)
+        self.lookback_scale.pack(fill=tk.X, expand=True)
+    
     def _start_energy_display_updates(self):
         """Start updating audio energy display"""
         self.update_energy_display()
@@ -194,14 +312,12 @@ class TalkieGUI:
     
     def update_lookback_frames(self, value):
         """Update the lookback buffer size when slider changes"""
-        frames = int(value)
+        duration_ms = int(value)
+        frames = duration_ms // 100  # Convert milliseconds back to frames
         self.audio_manager.update_lookback_frames(frames)
         self.config_manager.update_config_param("lookback_frames", frames)
         
-        # Update the info label with approximate duration
-        duration_ms = frames * 100  # Each frame is 0.1s = 100ms
-        self.lookback_info.config(text=f"({duration_ms}ms buffer)")
-        logger.debug(f"Lookback frames updated to: {frames} ({duration_ms}ms)")
+        logger.debug(f"Lookback buffer updated to: {duration_ms}ms ({frames} frames)")
     
     def on_device_change(self, event=None):
         """Handle audio device change from dropdown"""
@@ -255,16 +371,55 @@ class TalkieGUI:
     def update_partial_text(self, text):
         """Update partial text display with sent/unsent word styling"""
         self.partial_text.delete(1.0, tk.END)
-        words = text.split()
-        for word in words:
-            if word.startswith('<sent>') and word.endswith('</sent>'):
-                self.partial_text.insert(tk.END, word[6:-7] + ' ', "sent")
-            else:
-                self.partial_text.insert(tk.END, word + ' ', "unsent")
+        if text.strip():
+            words = text.split()
+            for word in words:
+                if word.startswith('<sent>') and word.endswith('</sent>'):
+                    self.partial_text.insert(tk.END, word[6:-7] + ' ', "sent")
+                else:
+                    self.partial_text.insert(tk.END, word + ' ', "unsent")
     
     def clear_partial_text(self):
         """Clear the partial text display"""
         self.partial_text.delete(1.0, tk.END)
+    
+    def add_final_result(self, text):
+        """Add a final result to the rolling buffer and display"""
+        import time
+        
+        if not text.strip():
+            return
+            
+        # Add timestamp
+        timestamp = time.strftime("%H:%M:%S")
+        
+        # Add to rolling buffer
+        self.final_results_buffer.append(f"[{timestamp}] {text.strip()}")
+        
+        # Update display
+        self._refresh_final_results_display()
+    
+    def _refresh_final_results_display(self):
+        """Refresh the final results display from buffer"""
+        self.final_text.delete(1.0, tk.END)
+        
+        for i, result in enumerate(self.final_results_buffer):
+            if i > 0:
+                self.final_text.insert(tk.END, "\n")
+            
+            # Parse timestamp and text
+            if result.startswith("[") and "] " in result:
+                bracket_end = result.find("] ")
+                timestamp = result[1:bracket_end]
+                text = result[bracket_end + 2:]
+                
+                self.final_text.insert(tk.END, f"[{timestamp}] ", "timestamp")
+                self.final_text.insert(tk.END, text, "final")
+            else:
+                self.final_text.insert(tk.END, result, "final")
+        
+        # Auto-scroll to bottom
+        self.final_text.see(tk.END)
     
     def quit_app(self):
         """Handle application quit request"""
