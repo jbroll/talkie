@@ -541,7 +541,7 @@ def transcribe(device_id, samplerate, block_duration, queue_size, engine_config)
                 logger.info(f"Audio stream initialized: device={device_id}, samplerate={samplerate} Hz")
                 
                 # Run the main processing loop
-                run_main_loop()
+                run_main_loop(speech_manager, handle_speech_result)
                 
         except Exception as e:
             logger.error(f"Error in audio stream: {e}")
@@ -555,13 +555,13 @@ def transcribe(device_id, samplerate, block_duration, queue_size, engine_config)
         # Run without audio stream - just the UI and file monitor
         try:
             # Run the main processing loop without audio
-            run_main_loop()
+            run_main_loop(speech_manager, handle_speech_result)
         finally:
             if speech_manager:
                 speech_manager.cleanup()
             file_monitor.stop()
 
-def run_main_loop():
+def run_main_loop(speech_manager, handle_speech_result):
     """Main processing loop that can run with or without audio"""
     global running, processing_state, number_buffer, number_mode_start_time, last_speech_time
     
