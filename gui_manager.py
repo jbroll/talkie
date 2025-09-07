@@ -145,6 +145,23 @@ class TalkieGUI:
                                      variable=self.timeout_var,
                                      command=self.update_speech_timeout)
         self.timeout_scale.pack(side=tk.LEFT, padx=5)
+        
+        # Third row of controls for lookback buffer
+        self.controls_frame3 = tk.Frame(self.master)
+        self.controls_frame3.pack(pady=5)
+        
+        # Lookback frames slider
+        tk.Label(self.controls_frame3, text="Lookback Frames:").pack(side=tk.LEFT)
+        self.lookback_var = tk.IntVar(value=self.audio_manager.lookback_frames)
+        self.lookback_scale = tk.Scale(self.controls_frame3, from_=1, to=20, 
+                                      resolution=1, orient=tk.HORIZONTAL, 
+                                      variable=self.lookback_var,
+                                      command=self.update_lookback_frames)
+        self.lookback_scale.pack(side=tk.LEFT, padx=5)
+        
+        # Info label for lookback buffer
+        self.lookback_info = tk.Label(self.controls_frame3, text="(0.5s @ 44kHz)", fg="gray")
+        self.lookback_info.pack(side=tk.LEFT, padx=5)
     
     def _start_energy_display_updates(self):
         """Start updating audio energy display"""
@@ -174,6 +191,17 @@ class TalkieGUI:
         self.audio_manager.update_speech_timeout(timeout)
         self.config_manager.update_config_param("speech_timeout", timeout)
         logger.debug(f"Speech timeout updated to: {timeout}s")
+    
+    def update_lookback_frames(self, value):
+        """Update the lookback buffer size when slider changes"""
+        frames = int(value)
+        self.audio_manager.update_lookback_frames(frames)
+        self.config_manager.update_config_param("lookback_frames", frames)
+        
+        # Update the info label with approximate duration
+        duration_ms = frames * 100  # Each frame is 0.1s = 100ms
+        self.lookback_info.config(text=f"({duration_ms}ms buffer)")
+        logger.debug(f"Lookback frames updated to: {frames} ({duration_ms}ms)")
     
     def on_device_change(self, event=None):
         """Handle audio device change from dropdown"""

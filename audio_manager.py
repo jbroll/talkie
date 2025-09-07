@@ -5,6 +5,7 @@ import numpy as np
 import queue
 import sounddevice as sd
 import time
+from collections import deque
 from pathlib import Path
 
 from JSONFileMonitor import JSONFileMonitor
@@ -14,10 +15,11 @@ logger = logging.getLogger(__name__)
 class AudioManager:
     """Manages audio input, device selection, and voice activity detection"""
     
-    def __init__(self, voice_threshold=50.0, silence_trailing_duration=0.5, speech_timeout=3.0):
+    def __init__(self, voice_threshold=50.0, silence_trailing_duration=0.5, speech_timeout=3.0, lookback_frames=5):
         self.voice_threshold = voice_threshold
         self.silence_trailing_duration = silence_trailing_duration
         self.speech_timeout = speech_timeout
+        self.lookback_frames = lookback_frames  # Number of frames to buffer before speech
         
         # Audio stream state
         self.transcribing = False
@@ -26,8 +28,11 @@ class AudioManager:
         self.last_speech_time = None
         self.silence_frames_sent = 0
         self.max_silence_frames = 0
-        self.previous_audio_buffer = None
         self.callback_count = 0
+        
+        # Circular buffer for pre-speech audio (lookback buffer)
+        self.lookback_buffer = deque(maxlen=self.lookback_frames)
+        logger.debug(f"Initialized lookback buffer with {self.lookback_frames} frames")
         
         # Queue for audio data
         self.q = None
@@ -76,6 +81,12 @@ class AudioManager:
         """Update speech timeout duration"""
         self.speech_timeout = float(timeout)
         logger.debug(f"Speech timeout updated to: {self.speech_timeout}s")
+    
+    def update_lookback_frames(self, frames):
+        """Update the number of lookback frames for pre-speech capture"""
+        self.lookback_frames = int(frames)
+        self.lookback_buffer = deque(maxlen=self.lookback_frames)
+        logger.debug(f"Updated lookback buffer to {self.lookback_frames} frames")
     
     def list_audio_devices(self):
         """List available audio input devices"""
@@ -218,10 +229,13 @@ class AudioManager:
             if audio_energy > self.voice_threshold:
                 # Voice detected
                 if self.speech_start_time is None:
-                    # Transition from silence to speech - send lookback buffer first
-                    if self.previous_audio_buffer is not None:
-                        self.q.put(self.previous_audio_buffer.tobytes())
-                        logger.debug("Sent lookback buffer for word leading edge")
+                    # Transition from silence to speech - send entire lookback buffer first
+                    frames_sent = 0
+                    for buffered_frame in self.lookback_buffer:
+                        self.q.put(buffered_frame)
+                        frames_sent += 1
+                    if frames_sent > 0:
+                        logger.debug(f"Sent {frames_sent} lookback frames for word leading edge")
                     self.speech_start_time = current_time
                     logger.debug("Speech started")
                 self.last_speech_time = current_time
@@ -245,9 +259,9 @@ class AudioManager:
                         logger.debug(f"Voice activity ended, energy: {audio_energy:.4f}")
                         self.speech_start_time = None
                 
-                # Store current buffer as potential lookback (only during silence)
+                # Always store audio frames in lookback buffer during silence
                 if audio_energy <= self.voice_threshold:
-                    self.previous_audio_buffer = audio_np.copy()
+                    self.lookback_buffer.append(audio_np.tobytes())
         elif self.transcribing and self.q and self.q.full():
             logger.debug("Audio queue is full, dropping audio data")
     

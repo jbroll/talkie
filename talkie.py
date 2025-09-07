@@ -141,7 +141,8 @@ class TalkieApplication:
         self.audio_manager = AudioManager(
             voice_threshold=self.config.get("voice_threshold", 50.0),
             silence_trailing_duration=self.config.get("silence_trailing_duration", 0.5),
-            speech_timeout=self.config.get("speech_timeout", 3.0)
+            speech_timeout=self.config.get("speech_timeout", 3.0),
+            lookback_frames=self.config.get("lookback_frames", 5)
         )
         
         logger.info("Components initialized successfully")
