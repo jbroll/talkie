@@ -29,11 +29,15 @@ class TalkieGUI:
         self.master.title("Talkie")
         
         # Set fixed window size to prevent resizing when switching views
-        self.master.geometry("800x400")
+        self._restore_window_position()
         self.master.minsize(800, 400)
         
         # Bind Alt+Q to quit_app function
         self.master.bind("<Alt-q>", lambda event: self.quit_app())
+        
+        # Save window position when window is moved or closed
+        self.master.protocol("WM_DELETE_WINDOW", self._on_window_close)
+        self.master.bind("<Configure>", self._on_window_configure)
         
         # Button row frame
         button_frame = tk.Frame(self.master)
@@ -415,3 +419,44 @@ class TalkieGUI:
     def set_quit_callback(self, callback):
         """Set the callback for quit operations"""
         self.quit_callback = callback
+    
+    def _restore_window_position(self):
+        """Restore window position from configuration"""
+        try:
+            config = self.config_manager.load_config()
+            x = config.get("window_x", 100)
+            y = config.get("window_y", 100)
+            self.master.geometry(f"800x400+{x}+{y}")
+            logger.debug(f"Restored window position to ({x}, {y})")
+        except Exception as e:
+            logger.error(f"Error restoring window position: {e}")
+            self.master.geometry("800x400+100+100")  # Fallback position
+    
+    def _save_window_position(self):
+        """Save current window position to configuration"""
+        try:
+            # Get current window position
+            geometry = self.master.geometry()
+            # Parse geometry string like "800x400+150+100"
+            if '+' in geometry:
+                parts = geometry.split('+')
+                if len(parts) >= 3:
+                    x = int(parts[1])
+                    y = int(parts[2])
+                    self.config_manager.update_config_param("window_x", x)
+                    self.config_manager.update_config_param("window_y", y)
+                    logger.debug(f"Saved window position ({x}, {y})")
+        except Exception as e:
+            logger.error(f"Error saving window position: {e}")
+    
+    def _on_window_configure(self, event):
+        """Handle window configuration changes (move/resize)"""
+        # Only save position for the main window, not child widgets
+        if event.widget == self.master:
+            # Small delay to avoid saving too frequently during dragging
+            self.master.after(500, self._save_window_position)
+    
+    def _on_window_close(self):
+        """Handle window close event"""
+        self._save_window_position()
+        self.quit_app()

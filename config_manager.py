@@ -16,7 +16,9 @@ DEFAULT_CONFIG = {
     "speech_timeout": 3.0,
     "lookback_frames": 5,
     "engine": "vosk",
-    "model_path": DEFAULT_MODEL_PATH
+    "model_path": DEFAULT_MODEL_PATH,
+    "window_x": 100,
+    "window_y": 100
 }
 
 class ConfigManager:

@@ -373,9 +373,6 @@ class TalkieApplication:
         self.gui.set_quit_callback(self.tk_cleanup)
         self.gui.update_ui()  # Set initial UI state
         
-        # Set up protocol for window close event
-        tk_root.protocol("WM_DELETE_WINDOW", self.tk_cleanup)
-        
         return True
     
     def run_gui(self):
