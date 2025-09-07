@@ -3,176 +3,303 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
-Talkie is a speech-to-text program designed for Ubuntu Linux that provides seamless audio integration. It captures audio input, performs speech-to-text transcription, and outputs text to the currently focused window using keyboard simulation.
 
-## Commands
-
-### Running the Application (Updated August 30, 2025)
-- `./launch_talkie.sh` - New unified launcher with automatic engine detection
-- `python3 talkie.py` - Main application with OpenVINO Whisper integration
-  - `--engine auto|vosk|openvino` - Force specific engine (default: auto)
-  - `--whisper-model MODEL` - Specify OpenVINO Whisper model (default: openai/whisper-base)
-  - `--ov-device AUTO|NPU|GPU|CPU` - OpenVINO device selection (default: AUTO)
-- `./talkie.sh` - Shell wrapper with control commands (legacy):
-  - `./talkie.sh start` - Start transcription
-  - `./talkie.sh stop` - Stop transcription  
-  - `./talkie.sh toggle` - Toggle transcription on/off
-  - `./talkie.sh state` - Show current transcription state
-
-### Dependencies
-- Install dependencies: `pip install -r requirements.txt` (now includes OpenVINO packages)
-- Uses Python virtual environment (pyvenv.cfg present)
-
-### Validation Tools (New)
-- `python3 verify_npu.py` - Check NPU and OpenVINO requirements
-- `python3 test_engines.py` - Test available speech engines
-
-### State Management
-The application uses `~/.talkie` JSON file to track transcription state. The JSONFileMonitor.py watches for changes to this file to control the transcription process.
+Talkie is a modular speech-to-text application designed for Ubuntu Linux. It provides real-time audio transcription with intelligent keyboard simulation, featuring a modern GUI with bubble mode, configurable audio processing, and support for multiple speech recognition engines.
 
 ## Architecture
 
-### Core Components
-- **talkie.py**: Main application with GUI (Tkinter) and speech processing
-- **talkie-with-engine.py**: Alternative implementation with pluggable speech engines
-- **JSONFileMonitor.py**: File watcher for state management
-- **speech/**: Directory containing speech engine implementations
+### Modular Design (September 2025)
 
-### Speech Engine Architecture (Updated August 30, 2025)
-The project uses an adapter pattern for speech engines:
-- **speech/speech_engine.py**: Base SpeechEngine abstract class and SpeechResult format (renamed from hyphenated file)
-- **speech/Vosk_engine.py**: Vosk speech recognition implementation (renamed)
-- **speech/FasterWhisper_engine.py**: FasterWhisper implementation (renamed)
-- **speech/OpenVINO_Whisper_engine.py**: Intel OpenVINO Whisper implementation (renamed from VINOWisper.py)
+The application has been completely refactored into a modular architecture:
 
-### Key Architecture Changes (August 30, 2025)
-- **Unified Engine Interface**: All speech engines now use the SpeechManager pattern
-- **Automatic Engine Detection**: System automatically detects NPU availability and selects best engine
-- **Python Naming Convention**: All files renamed from hyphens to underscores for proper Python imports
-- **Enhanced CLI**: Command-line arguments for engine and model selection
-- **Validation Framework**: Comprehensive testing and verification tools
-
-### Key Features
-- Multiple speech recognition backends (Vosk, Whisper variants)
-- Real-time audio processing with configurable block duration (0.1s default)
-- Number word-to-digit conversion using word2number
-- Keyboard input simulation via uinput
-- GUI with text preview and correction capabilities
-- State-based processing (NORMAL/NUMBER modes)
-
-### Configuration
-- Default model path: `/home/john/Downloads/vosk-model-en-us-0.22-lgraph`
-- Audio block duration: 0.1 seconds
-- Queue size: 5 blocks
-- Uses 16kHz sample rate for audio processing
-
-### File Structure (Updated August 31, 2025)
 ```
 talkie/
-├── talkie.py                          # Main application with CPU speech engines
-├── talkie.sh                          # Unified shell launcher
-├── JSONFileMonitor.py                 # File watcher for state management
-├── test_speech_engines.py             # Comprehensive engine testing
-├── requirements.txt                   # Clean CPU-only dependencies
-└── speech/
-    ├── __init__.py                    # Python package marker  
-    ├── speech_engine.py               # Base classes and factory
-    ├── SherpaONNX_engine.py           # Sherpa-ONNX CPU adapter
-    └── Vosk_engine.py                 # Vosk adapter
+├── talkie.py                    # Main application orchestrator
+├── audio_manager.py             # Audio processing and device management
+├── gui_manager.py               # Tkinter GUI with bubble mode
+├── config_manager.py            # Configuration persistence
+├── text_processor.py            # Text processing and punctuation
+├── keyboard_simulator.py        # Keyboard input simulation
+├── talkie.sh                    # Shell launcher with state management
+├── requirements.txt             # Dependencies
+├── JSONFileMonitor.py           # State file monitoring
+└── speech/                      # Speech recognition engines
+    ├── __init__.py              # Package initialization
+    ├── speech_engine.py         # Base classes and factory
+    ├── Vosk_engine.py           # Vosk adapter
+    └── SherpaONNX_engine.py     # Sherpa-ONNX adapter
 ```
 
-## Implementation Status (August 30, 2025)
+### Core Components
 
-### ✅ Completed:
-1. File naming standardization (hyphens → underscores)
-2. OpenVINO Whisper integration framework
-3. Automatic engine detection and fallback
-4. Enhanced CLI with engine selection
-5. NPU verification and testing tools
-6. Updated dependencies and documentation
+#### TalkieApplication (talkie.py)
+Main application orchestrator that coordinates all components:
+- Component initialization and lifecycle management
+- Engine configuration and fallback logic
+- Audio device setup and management
+- Threading coordination for GUI and transcription
+- Signal handling and cleanup
 
-### ✅ Successfully Resolved (Session Continued):
-1. **Adapter Registration**: Fixed direct instantiation in SpeechManager instead of factory pattern
-2. **Virtual Environment**: Properly activated and tested with existing dependencies (vosk available)
-3. **Engine Testing**: Both Vosk and OpenVINO engines tested and working as expected
-4. **Integration Testing**: Complete workflow validated end-to-end
+#### AudioManager (audio_manager.py)
+Manages audio input and voice activity detection:
+- Audio device selection and configuration
+- Voice activity detection with configurable thresholds
+- Circular buffer for pre-speech audio lookback
+- Silence trailing and speech timeout handling
+- Integration with JSONFileMonitor for state changes
 
-### 🎯 Final Status - MIGRATION COMPLETE ✅:
-1. ✅ **Engine Detection**: Auto-detects NPU availability and falls back to Vosk correctly
-2. ✅ **Vosk Integration**: Successfully initializes and integrates with speech manager pattern
-3. ✅ **OpenVINO Framework**: Complete framework ready for NPU deployment
-4. ✅ **CLI Interface**: Full command-line interface with engine selection working
-5. ✅ **Launcher Script**: Unified launcher script with automatic detection working
-6. ✅ **File Structure**: All files properly renamed and structured for Python imports
+#### TalkieGUI (gui_manager.py)
+Tkinter-based GUI interface:
+- Standard window and bubble mode interfaces
+- Real-time transcription display with partial results
+- Audio device selection dropdown
+- Configurable voice threshold and timeouts
+- Persistent window positioning and configuration
+- Energy level visualization
 
-## Current Status (August 31, 2025)
+#### TextProcessor (text_processor.py)
+Intelligent text processing and formatting:
+- Voice command punctuation mapping
+- Number word-to-digit conversion using word2number
+- Processing state management (NORMAL/NUMBER modes)
+- Timeout handling for number sequences
+- Keyboard output coordination
 
-### Vosk Primary Engine Integration Complete
+#### ConfigManager (config_manager.py)
+Configuration persistence and management:
+- JSON-based configuration storage in `~/.talkie.conf`
+- Default configuration with sensible values
+- Runtime parameter updates and persistence
+- Window position and state management
 
-**Working Components:**
-- Intel Core Ultra 7 155H with reliable CPU processing
-- Vosk speech recognition with proven accuracy and reliability
-- CPU-based speech recognition with excellent quality and performance
-- Automatic engine detection and fallback system
+#### KeyboardSimulator (keyboard_simulator.py)  
+Direct keyboard input simulation via uinput:
+- Real-time text insertion into focused applications
+- Virtual keyboard device creation and management
+- Unicode text support with proper encoding
 
-**Current Implementation:**
-- **Primary:** Vosk (optimized for accuracy and reliability)
-- **Fallback:** Sherpa-ONNX CPU (if Vosk unavailable)
-- Clean, simplified codebase focused on accuracy
+### Speech Recognition Engines
 
-### Command Reference
+#### Engine Architecture
+Uses adapter pattern with factory-based instantiation:
+- **SpeechEngine**: Abstract base class defining common interface
+- **SpeechResult**: Standardized result format with confidence and timing
+- **SpeechEngineType**: Enumeration of supported engines
+- **SpeechEngineFactory**: Factory for creating engine adapters
 
-**Primary Usage:**
+#### Supported Engines
+
+1. **Vosk Engine** (Primary)
+   - CPU-based recognition with high accuracy
+   - Model path: `/home/john/Downloads/vosk-model-en-us-0.22-lgraph`
+   - Real-time streaming with partial results
+   - Reliable fallback option
+
+2. **Sherpa-ONNX Engine** (Alternative)
+   - CPU-optimized implementation
+   - INT8 quantization for performance
+   - Model path: `models/sherpa-onnx/sherpa-onnx-streaming-zipformer-en-2023-06-26`
+
+#### Engine Selection Logic
+- **Auto**: Prefers Vosk for accuracy, falls back to Sherpa-ONNX
+- **Manual**: Force specific engine via CLI arguments
+- **Fallback**: Automatic fallback if primary engine fails
+
+## Usage
+
+### Command Line Interface
+
 ```bash
-./talkie.sh                    # Run with Vosk engine (default)
-./talkie.sh start              # Start transcription
-./talkie.sh stop               # Stop transcription
-./talkie.sh toggle             # Toggle transcription
-./talkie.sh state              # Show current state
+# Basic usage
+./talkie.sh                         # Launch with GUI
+python3 talkie.py                   # Direct Python execution
+
+# Engine selection
+./talkie.sh --engine auto           # Auto-detect (default)
+./talkie.sh --engine vosk           # Force Vosk engine
+./talkie.sh --engine sherpa-onnx    # Force Sherpa-ONNX
+
+# Audio device
+./talkie.sh --device "USB"          # Select device by substring
+./talkie.sh --verbose               # Enable debug logging
+
+# Transcription control
+./talkie.sh start                   # Enable transcription
+./talkie.sh stop                    # Disable transcription
+./talkie.sh toggle                  # Toggle transcription state
+./talkie.sh state                   # Show current state
+
+# Start with transcription enabled
+./talkie.sh --transcribe            # Start transcribing immediately
 ```
 
-**Engine Selection:**
+### Voice Commands
+
+#### Punctuation Commands
+- "period" → "."
+- "comma" → ","  
+- "question mark" → "?"
+- "exclamation mark" → "!"
+- "colon" → ":"
+- "semicolon" → ";"
+- "new line" → "\n"
+- "new paragraph" → "\n\n"
+
+#### Number Processing
+- Automatic word-to-number conversion
+- Timeout-based number sequence finalization
+- State-based processing for complex numbers
+
+### GUI Features
+
+#### Standard Mode
+- Transcription control toggle
+- Audio device selection
+- Real-time energy level display
+- Partial result preview
+- Configuration parameter adjustment
+
+#### Bubble Mode
+- Minimized floating window interface
+- Persistent positioning across sessions
+- Configurable silence timeout
+- Quick transcription toggle
+
+### Configuration
+
+#### Default Settings
+```json
+{
+    "audio_device": "pulse",
+    "voice_threshold": 50.0,
+    "silence_trailing_duration": 0.5,
+    "speech_timeout": 3.0,
+    "lookback_frames": 5,
+    "engine": "vosk",
+    "model_path": "/home/john/Downloads/vosk-model-en-us-0.22-lgraph",
+    "window_x": 100,
+    "window_y": 100,
+    "bubble_enabled": false,
+    "bubble_silence_timeout": 3.0
+}
+```
+
+#### Configuration Files
+- **`~/.talkie.conf`**: Main configuration persistence
+- **`~/.talkie`**: Transcription state (JSON with `{"transcribing": true/false}`)
+
+### Dependencies
+
+#### Core Requirements (requirements.txt)
+```
+sounddevice
+vosk
+word2number
+numpy
+sherpa-onnx
+```
+
+#### System Requirements
+- Python 3.8+ with virtual environment
+- PulseAudio or ALSA audio system
+- uinput kernel module for keyboard simulation
+- Tkinter for GUI (usually included with Python)
+
+## Development
+
+### Testing Tools
 ```bash
-./talkie.sh --engine auto              # Auto-detect (default: Vosk)
-./talkie.sh --engine vosk              # Force Vosk (recommended)
-./talkie.sh --engine sherpa-onnx       # Force Sherpa-ONNX CPU
+python3 test_speech_engines.py     # Test available engines
+python3 test_modular.py             # Test modular components
 ```
 
-### Intel ARC Graphics Integration Process (Reference)
+### Debugging
+```bash
+./talkie.sh --verbose               # Enable debug logging
+python3 talkie.py -v                # Direct Python with verbose
+```
 
-**Note:** The following documents the successful ARC Graphics GPU acceleration process that was implemented and tested. While removed from the current codebase for simplicity, this process can be referenced for future GPU integration work.
+### Adding New Engines
+1. Implement `SpeechEngine` abstract class
+2. Create adapter in `speech/` directory  
+3. Register with `SpeechEngineFactory`
+4. Add engine type to `SpeechEngineType` enum
+5. Update CLI arguments and detection logic
 
-**Successfully Validated Hardware:**
-- Intel Core Ultra 7 155H with Intel Arc Graphics [0x7d55]
-- OpenVINO 2025.2.0 stack with GPU acceleration
-- Sherpa-ONNX built from source with onnxruntime-openvino integration
+## Performance
 
-**Achieved Performance Metrics:**
-- Sherpa-ONNX GPU: 3.45s for 6.6s audio (1.91x real-time performance)
-- GPU acceleration successfully implemented and tested
+### Audio Processing
+- **Sample Rate**: 16kHz
+- **Block Duration**: 0.1 seconds (configurable)
+- **Queue Size**: 5 blocks
+- **Latency**: Sub-second response times
+- **Lookback Buffer**: 5 frames for pre-speech audio
 
-**Integration Steps (Reference):**
-1. **Environment Setup:** LD_LIBRARY_PATH, ORT_PROVIDERS, OV_DEVICE configuration
-2. **OpenVINO Detection:** GPU device availability checking
-3. **Sherpa-ONNX Configuration:** Provider selection and model loading
-4. **Runtime Optimization:** INT8 quantization with OpenVINO execution
+### Speech Recognition
+- **Vosk**: Real-time CPU processing, high accuracy
+- **Sherpa-ONNX**: Optimized CPU implementation with INT8
+- **Memory Usage**: Optimized for continuous operation
 
-**Key Files for Future GPU Work:**
-- Environment variable management in main application
-- Provider selection logic in speech engine adapters
-- OpenVINO device detection and configuration
-- Performance benchmarking and validation tools
+### GUI Performance  
+- **Update Rate**: 100ms UI refresh
+- **Energy Display**: Real-time audio level visualization
+- **Bubble Mode**: Minimal resource overhead
 
-### When generating replies, documentation, or code:
+## Hardware Support
 
-- Use a concise, professional, technical style.
-- Provide complete and detailed documentation that fully explains the subject.
-- Include helpful examples where needed, but avoid excess or repetition.
-- Do not include marketing language, self-promotion, or filler text.
-- Avoid analogies, rhetorical questions, or conversational flourishes.
-- No emojis, decorative symbols, or casual expressions.
-- Use plain Markdown for structure: headings, lists, code blocks.
-- Keep examples minimal, relevant, and focused.
-- Prioritize correctness, clarity, and reproducibility.
-- Assume the audience has a technical background.
-- Eliminate speculation and irrelevant details.
+### Tested Platforms
+- Intel Core Ultra 7 155H (primary development)
+- Ubuntu Linux 22.04+ with PulseAudio
+- Various USB and integrated microphones
+
+### Audio Devices
+- Automatic device detection and selection
+- Configurable device selection by name substring
+- Support for multiple sample rates with automatic conversion
+
+## State Management
+
+### Transcription State
+- File-based state persistence in `~/.talkie`
+- JSONFileMonitor watches for external state changes
+- Immediate UI updates on state transitions
+- Shell command integration for external control
+
+### Configuration Persistence
+- Automatic configuration saving on parameter changes
+- Window position persistence across sessions  
+- Device selection memory
+- Engine preference storage
+
+## Integration
+
+### Desktop Integration
+- Global hotkey support (Meta+E toggle)
+- Keyboard input simulation works with all applications
+- Window focus management for text insertion
+- Background operation support
+
+### External Control
+- Shell command interface via `talkie.sh`
+- JSON state file for programmatic control
+- File monitor for real-time state synchronization
+
+## Technical Implementation
+
+### Threading Model
+- Main GUI thread for UI responsiveness
+- Dedicated transcription thread for audio processing
+- Thread-safe communication via queues and callbacks
+
+### Audio Pipeline
+1. **Capture**: sounddevice input stream with configurable blocksize
+2. **Detection**: Voice activity detection with energy thresholds
+3. **Buffering**: Circular buffer for pre-speech audio lookback
+4. **Processing**: Real-time speech recognition with partial results
+5. **Output**: Direct keyboard simulation via uinput
+
+### Error Handling
+- Graceful engine fallback on initialization failure
+- Audio device failure recovery
+- Comprehensive logging with configurable verbosity
+- Clean resource cleanup on application exit

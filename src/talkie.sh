@@ -6,7 +6,7 @@ if [[ "$1" == --* ]]; then
     # First argument is a flag, pass all arguments to talkie.py
     cd "$HOME/src/talkie"
     . bin/activate
-    python talkie.py "$@"
+    python src/talkie.py "$@"
 else
     # First argument is a command
     CMD=$1; shift
@@ -28,7 +28,7 @@ else
             # Environment setup is now handled in talkie.py based on selected engine
             cd "$HOME/src/talkie"
             . bin/activate
-            python talkie.py "$@"
+            python src/talkie.py "$@"
     esac
 fi
 
