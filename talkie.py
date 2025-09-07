@@ -12,7 +12,6 @@ from select import select
 import sounddevice as sd
 import uinput
 import string
-import vosk
 import numpy as np
 import json
 import queue
@@ -53,6 +52,20 @@ speech_start_time = None
 last_typed = []
 capitalize_next = True
 MIN_WORD_LENGTH = 2
+
+# Configurable speech detection parameters
+voice_threshold = 50.0  # Voice activity detection threshold (int16 scale: 0-32767)
+current_audio_energy = 0.0  # Current audio energy level for display
+
+# Speech utterance completion parameters (configurable)
+silence_trailing_duration = 0.5  # Seconds of silence to send after speech ends
+speech_timeout = 3.0  # Max seconds without finalizing before forcing result
+silence_frames_sent = 0
+max_silence_frames = 0  # Will be calculated based on sample rate
+last_speech_time = None
+
+# Lookback buffer for catching word leading edges
+previous_audio_buffer = None
 
 # State machine variables
 processing_state = ProcessingState.NORMAL
@@ -280,14 +293,68 @@ def process_text(text, is_final=False):
 
 # @callback
 def callback(indata, frames, time_info, status):
-    global transcribing, q, speech_start_time
+    global transcribing, q, speech_start_time, voice_threshold, current_audio_energy
+    global silence_frames_sent, max_silence_frames, last_speech_time, previous_audio_buffer
+    
+    # Always update current_audio_energy for UI display, regardless of transcribing state
+    try:
+        audio_np = indata.flatten()  # Flatten in case it's 2D
+        audio_energy = np.abs(audio_np).mean()
+        current_audio_energy = audio_energy  # Update for UI display
+        
+        # Debug: Show audio processing
+        if not hasattr(callback, '_call_count'):
+            callback._call_count = 0
+        callback._call_count += 1
+        
+        if callback._call_count % 50 == 0:  # Log every 50 calls
+            logger.info(f"Audio callback {callback._call_count}: energy={audio_energy:.1f}, transcribing={transcribing}, threshold={voice_threshold}")
+    except Exception as e:
+        logger.error(f"Error processing audio in callback: {e}")
+        current_audio_energy = 0.0
+    
     if status:
         logger.debug(f"Status: {status}")
     if transcribing and not q.full():
-        # Check if this chunk contains speech (simple energy threshold)
-        if speech_start_time is None and np.abs(indata).mean() > 0.01:
-            speech_start_time = time.time()
-        q.put(bytes(indata))
+        # Voice activity detection logic
+        current_time = time.time()
+        
+        if audio_energy > voice_threshold:
+            # Voice detected
+            if speech_start_time is None:
+                # Transition from silence to speech - send lookback buffer first
+                if previous_audio_buffer is not None:
+                    q.put(previous_audio_buffer.tobytes())
+                    logger.debug("Sent lookback buffer for word leading edge")
+                speech_start_time = current_time
+                logger.debug("Speech started")
+            last_speech_time = current_time
+            silence_frames_sent = 0  # Reset silence counter
+            # Convert numpy array back to bytes for speech engine compatibility
+            q.put(audio_np.tobytes())
+        else:
+            # No voice detected
+            if speech_start_time is not None and silence_frames_sent < max_silence_frames:
+                # We were speaking, now send trailing silence for utterance completion
+                silence_frames_sent += 1
+                # Create silent audio frame (zeros with same shape)
+                silent_frame = np.zeros_like(audio_np)
+                q.put(silent_frame.tobytes())
+                logger.debug(f"Sending silence frame {silence_frames_sent}/{max_silence_frames}")
+                
+                if silence_frames_sent >= max_silence_frames:
+                    logger.debug("Silence trailing complete")
+                    speech_start_time = None
+            else:
+                # Pure silence - reset speech timing if enough time has passed
+                if speech_start_time is not None:
+                    logger.debug(f"Voice activity ended, energy: {audio_energy:.4f}")
+                    speech_start_time = None
+        
+        # Always store current buffer as potential lookback (only during silence)
+        if audio_energy <= voice_threshold:
+            previous_audio_buffer = audio_np.copy()
+            
     elif transcribing and q.full():
         logger.debug("Queue is full, dropping audio data")
 
@@ -329,9 +396,14 @@ def on_file_change(state):
 # @transcribe
 def transcribe(device_id, samplerate, block_duration, queue_size, engine_config):
     global transcribing, q, speech_start_time, app, running, processing_state, number_buffer, number_mode_start_time
+    global max_silence_frames, last_speech_time
 
     print("Transcribe function started")
     logger.info("Transcribe function started")
+    
+    # Calculate how many frames of silence to send for utterance completion
+    max_silence_frames = int(silence_trailing_duration / block_duration)
+    logger.info(f"Will send {max_silence_frames} silence frames ({silence_trailing_duration}s) after speech ends")
 
     # Initialize speech manager with selected engine
     def handle_speech_result(result: SpeechResult):
@@ -387,9 +459,9 @@ def transcribe(device_id, samplerate, block_duration, queue_size, engine_config)
 
     logger.info("Initializing audio stream...")
     try:
-        with sd.RawInputStream(samplerate=samplerate, blocksize=block_size, 
-                              device=device_id, dtype='int16', channels=1, 
-                              callback=callback):
+        with sd.InputStream(samplerate=samplerate, blocksize=block_size, 
+                           device=device_id, dtype='int16', channels=1, 
+                           callback=callback):
             logger.info(f"Audio stream initialized: device={device_id}, samplerate={samplerate} Hz")
             
             while running:
@@ -400,6 +472,16 @@ def transcribe(device_id, samplerate, block_duration, queue_size, engine_config)
                             if time.time() - number_mode_start_time > NUMBER_TIMEOUT:
                                 logger.debug("Number timeout in main loop")
                                 process_text("", is_final=True)
+                        
+                        # Handle speech timeout - force final result if speech has been going too long
+                        if last_speech_time and time.time() - last_speech_time > speech_timeout:
+                            logger.debug("Speech timeout - forcing final result")
+                            final_result = speech_manager.adapter.get_final_result()
+                            if final_result:
+                                handle_speech_result(final_result)
+                            # Reset speech engine for next utterance
+                            speech_manager.adapter.reset()
+                            last_speech_time = None
                         
                         # Get audio data and process directly (like working version)
                         data = q.get(timeout=0.1)
@@ -413,6 +495,15 @@ def transcribe(device_id, samplerate, block_duration, queue_size, engine_config)
                             if time.time() - number_mode_start_time > NUMBER_TIMEOUT:
                                 logger.debug("Number timeout on empty queue")
                                 process_text("", is_final=True)
+                                
+                        # Handle speech timeout in empty queue case too
+                        if last_speech_time and time.time() - last_speech_time > speech_timeout:
+                            logger.debug("Speech timeout on empty queue - forcing final result")
+                            final_result = speech_manager.adapter.get_final_result()
+                            if final_result:
+                                handle_speech_result(final_result)
+                            speech_manager.adapter.reset()
+                            last_speech_time = None
                 else:
                     # Reset logic when transcription is off
                     if processing_state == ProcessingState.NUMBER:
@@ -662,6 +753,45 @@ class TalkieUI:
         self.button = tk.Button(master, text="Start Transcription", command=self.toggle_transcription)
         self.button.pack(pady=10)
 
+        # Voice threshold controls frame
+        self.controls_frame = tk.Frame(master)
+        self.controls_frame.pack(pady=5)
+        
+        # Voice threshold slider
+        tk.Label(self.controls_frame, text="Voice Threshold:").pack(side=tk.LEFT)
+        self.threshold_var = tk.DoubleVar(value=voice_threshold)
+        self.threshold_scale = tk.Scale(self.controls_frame, from_=10, to=300, 
+                                       resolution=5, orient=tk.HORIZONTAL, 
+                                       variable=self.threshold_var,
+                                       command=self.update_threshold)
+        self.threshold_scale.pack(side=tk.LEFT, padx=5)
+        
+        # Audio energy display
+        self.energy_label = tk.Label(self.controls_frame, text="Audio: 0.000")
+        self.energy_label.pack(side=tk.LEFT, padx=10)
+        
+        # Second row of controls
+        self.controls_frame2 = tk.Frame(master)
+        self.controls_frame2.pack(pady=5)
+        
+        # Silence trailing duration slider
+        tk.Label(self.controls_frame2, text="Silence Trailing (s):").pack(side=tk.LEFT)
+        self.silence_var = tk.DoubleVar(value=silence_trailing_duration)
+        self.silence_scale = tk.Scale(self.controls_frame2, from_=0.1, to=2.0, 
+                                     resolution=0.1, orient=tk.HORIZONTAL, 
+                                     variable=self.silence_var,
+                                     command=self.update_silence_duration)
+        self.silence_scale.pack(side=tk.LEFT, padx=5)
+        
+        # Speech timeout slider
+        tk.Label(self.controls_frame2, text="Speech Timeout (s):").pack(side=tk.LEFT)
+        self.timeout_var = tk.DoubleVar(value=speech_timeout)
+        self.timeout_scale = tk.Scale(self.controls_frame2, from_=1.0, to=10.0, 
+                                     resolution=0.5, orient=tk.HORIZONTAL, 
+                                     variable=self.timeout_var,
+                                     command=self.update_speech_timeout)
+        self.timeout_scale.pack(side=tk.LEFT, padx=5)
+
         self.partial_text = scrolledtext.ScrolledText(master, wrap=tk.WORD, width=60, height=10)
         self.partial_text.pack(pady=10)
         
@@ -671,10 +801,46 @@ class TalkieUI:
 
         self.status_label = tk.Label(master, text="Transcription: OFF")
         self.status_label.pack(pady=5)
+        
+        # Start updating audio energy display
+        self.update_energy_display()
 
     def toggle_transcription(self):
         toggle_transcription()
         self.update_ui()
+
+    def update_threshold(self, value):
+        """Update the global voice threshold when slider changes"""
+        global voice_threshold
+        voice_threshold = float(value)
+        logger.debug(f"Voice threshold updated to: {voice_threshold}")
+
+    def update_silence_duration(self, value):
+        """Update the global silence trailing duration when slider changes"""
+        global silence_trailing_duration, max_silence_frames
+        silence_trailing_duration = float(value)
+        # Recalculate max_silence_frames based on current block duration
+        max_silence_frames = int(silence_trailing_duration / BLOCK_DURATION)
+        logger.debug(f"Silence trailing duration updated to: {silence_trailing_duration}s ({max_silence_frames} frames)")
+
+    def update_speech_timeout(self, value):
+        """Update the global speech timeout when slider changes"""
+        global speech_timeout
+        speech_timeout = float(value)
+        logger.debug(f"Speech timeout updated to: {speech_timeout}s")
+
+    def update_energy_display(self):
+        """Update the audio energy display in real-time"""
+        global current_audio_energy
+        # Update energy display with color coding (show as integer for int16 audio)
+        energy_text = f"Audio: {int(current_audio_energy)}"
+        if current_audio_energy > voice_threshold:
+            self.energy_label.config(text=energy_text, fg="green")  # Voice detected
+        else:
+            self.energy_label.config(text=energy_text, fg="red")    # Silence
+        
+        # Schedule next update
+        self.master.after(100, self.update_energy_display)
 
     def update_ui(self):
         if transcribing:

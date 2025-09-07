@@ -9,10 +9,12 @@ class VoskAdapter(SpeechEngine):
         super().__init__(model_path, samplerate)
         self.model = None
         self.recognizer = None
+        self.vosk = None  # Store vosk module reference
         
     def initialize(self) -> bool:
         try:
             import vosk
+            self.vosk = vosk  # Store module reference for later use
             vosk.SetLogLevel(-1)
             self.model = vosk.Model(self.model_path)
             self.recognizer = vosk.KaldiRecognizer(self.model, self.samplerate)
@@ -45,9 +47,9 @@ class VoskAdapter(SpeechEngine):
         return None
         
     def reset(self):
-        if self.recognizer:
+        if self.recognizer and self.vosk:
             # Vosk doesn't have explicit reset, create new recognizer
-            self.recognizer = vosk.KaldiRecognizer(self.model, self.samplerate)
+            self.recognizer = self.vosk.KaldiRecognizer(self.model, self.samplerate)
             self.recognizer.SetWords(True)
             
     def get_final_result(self) -> Optional[SpeechResult]:
