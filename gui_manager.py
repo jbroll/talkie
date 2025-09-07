@@ -22,6 +22,9 @@ class TalkieGUI:
         self._setup_device_selection()
         self._start_energy_display_updates()
         
+        # Initialize bubble feature state
+        self._initialize_bubble_feature()
+        
         # Initial UI state will be set by the file monitor callback
     
     def _setup_ui(self):
@@ -38,6 +41,7 @@ class TalkieGUI:
         # Save window position when window is moved or closed
         self.master.protocol("WM_DELETE_WINDOW", self._on_window_close)
         self.master.bind("<Configure>", self._on_window_configure)
+        
         
         # Button row frame
         button_frame = tk.Frame(self.master)
@@ -124,6 +128,7 @@ class TalkieGUI:
         self._setup_silence_row(controls_container)
         self._setup_timeout_row(controls_container)
         self._setup_lookback_row(controls_container)
+        self._setup_bubble_row(controls_container)
     
     def _setup_device_row(self, parent):
         """Setup audio device selection row"""
@@ -217,6 +222,40 @@ class TalkieGUI:
                                       variable=self.lookback_var,
                                       command=self.update_lookback_frames)
         self.lookback_scale.pack(fill=tk.X, expand=True)
+    
+    def _setup_bubble_row(self, parent):
+        """Setup bubble feature controls"""
+        # Bubble enabled checkbox
+        bubble_frame = tk.Frame(parent)
+        bubble_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Label(bubble_frame, text="Bubble Mode:", width=20, anchor="w").pack(side=tk.LEFT)
+        
+        bubble_control_frame = tk.Frame(bubble_frame)
+        bubble_control_frame.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        
+        config = self.config_manager.load_config()
+        self.bubble_enabled_var = tk.BooleanVar(value=config.get("bubble_enabled", False))
+        self.bubble_checkbox = tk.Checkbutton(bubble_control_frame, text="Auto-hide window", 
+                                             variable=self.bubble_enabled_var,
+                                             command=self.update_bubble_enabled)
+        self.bubble_checkbox.pack(side=tk.LEFT)
+        
+        # Bubble silence timeout slider
+        timeout_frame = tk.Frame(parent)
+        timeout_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Label(timeout_frame, text="Bubble Timeout (s):", width=20, anchor="w").pack(side=tk.LEFT)
+        
+        timeout_control_frame = tk.Frame(timeout_frame)
+        timeout_control_frame.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        
+        self.bubble_timeout_var = tk.DoubleVar(value=config.get("bubble_silence_timeout", 3.0))
+        self.bubble_timeout_scale = tk.Scale(timeout_control_frame, from_=1.0, to=10.0,
+                                           resolution=0.5, orient=tk.HORIZONTAL,
+                                           variable=self.bubble_timeout_var,
+                                           command=self.update_bubble_timeout)
+        self.bubble_timeout_scale.pack(fill=tk.X, expand=True)
     
     def _setup_text_areas_in_pane(self):
         """Setup text areas within the text pane"""
@@ -460,3 +499,169 @@ class TalkieGUI:
         """Handle window close event"""
         self._save_window_position()
         self.quit_app()
+    
+    def _initialize_bubble_feature(self):
+        """Initialize bubble feature state and timers"""
+        self.bubble_lowered = False
+        self.bubble_hide_timer = None
+        self.last_voice_activity_time = None
+        self.mouse_in_window = False
+        self.last_mouse_activity = None
+        
+        # Load initial bubble configuration
+        config = self.config_manager.load_config()
+        self.bubble_enabled = config.get("bubble_enabled", False)
+        self.bubble_silence_timeout = config.get("bubble_silence_timeout", 3.0)
+        
+        # Setup mouse tracking for bubble feature
+        self._setup_mouse_tracking()
+        
+        # Start bubble monitoring if enabled
+        if self.bubble_enabled:
+            self._start_bubble_monitoring()
+    
+    def update_bubble_enabled(self):
+        """Update bubble enabled state"""
+        self.bubble_enabled = self.bubble_enabled_var.get()
+        self.config_manager.update_config_param("bubble_enabled", self.bubble_enabled)
+        
+        if self.bubble_enabled:
+            self._start_bubble_monitoring()
+            logger.info("Bubble mode enabled - window will auto-hide after silence")
+        else:
+            self._stop_bubble_monitoring()
+            self._raise_window()
+            logger.info("Bubble mode disabled")
+    
+    def update_bubble_timeout(self, value):
+        """Update bubble silence timeout"""
+        self.bubble_silence_timeout = float(value)
+        self.config_manager.update_config_param("bubble_silence_timeout", self.bubble_silence_timeout)
+        logger.debug(f"Bubble timeout updated to: {self.bubble_silence_timeout}s")
+    
+    def _start_bubble_monitoring(self):
+        """Start monitoring for bubble hide/show behavior"""
+        import time
+        # Initialize voice activity time to current time so we can start timing silence
+        self.last_voice_activity_time = time.time()
+        self._update_bubble_state()
+    
+    def _stop_bubble_monitoring(self):
+        """Stop bubble monitoring and cancel timers"""
+        if self.bubble_hide_timer:
+            self.master.after_cancel(self.bubble_hide_timer)
+            self.bubble_hide_timer = None
+    
+    def _update_bubble_state(self):
+        """Update bubble state based on audio activity"""
+        if not self.bubble_enabled:
+            return
+        
+        import time
+        current_time = time.time()
+        
+        audio_energy = self.audio_manager.current_audio_energy
+        voice_threshold = self.audio_manager.voice_threshold
+        has_voice = audio_energy > voice_threshold
+        
+        # Debug logging every 50 cycles (5 seconds)
+        if not hasattr(self, '_bubble_debug_count'):
+            self._bubble_debug_count = 0
+        self._bubble_debug_count += 1
+        
+        if self._bubble_debug_count % 50 == 0:
+            silence_time = current_time - self.last_voice_activity_time if self.last_voice_activity_time else 0
+            print(f"BUBBLE DEBUG: energy={audio_energy:.1f}, threshold={voice_threshold:.1f}, has_voice={has_voice}, "
+                  f"mouse_in={self.mouse_in_window}, lowered={self.bubble_lowered}, silence={silence_time:.1f}s")
+        
+        # Check if there's current voice activity
+        if has_voice:
+            self.last_voice_activity_time = current_time
+            # Only raise if currently lowered
+            if self.bubble_lowered:
+                print(f"BUBBLE: Voice detected - raising window")
+                self._raise_window()
+            
+            # Cancel any pending hide timer
+            if self.bubble_hide_timer:
+                self.master.after_cancel(self.bubble_hide_timer)
+                self.bubble_hide_timer = None
+        else:
+            # No voice activity - check if we should lower
+            if self.last_voice_activity_time and not self.mouse_in_window:
+                silence_duration = current_time - self.last_voice_activity_time
+                if silence_duration > self.bubble_silence_timeout and not self.bubble_lowered:
+                    print(f"BUBBLE: Silence timeout ({silence_duration:.1f}s) - lowering window")
+                    self._lower_window()
+            elif self.mouse_in_window and self.bubble_lowered:
+                print(f"BUBBLE: Mouse in window - raising")
+                # Mouse is in window and window is lowered - raise it
+                self._raise_window()
+        
+        # Schedule next update
+        self.master.after(100, self._update_bubble_state)
+    
+    def _raise_window(self):
+        """Raise the window to top of window stack (bubble up)"""
+        if self.bubble_lowered:
+            # Raise to top of window stack without taking focus
+            try:
+                self.master.attributes('-topmost', True)
+                self.master.after_idle(lambda: self.master.attributes('-topmost', False))
+                self.bubble_lowered = False
+                logger.debug("Bubble: Window raised to top")
+            except Exception as e:
+                logger.error(f"Error raising window: {e}")
+    
+    def _lower_window(self):
+        """Lower the window to bottom of window stack (bubble down)"""
+        if not self.bubble_lowered:
+            # Try multiple approaches to ensure window is lowered
+            try:
+                # Method 1: Standard lower
+                self.master.lower()
+                
+                # Method 2: Force update and lower again (helps with some window managers)
+                self.master.update()
+                self.master.lower()
+                
+                # Method 3: Temporarily set topmost false (helps reset window state)
+                self.master.attributes('-topmost', False)
+                self.master.lower()
+                
+                self.bubble_lowered = True
+                print(f"BUBBLE: Window lowered to bottom")
+                logger.debug("Bubble: Window lowered to bottom")
+            except Exception as e:
+                print(f"BUBBLE ERROR: Failed to lower window: {e}")
+                logger.error(f"Error lowering window: {e}")
+    
+    def _on_mouse_enter(self, event):
+        """Handle mouse entering the window"""
+        if not self.mouse_in_window:
+            self.mouse_in_window = True
+            if self.bubble_enabled:
+                print(f"MOUSE: Entered window")
+                logger.debug("Bubble: Mouse entered - preventing lower")
+                if self.bubble_lowered:
+                    self._raise_window()
+    
+    def _on_mouse_leave(self, event):
+        """Handle mouse leaving the window"""
+        self.mouse_in_window = False
+        if self.bubble_enabled:
+            print(f"MOUSE: Left window")
+            logger.debug("Bubble: Mouse left - lowering allowed")
+            import time
+            self.last_voice_activity_time = time.time()
+    
+    def _setup_mouse_tracking(self):
+        """Setup mouse tracking for bubble feature"""
+        logger.info("Setting up mouse tracking for bubble feature")
+        
+        # Simple Enter/Leave events
+        self.master.bind("<Enter>", self._on_mouse_enter)
+        self.master.bind("<Leave>", self._on_mouse_leave)
+        
+        logger.info("Mouse tracking setup completed with Enter/Leave events")
+    

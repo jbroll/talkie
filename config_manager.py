@@ -18,7 +18,9 @@ DEFAULT_CONFIG = {
     "engine": "vosk",
     "model_path": DEFAULT_MODEL_PATH,
     "window_x": 100,
-    "window_y": 100
+    "window_y": 100,
+    "bubble_enabled": False,
+    "bubble_silence_timeout": 3.0
 }
 
 class ConfigManager:
