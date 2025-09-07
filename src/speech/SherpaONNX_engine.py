@@ -48,13 +48,9 @@ class SherpaONNXAdapter(SpeechEngine):
             self.stream = self.recognizer.create_stream()
             
             self.is_initialized = True
-            print(f"Sherpa-ONNX initialized with {'INT8' if self.use_int8 else 'FP32'} models using CPU")
             return True
             
         except Exception as e:
-            print(f"Failed to initialize Sherpa-ONNX: {e}")
-            import traceback
-            traceback.print_exc()
             return False
             
     def process_audio(self, audio_data: bytes) -> Optional[SpeechResult]:
@@ -87,9 +83,7 @@ class SherpaONNXAdapter(SpeechEngine):
                 )
                     
         except Exception as e:
-            print(f"Error processing audio with Sherpa-ONNX: {e}")
-            import traceback
-            traceback.print_exc()
+            pass
             
         return None
         
@@ -119,9 +113,7 @@ class SherpaONNXAdapter(SpeechEngine):
                     confidence=0.9
                 )
         except Exception as e:
-            print(f"Error getting Sherpa-ONNX final result: {e}")
-            import traceback
-            traceback.print_exc()
+            pass
         return None
         
     def cleanup(self):

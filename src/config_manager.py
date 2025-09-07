@@ -20,7 +20,8 @@ DEFAULT_CONFIG = {
     "window_x": 100,
     "window_y": 100,
     "bubble_enabled": False,
-    "bubble_silence_timeout": 3.0
+    "bubble_silence_timeout": 3.0,
+    "raw_mode": False
 }
 
 class ConfigManager:

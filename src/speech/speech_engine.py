@@ -108,7 +108,6 @@ class SpeechManager:
                 
             return self.adapter.initialize()
         except Exception as e:
-            print(f"Failed to initialize speech manager: {e}")
             return False
             
     def start(self):
@@ -142,7 +141,7 @@ class SpeechManager:
             except queue.Empty:
                 continue
             except Exception as e:
-                print(f"Error in speech processing: {e}")
+                pass
                 
     def switch_engine(self, new_engine_type: SpeechEngineType, 
                      new_model_path: str, **kwargs):
@@ -172,7 +171,7 @@ def example_usage():
     """Example of how to use the speech engine adapter"""
     
     def handle_result(result: SpeechResult):
-        print(f"{'Final' if result.is_final else 'Partial'}: {result.text}")
+        pass
         
     # Create speech manager with Vosk
     manager = SpeechManager(

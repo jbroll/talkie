@@ -15,11 +15,12 @@ logger = logging.getLogger(__name__)
 class AudioManager:
     """Manages audio input, device selection, and voice activity detection"""
     
-    def __init__(self, voice_threshold=50.0, silence_trailing_duration=0.5, speech_timeout=3.0, lookback_frames=5):
+    def __init__(self, voice_threshold=50.0, silence_trailing_duration=0.5, speech_timeout=3.0, lookback_frames=5, raw_mode=False):
         self.voice_threshold = voice_threshold
         self.silence_trailing_duration = silence_trailing_duration
         self.speech_timeout = speech_timeout
         self.lookback_frames = lookback_frames  # Number of frames to buffer before speech
+        self.raw_mode = raw_mode  # Raw mode bypasses all VAD
         
         # Audio stream state
         self.transcribing = False
@@ -32,7 +33,6 @@ class AudioManager:
         
         # Circular buffer for pre-speech audio (lookback buffer)
         self.lookback_buffer = deque(maxlen=self.lookback_frames)
-        logger.debug(f"Initialized lookback buffer with {self.lookback_frames} frames")
         
         # Energy smoothing buffer for VAD
         self.energy_history = deque(maxlen=3)
@@ -58,7 +58,6 @@ class AudioManager:
                 except queue.Empty:
                     break
             self.speech_start_time = None
-            logger.debug("Audio queue cleared")
         
         # Notify GUI of state change
         if self.on_transcription_change_callback:
@@ -78,7 +77,6 @@ class AudioManager:
     def update_voice_threshold(self, threshold):
         """Update voice activity detection threshold"""
         self.voice_threshold = float(threshold)
-        logger.debug(f"Voice threshold updated to: {self.voice_threshold}")
     
     def update_silence_duration(self, duration, block_duration=0.1):
         """Update silence trailing duration and recalculate frames"""
@@ -218,26 +216,28 @@ class AudioManager:
         try:
             audio_np = indata.flatten()
             audio_energy = np.abs(audio_np).mean()
+            self.current_audio_energy = audio_energy
+        except Exception as e:
+            logger.error(f"Error processing audio in callback: {e}")
+            self.current_audio_energy = 0.0
+            return
+        
+        if not self.transcribing or not self.q:
+            return
+            
+        # RAW MODE: Just feed everything to the engine
+        if self.raw_mode:
+            if not self.q.full():
+                self.q.put(audio_np.tobytes())
+            return
+        
+        # NORMAL MODE: VAD-based processing
+        if not self.q.full():
+            current_time = time.time()
             
             # Add energy smoothing for better VAD decisions
             self.energy_history.append(audio_energy)
             smoothed_energy = sum(self.energy_history) / len(self.energy_history)
-            self.current_audio_energy = audio_energy  # Keep raw energy for UI display
-            
-            # Debug logging (throttled)
-            self.callback_count += 1
-            
-            if self.callback_count % 50 == 0:
-                logger.info(f"Audio callback {self.callback_count}: energy={audio_energy:.1f}, transcribing={self.transcribing}, threshold={self.voice_threshold}")
-        except Exception as e:
-            logger.error(f"Error processing audio in callback: {e}")
-            self.current_audio_energy = 0.0
-        
-        if status:
-            logger.debug(f"Audio status: {status}")
-        
-        if self.transcribing and self.q and not self.q.full():
-            current_time = time.time()
             
             # Hysteresis thresholding for better voice activity detection
             onset_threshold = self.voice_threshold * 0.7  # 30% lower to start
@@ -256,10 +256,7 @@ class AudioManager:
                     for buffered_frame in self.lookback_buffer:
                         self.q.put(buffered_frame)
                         frames_sent += 1
-                    if frames_sent > 0:
-                        logger.debug(f"Sent {frames_sent} lookback frames for word leading edge")
                     self.speech_start_time = current_time
-                    logger.debug("Speech started")
                 self.last_speech_time = current_time
                 self.silence_frames_sent = 0
                 self.q.put(audio_np.tobytes())
@@ -269,22 +266,18 @@ class AudioManager:
                     # Send actual trailing audio (not artificial silence) for better transcription
                     self.silence_frames_sent += 1
                     self.q.put(audio_np.tobytes())  # Send actual audio, even if below threshold
-                    logger.debug(f"Sending trailing audio frame {self.silence_frames_sent}/{self.max_silence_frames * 2} (energy: {audio_energy:.1f})")
-                    
                     if self.silence_frames_sent >= self.max_silence_frames * 2:
-                        logger.debug("Trailing audio complete")
                         self.speech_start_time = None
                 else:
                     # Pure silence - reset speech timing
                     if self.speech_start_time is not None:
-                        logger.debug(f"Voice activity ended, energy: {audio_energy:.4f}")
                         self.speech_start_time = None
                 
                 # Always store audio frames in lookback buffer during silence
                 if smoothed_energy <= onset_threshold:
                     self.lookback_buffer.append(audio_np.tobytes())
         elif self.transcribing and self.q and self.q.full():
-            logger.debug("Audio queue is full, dropping audio data")
+            pass
     
     def setup_file_monitor(self, on_file_change_callback):
         """Setup file monitor for transcription state changes"""

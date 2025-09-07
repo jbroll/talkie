@@ -104,9 +104,9 @@ class TalkieGUI:
         self.content_frame = tk.Frame(self.master)
         self.content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # Controls pane
+        # Controls pane with scrollbar
         self.controls_pane = tk.Frame(self.content_frame)
-        self._setup_controls_column_in_pane()
+        self._setup_scrollable_controls_pane()
         
         # Text pane  
         self.text_pane = tk.Frame(self.content_frame)
@@ -116,10 +116,48 @@ class TalkieGUI:
         self.current_view = "text"
         self.show_text_view()
     
-    def _setup_controls_column_in_pane(self):
-        """Setup controls column within the controls pane"""
-        # Main controls frame within the pane
-        controls_container = tk.Frame(self.controls_pane)
+    def _setup_scrollable_controls_pane(self):
+        """Setup scrollable controls pane with canvas and scrollbar"""
+        # Create canvas and scrollbar for scrolling
+        self.controls_canvas = tk.Canvas(self.controls_pane)
+        self.controls_scrollbar = tk.Scrollbar(self.controls_pane, orient="vertical", command=self.controls_canvas.yview)
+        
+        # Create scrollable frame inside canvas
+        self.scrollable_controls_frame = tk.Frame(self.controls_canvas)
+        
+        # Configure canvas
+        self.controls_canvas.configure(yscrollcommand=self.controls_scrollbar.set)
+        self.controls_canvas.create_window((0, 0), window=self.scrollable_controls_frame, anchor="nw")
+        
+        # Pack canvas and scrollbar
+        self.controls_canvas.pack(side="left", fill="both", expand=True)
+        self.controls_scrollbar.pack(side="right", fill="y")
+        
+        # Bind mousewheel to canvas (Windows and Linux)
+        def _on_mousewheel(event):
+            self.controls_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+            
+        def _on_mousewheel_linux(event):
+            self.controls_canvas.yview_scroll(-1, "units")
+            
+        def _on_mousewheel_linux_up(event):
+            self.controls_canvas.yview_scroll(1, "units")
+        
+        def _on_configure(event):
+            self.controls_canvas.configure(scrollregion=self.controls_canvas.bbox("all"))
+        
+        self.scrollable_controls_frame.bind("<Configure>", _on_configure)
+        self.controls_canvas.bind("<MouseWheel>", _on_mousewheel)  # Windows
+        self.controls_canvas.bind("<Button-4>", _on_mousewheel_linux_up)  # Linux scroll up
+        self.controls_canvas.bind("<Button-5>", _on_mousewheel_linux)     # Linux scroll down
+        
+        # Setup controls in the scrollable frame
+        self._setup_controls_column_in_scrollable_frame()
+    
+    def _setup_controls_column_in_scrollable_frame(self):
+        """Setup controls column within the scrollable frame"""
+        # Main controls frame within the scrollable frame
+        controls_container = tk.Frame(self.scrollable_controls_frame)
         controls_container.pack(pady=10, padx=20, fill=tk.X)
         
         # Setup all the control rows (copy of existing logic but in pane)
@@ -128,6 +166,7 @@ class TalkieGUI:
         self._setup_silence_row(controls_container)
         self._setup_timeout_row(controls_container)
         self._setup_lookback_row(controls_container)
+        self._setup_raw_mode_row(controls_container)
         self._setup_bubble_row(controls_container)
     
     def _setup_device_row(self, parent):
@@ -222,6 +261,22 @@ class TalkieGUI:
                                       variable=self.lookback_var,
                                       command=self.update_lookback_frames)
         self.lookback_scale.pack(fill=tk.X, expand=True)
+    
+    def _setup_raw_mode_row(self, parent):
+        """Setup raw mode checkbox row"""
+        raw_frame = tk.Frame(parent)
+        raw_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Label(raw_frame, text="Raw Mode:", width=20, anchor="w").pack(side=tk.LEFT)
+        
+        raw_control_frame = tk.Frame(raw_frame)
+        raw_control_frame.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        
+        self.raw_mode_var = tk.BooleanVar(value=self.audio_manager.raw_mode)
+        self.raw_mode_checkbox = tk.Checkbutton(raw_control_frame, text="Bypass VAD (feed all audio to engine)", 
+                                               variable=self.raw_mode_var,
+                                               command=self.update_raw_mode)
+        self.raw_mode_checkbox.pack(side=tk.LEFT)
     
     def _setup_bubble_row(self, parent):
         """Setup bubble feature controls"""
@@ -344,6 +399,12 @@ class TalkieGUI:
         self.config_manager.update_config_param("lookback_frames", frames)
         
         logger.debug(f"Lookback buffer updated to: {duration_ms}ms ({frames} frames)")
+    
+    def update_raw_mode(self):
+        """Update raw mode when checkbox changes"""
+        self.audio_manager.raw_mode = self.raw_mode_var.get()
+        self.config_manager.update_config_param("raw_mode", self.audio_manager.raw_mode)
+        logger.debug(f"Raw mode updated to: {self.audio_manager.raw_mode}")
     
     def on_device_change(self, event=None):
         """Handle audio device change from dropdown"""
@@ -571,15 +632,12 @@ class TalkieGUI:
         
         if self._bubble_debug_count % 50 == 0:
             silence_time = current_time - self.last_voice_activity_time if self.last_voice_activity_time else 0
-            print(f"BUBBLE DEBUG: energy={audio_energy:.1f}, threshold={voice_threshold:.1f}, has_voice={has_voice}, "
-                  f"mouse_in={self.mouse_in_window}, lowered={self.bubble_lowered}, silence={silence_time:.1f}s")
         
         # Check if there's current voice activity
         if has_voice:
             self.last_voice_activity_time = current_time
             # Only raise if currently lowered
             if self.bubble_lowered:
-                print(f"BUBBLE: Voice detected - raising window")
                 self._raise_window()
             
             # Cancel any pending hide timer
@@ -591,11 +649,8 @@ class TalkieGUI:
             if self.last_voice_activity_time and not self.mouse_in_window:
                 silence_duration = current_time - self.last_voice_activity_time
                 if silence_duration > self.bubble_silence_timeout and not self.bubble_lowered:
-                    print(f"BUBBLE: Silence timeout ({silence_duration:.1f}s) - lowering window")
                     self._lower_window()
             elif self.mouse_in_window and self.bubble_lowered:
-                print(f"BUBBLE: Mouse in window - raising")
-                # Mouse is in window and window is lowered - raise it
                 self._raise_window()
         
         # Schedule next update
@@ -630,10 +685,7 @@ class TalkieGUI:
                 self.master.lower()
                 
                 self.bubble_lowered = True
-                print(f"BUBBLE: Window lowered to bottom")
-                logger.debug("Bubble: Window lowered to bottom")
             except Exception as e:
-                print(f"BUBBLE ERROR: Failed to lower window: {e}")
                 logger.error(f"Error lowering window: {e}")
     
     def _on_mouse_enter(self, event):
@@ -641,7 +693,6 @@ class TalkieGUI:
         if not self.mouse_in_window:
             self.mouse_in_window = True
             if self.bubble_enabled:
-                print(f"MOUSE: Entered window")
                 logger.debug("Bubble: Mouse entered - preventing lower")
                 if self.bubble_lowered:
                     self._raise_window()
@@ -650,7 +701,6 @@ class TalkieGUI:
         """Handle mouse leaving the window"""
         self.mouse_in_window = False
         if self.bubble_enabled:
-            print(f"MOUSE: Left window")
             logger.debug("Bubble: Mouse left - lowering allowed")
             import time
             self.last_voice_activity_time = time.time()

@@ -126,7 +126,6 @@ class TalkieApplication:
         
         # Load initial configuration
         self.config = self.config_manager.load_config()
-        logger.info(f"Loaded configuration: {self.config}")
     
     def initialize_components(self):
         """Initialize all application components"""
@@ -138,14 +137,17 @@ class TalkieApplication:
         self.text_processor.set_text_output_callback(self.keyboard_simulator.type_text)
         
         # Initialize audio manager with config values
+        # Command line --raw arg takes precedence over config
+        raw_mode = getattr(self.args, 'raw', False) or self.config.get("raw_mode", False)
+        
         self.audio_manager = AudioManager(
             voice_threshold=self.config.get("voice_threshold", 50.0),
             silence_trailing_duration=self.config.get("silence_trailing_duration", 0.5),
             speech_timeout=self.config.get("speech_timeout", 3.0),
-            lookback_frames=self.config.get("lookback_frames", 5)
+            lookback_frames=self.config.get("lookback_frames", 5),
+            raw_mode=raw_mode
         )
         
-        logger.info("Components initialized successfully")
     
     def determine_engine_config(self):
         """Determine speech engine configuration based on arguments"""
@@ -203,13 +205,11 @@ class TalkieApplication:
         """Handle speech recognition results"""
         if self.audio_manager.transcribing:
             if result.is_final:
-                logger.info(f"Final: {result.text}")
                 self.text_processor.process_text(result.text, is_final=True)
                 if self.gui:
                     self.gui.add_final_result(result.text)  # Add to final results buffer
                     self.gui.clear_partial_text()
             else:
-                logger.debug(f"Partial: {result.text}")
                 if self.gui:
                     self.gui.update_partial_text(result.text)
     
@@ -232,7 +232,6 @@ class TalkieApplication:
                     # Handle speech timeout - force final result if speech has been going too long
                     if (self.audio_manager.last_speech_time and 
                         time.time() - self.audio_manager.last_speech_time > self.audio_manager.speech_timeout):
-                        logger.debug("Speech timeout - forcing final result")
                         final_result = self.speech_manager.adapter.get_final_result()
                         if final_result:
                             self.handle_speech_result(final_result)
@@ -254,7 +253,6 @@ class TalkieApplication:
                     # Handle speech timeout in empty queue case too
                     if (self.audio_manager.last_speech_time and 
                         time.time() - self.audio_manager.last_speech_time > self.audio_manager.speech_timeout):
-                        logger.debug("Speech timeout on empty queue - forcing final result")
                         final_result = self.speech_manager.adapter.get_final_result()
                         if final_result:
                             self.handle_speech_result(final_result)
@@ -488,6 +486,7 @@ def main():
     parser.add_argument("-t", "--transcribe", action="store_true", help="Start transcription immediately")
     parser.add_argument("--engine", choices=["auto", "vosk", "sherpa-onnx"], 
                        default="auto", help="Speech engine (default: auto)")
+    parser.add_argument("--raw", action="store_true", help="Raw mode: bypass VAD, feed all audio to engine")
     args = parser.parse_args()
 
     # Setup logging

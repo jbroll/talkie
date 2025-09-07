@@ -22,7 +22,6 @@ class VoskAdapter(SpeechEngine):
             self.is_initialized = True
             return True
         except Exception as e:
-            print(f"Failed to initialize Vosk: {e}")
             return False
             
     def process_audio(self, audio_data: bytes) -> Optional[SpeechResult]:
@@ -66,7 +65,7 @@ class VoskAdapter(SpeechEngine):
                     confidence=result.get('confidence', 0.0)
                 )
         except Exception as e:
-            print(f"Error getting Vosk final result: {e}")
+            pass
         return None
         
     def cleanup(self):
