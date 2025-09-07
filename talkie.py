@@ -532,71 +532,86 @@ def transcribe(device_id, samplerate, block_duration, queue_size, engine_config)
     file_monitor = JSONFileMonitor(Path.home() / ".talkie", on_file_change)
     file_monitor.start()
 
-    logger.info("Initializing audio stream...")
-    try:
-        with sd.InputStream(samplerate=samplerate, blocksize=block_size, 
-                           device=device_id, dtype='int16', channels=1, 
-                           callback=callback):
-            logger.info(f"Audio stream initialized: device={device_id}, samplerate={samplerate} Hz")
-            
-            while running:
-                if transcribing:
-                    try:
-                        # Handle number timeout
-                        if processing_state == ProcessingState.NUMBER and number_mode_start_time:
-                            if time.time() - number_mode_start_time > NUMBER_TIMEOUT:
-                                logger.debug("Number timeout in main loop")
-                                process_text("", is_final=True)
-                        
-                        # Handle speech timeout - force final result if speech has been going too long
-                        if last_speech_time and time.time() - last_speech_time > speech_timeout:
-                            logger.debug("Speech timeout - forcing final result")
-                            final_result = speech_manager.adapter.get_final_result()
-                            if final_result:
-                                handle_speech_result(final_result)
-                            # Reset speech engine for next utterance
-                            speech_manager.adapter.reset()
-                            last_speech_time = None
-                        
-                        # Get audio data and process directly (like working version)
-                        data = q.get(timeout=0.1)
-                        result = speech_manager.adapter.process_audio(data)
-                        if result:
-                            handle_speech_result(result)
-                        
-                    except queue.Empty:
-                        # Handle timeout logic
-                        if processing_state == ProcessingState.NUMBER and number_mode_start_time:
-                            if time.time() - number_mode_start_time > NUMBER_TIMEOUT:
-                                logger.debug("Number timeout on empty queue")
-                                process_text("", is_final=True)
-                                
-                        # Handle speech timeout in empty queue case too
-                        if last_speech_time and time.time() - last_speech_time > speech_timeout:
-                            logger.debug("Speech timeout on empty queue - forcing final result")
-                            final_result = speech_manager.adapter.get_final_result()
-                            if final_result:
-                                handle_speech_result(final_result)
-                            speech_manager.adapter.reset()
-                            last_speech_time = None
-                else:
-                    # Reset logic when transcription is off
-                    if processing_state == ProcessingState.NUMBER:
-                        processing_state = ProcessingState.NORMAL
-                        number_buffer.clear()
-                        number_mode_start_time = None
-                    time.sleep(0.1)
-                    
-    except Exception as e:
-        logger.error(f"Error in audio stream: {e}")
-        print(f"Error in audio stream: {e}")
-    finally:
-        if speech_manager:
-            speech_manager.cleanup()
-        file_monitor.stop()
+    if device_id is not None:
+        logger.info("Initializing audio stream...")
+        try:
+            with sd.InputStream(samplerate=samplerate, blocksize=block_size, 
+                               device=device_id, dtype='int16', channels=1, 
+                               callback=callback):
+                logger.info(f"Audio stream initialized: device={device_id}, samplerate={samplerate} Hz")
+                
+                # Run the main processing loop
+                run_main_loop()
+                
+        except Exception as e:
+            logger.error(f"Error in audio stream: {e}")
+            print(f"Error in audio stream: {e}")
+        finally:
+            if speech_manager:
+                speech_manager.cleanup()
+            file_monitor.stop()
+    else:
+        logger.info("No audio device configured. Starting without audio stream - use UI to select device.")
+        # Run without audio stream - just the UI and file monitor
+        try:
+            # Run the main processing loop without audio
+            run_main_loop()
+        finally:
+            if speech_manager:
+                speech_manager.cleanup()
+            file_monitor.stop()
+
+def run_main_loop():
+    """Main processing loop that can run with or without audio"""
+    global running, processing_state, number_buffer, number_mode_start_time, last_speech_time
     
-    logger.info("Transcribe function ending")
-    print("Transcribe function ending")
+    while running:
+        if transcribing:
+            try:
+                # Handle number timeout
+                if processing_state == ProcessingState.NUMBER and number_mode_start_time:
+                    if time.time() - number_mode_start_time > NUMBER_TIMEOUT:
+                        logger.debug("Number timeout in main loop")
+                        process_text("", is_final=True)
+                
+                # Handle speech timeout - force final result if speech has been going too long
+                if last_speech_time and time.time() - last_speech_time > speech_timeout:
+                    logger.debug("Speech timeout - forcing final result")
+                    final_result = speech_manager.adapter.get_final_result()
+                    if final_result:
+                        handle_speech_result(final_result)
+                    # Reset speech engine for next utterance
+                    speech_manager.adapter.reset()
+                    last_speech_time = None
+                
+                # Get audio data and process directly (like working version)
+                data = q.get(timeout=0.1)
+                result = speech_manager.adapter.process_audio(data)
+                if result:
+                    handle_speech_result(result)
+                
+            except queue.Empty:
+                # Handle timeout logic
+                if processing_state == ProcessingState.NUMBER and number_mode_start_time:
+                    if time.time() - number_mode_start_time > NUMBER_TIMEOUT:
+                        logger.debug("Number timeout on empty queue")
+                        process_text("", is_final=True)
+                        
+                # Handle speech timeout in empty queue case too
+                if last_speech_time and time.time() - last_speech_time > speech_timeout:
+                    logger.debug("Speech timeout on empty queue - forcing final result")
+                    final_result = speech_manager.adapter.get_final_result()
+                    if final_result:
+                        handle_speech_result(final_result)
+                    speech_manager.adapter.reset()
+                    last_speech_time = None
+        else:
+            # Reset logic when transcription is off
+            if processing_state == ProcessingState.NUMBER:
+                processing_state = ProcessingState.NORMAL
+                number_buffer.clear()
+                number_mode_start_time = None
+            time.sleep(0.1)
 
 # @list_audio_devices
 def list_audio_devices():
@@ -1179,9 +1194,11 @@ def main():
             device_id, samplerate = select_audio_device(config=config)
 
         if device_id is None or samplerate is None:
-            logger.error("Failed to select a valid audio device or sample rate.")
-            logger.error("Available devices: " + str([f"{i}: {d['name']}" for i, d in enumerate(sd.query_devices()) if d['max_input_channels'] > 0]))
-            return
+            logger.warning("Failed to select audio device automatically. Starting without audio - use UI dropdown to select device.")
+            logger.info("Available devices: " + str([f"{i}: {d['name']}" for i, d in enumerate(sd.query_devices()) if d['max_input_channels'] > 0]))
+            # Set defaults for no-audio startup
+            device_id = None
+            samplerate = 16000  # Default sample rate
 
         logger.info(f"Selected device ID: {device_id}, Sample rate: {samplerate}")
         
