@@ -14,7 +14,7 @@ DEFAULT_CONFIG = {
     "voice_threshold": 50.0,
     "silence_trailing_duration": 0.5,
     "speech_timeout": 3.0,
-    "lookback_frames": 5,
+    "lookback_frames": 10,
     "engine": "vosk",
     "model_path": DEFAULT_MODEL_PATH,
     "window_x": 100,

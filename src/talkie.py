@@ -217,6 +217,7 @@ class TalkieApplication:
         """Handle transcription state changes from file monitor"""
         self.audio_manager.set_transcribing(state.transcribing)
     
+    
     def run_main_loop(self):
         """Main processing loop that handles audio data and timeouts"""
         global running
