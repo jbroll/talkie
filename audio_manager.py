@@ -55,6 +55,10 @@ class AudioManager:
                     break
             self.speech_start_time = None
             logger.debug("Audio queue cleared")
+        
+        # Notify GUI of state change
+        if self.on_transcription_change_callback:
+            self.on_transcription_change_callback()
     
     def toggle_transcription(self):
         """Toggle transcription state"""
@@ -242,16 +246,15 @@ class AudioManager:
                 self.silence_frames_sent = 0
                 self.q.put(audio_np.tobytes())
             else:
-                # No voice detected
+                # No voice detected (below threshold)
                 if self.speech_start_time is not None and self.silence_frames_sent < self.max_silence_frames:
-                    # Send trailing silence for utterance completion
+                    # Send actual trailing audio (not artificial silence) for better transcription
                     self.silence_frames_sent += 1
-                    silent_frame = np.zeros_like(audio_np)
-                    self.q.put(silent_frame.tobytes())
-                    logger.debug(f"Sending silence frame {self.silence_frames_sent}/{self.max_silence_frames}")
+                    self.q.put(audio_np.tobytes())  # Send actual audio, even if below threshold
+                    logger.debug(f"Sending trailing audio frame {self.silence_frames_sent}/{self.max_silence_frames} (energy: {audio_energy:.1f})")
                     
                     if self.silence_frames_sent >= self.max_silence_frames:
-                        logger.debug("Silence trailing complete")
+                        logger.debug("Trailing audio complete")
                         self.speech_start_time = None
                 else:
                     # Pure silence - reset speech timing

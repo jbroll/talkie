@@ -21,10 +21,16 @@ class TalkieGUI:
         self._setup_ui()
         self._setup_device_selection()
         self._start_energy_display_updates()
+        
+        # Initial UI state will be set by the file monitor callback
     
     def _setup_ui(self):
         """Initialize the main UI components"""
         self.master.title("Talkie")
+        
+        # Set fixed window size to prevent resizing when switching views
+        self.master.geometry("800x400")
+        self.master.minsize(800, 400)
         
         # Bind Alt+Q to quit_app function
         self.master.bind("<Alt-q>", lambda event: self.quit_app())
@@ -34,10 +40,21 @@ class TalkieGUI:
         button_frame.pack(fill=tk.X, pady=10)
         
         # Main transcription toggle button (flush left)
-        self.button = tk.Button(button_frame, text="Start Transcription", command=self.toggle_transcription)
+        self.button = tk.Button(button_frame, text="Start Transcription", command=self.toggle_transcription,
+                               activebackground="indianred")  # Hover effect for stopped state
         self.button.pack(side=tk.LEFT, pady=0)
         
-        # Audio energy display (center) - styled like a button, same row
+        # View switching buttons (left-center)
+        self.controls_view_button = tk.Button(button_frame, text="Controls", 
+                                            command=self.show_controls_view)
+        self.controls_view_button.pack(side=tk.LEFT, padx=5, pady=0)
+        
+        self.text_view_button = tk.Button(button_frame, text="Text", 
+                                         command=self.show_text_view,
+                                         relief="sunken")  # Start with text view active
+        self.text_view_button.pack(side=tk.LEFT, pady=0)
+        
+        # Audio energy display (center-right) - styled like a button, same row
         self.energy_label = tk.Label(button_frame, text="Audio: 0", 
                                     relief="raised", bd=2, 
                                     padx=10, pady=5, 
@@ -48,35 +65,8 @@ class TalkieGUI:
         self.quit_button = tk.Button(button_frame, text="Quit", command=self.quit_app)
         self.quit_button.pack(side=tk.RIGHT, pady=0)
         
-        # All controls in single column
-        self._setup_controls_column()
-        
-        # Text display areas
-        self._setup_text_areas()
-        
-        # Status label
-        self.status_label = tk.Label(self.master, text="Transcription: OFF")
-        self.status_label.pack(pady=5)
-    
-    def _setup_device_frame(self):
-        """Setup audio device selection frame"""
-        self.device_frame = tk.Frame(self.master)
-        self.device_frame.pack(pady=5)
-        
-        tk.Label(self.device_frame, text="Audio Device:").pack(side=tk.LEFT)
-        
-        # Get available devices
-        self.available_devices = self.audio_manager.get_input_devices_for_ui()
-        device_names = [device[0] for device in self.available_devices]
-        
-        self.device_var = tk.StringVar()
-        self.device_combo = ttk.Combobox(self.device_frame, 
-                                        textvariable=self.device_var,
-                                        values=device_names,
-                                        state="readonly",
-                                        width=30)
-        self.device_combo.pack(side=tk.LEFT, padx=5)
-        self.device_combo.bind("<<ComboboxSelected>>", self.on_device_change)
+        # Create the two switchable panes
+        self._setup_switchable_panes()
     
     def _setup_device_selection(self):
         """Set current device from config"""
@@ -100,99 +90,40 @@ class TalkieGUI:
         except Exception as e:
             logger.error(f"Error setting current device from config: {e}")
     
-    def _setup_controls_frame(self):
-        """Setup voice threshold controls frame"""
-        self.controls_frame = tk.Frame(self.master)
-        self.controls_frame.pack(pady=5)
+    def _setup_switchable_panes(self):
+        """Setup the two switchable panes for controls and text"""
+        # Create container for switchable content
+        self.content_frame = tk.Frame(self.master)
+        self.content_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
-        # Voice threshold slider
-        tk.Label(self.controls_frame, text="Voice Threshold:").pack(side=tk.LEFT)
-        self.threshold_var = tk.DoubleVar(value=self.audio_manager.voice_threshold)
-        self.threshold_scale = tk.Scale(self.controls_frame, from_=10, to=300, 
-                                       resolution=5, orient=tk.HORIZONTAL, 
-                                       variable=self.threshold_var,
-                                       command=self.update_threshold)
-        self.threshold_scale.pack(side=tk.LEFT, padx=5)
+        # Controls pane
+        self.controls_pane = tk.Frame(self.content_frame)
+        self._setup_controls_column_in_pane()
         
-        # Audio energy display
-        self.energy_label = tk.Label(self.controls_frame, text="Audio: 0.000")
-        self.energy_label.pack(side=tk.LEFT, padx=10)
+        # Text pane  
+        self.text_pane = tk.Frame(self.content_frame)
+        self._setup_text_areas_in_pane()
+        
+        # Start with text view
+        self.current_view = "text"
+        self.show_text_view()
     
-    def _setup_controls_frame2(self):
-        """Setup second row of controls"""
-        self.controls_frame2 = tk.Frame(self.master)
-        self.controls_frame2.pack(pady=5)
-        
-        # Silence trailing duration slider
-        tk.Label(self.controls_frame2, text="Silence Trailing (s):").pack(side=tk.LEFT)
-        self.silence_var = tk.DoubleVar(value=self.audio_manager.silence_trailing_duration)
-        self.silence_scale = tk.Scale(self.controls_frame2, from_=0.1, to=2.0, 
-                                     resolution=0.1, orient=tk.HORIZONTAL, 
-                                     variable=self.silence_var,
-                                     command=self.update_silence_duration)
-        self.silence_scale.pack(side=tk.LEFT, padx=5)
-        
-        # Speech timeout slider
-        tk.Label(self.controls_frame2, text="Speech Timeout (s):").pack(side=tk.LEFT)
-        self.timeout_var = tk.DoubleVar(value=self.audio_manager.speech_timeout)
-        self.timeout_scale = tk.Scale(self.controls_frame2, from_=1.0, to=10.0, 
-                                     resolution=0.5, orient=tk.HORIZONTAL, 
-                                     variable=self.timeout_var,
-                                     command=self.update_speech_timeout)
-        self.timeout_scale.pack(side=tk.LEFT, padx=5)
-        
-        # Third row of controls for lookback buffer
-        self.controls_frame3 = tk.Frame(self.master)
-        self.controls_frame3.pack(pady=5)
-        
-        # Lookback frames slider
-        tk.Label(self.controls_frame3, text="Lookback Frames:").pack(side=tk.LEFT)
-        self.lookback_var = tk.IntVar(value=self.audio_manager.lookback_frames)
-        self.lookback_scale = tk.Scale(self.controls_frame3, from_=1, to=20, 
-                                      resolution=1, orient=tk.HORIZONTAL, 
-                                      variable=self.lookback_var,
-                                      command=self.update_lookback_frames)
-        self.lookback_scale.pack(side=tk.LEFT, padx=5)
-        
-        # Info label for lookback buffer
-        self.lookback_info = tk.Label(self.controls_frame3, text="(0.5s @ 44kHz)", fg="gray")
-        self.lookback_info.pack(side=tk.LEFT, padx=5)
-    
-    def _setup_text_areas(self):
-        """Setup dual text display areas"""
-        from collections import deque
-        
-        # Frame for text areas
-        text_frame = tk.Frame(self.master)
-        text_frame.pack(pady=10, fill=tk.BOTH, expand=True)
-        
-        # Final results history (top)
-        self.final_text = scrolledtext.ScrolledText(text_frame, wrap=tk.WORD, width=80, height=12)
-        self.final_text.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
-        
-        # Configure tags for final results
-        self.final_text.tag_configure("final", foreground="black")
-        self.final_text.tag_configure("timestamp", foreground="gray", font=("Arial", 8))
-        
-        # Rolling buffer for final results (max 15 entries)
-        self.final_results_buffer = deque(maxlen=15)
-        
-        # Current partial text (bottom, smaller)
-        self.partial_text = scrolledtext.ScrolledText(text_frame, wrap=tk.WORD, width=80, height=3)
-        self.partial_text.pack(fill=tk.X, pady=(5, 0))
-        
-        # Configure tags for partial results
-        self.partial_text.tag_configure("sent", foreground="gray")
-        self.partial_text.tag_configure("unsent", foreground="black")
-    
-    def _setup_controls_column(self):
-        """Setup all controls in a single column with labels left, controls right"""
-        # Main controls frame
-        controls_container = tk.Frame(self.master)
+    def _setup_controls_column_in_pane(self):
+        """Setup controls column within the controls pane"""
+        # Main controls frame within the pane
+        controls_container = tk.Frame(self.controls_pane)
         controls_container.pack(pady=10, padx=20, fill=tk.X)
         
-        # Audio Device row
-        device_frame = tk.Frame(controls_container)
+        # Setup all the control rows (copy of existing logic but in pane)
+        self._setup_device_row(controls_container)
+        self._setup_threshold_row(controls_container)
+        self._setup_silence_row(controls_container)
+        self._setup_timeout_row(controls_container)
+        self._setup_lookback_row(controls_container)
+    
+    def _setup_device_row(self, parent):
+        """Setup audio device selection row"""
+        device_frame = tk.Frame(parent)
         device_frame.pack(fill=tk.X, pady=2)
         
         tk.Label(device_frame, text="Audio Device:", width=20, anchor="w").pack(side=tk.LEFT)
@@ -211,12 +142,11 @@ class TalkieGUI:
                                         state="readonly")
         self.device_combo.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.device_combo.bind("<<ComboboxSelected>>", self.on_device_change)
-        
-        # Set current device from config
         self._setup_device_selection()
-        
-        # Voice Threshold row
-        threshold_frame = tk.Frame(controls_container)
+    
+    def _setup_threshold_row(self, parent):
+        """Setup voice threshold row"""
+        threshold_frame = tk.Frame(parent)
         threshold_frame.pack(fill=tk.X, pady=2)
         
         tk.Label(threshold_frame, text="Voice Threshold:", width=20, anchor="w").pack(side=tk.LEFT)
@@ -230,9 +160,10 @@ class TalkieGUI:
                                        variable=self.threshold_var,
                                        command=self.update_threshold)
         self.threshold_scale.pack(fill=tk.X, expand=True)
-        
-        # Silence Trailing Duration row
-        silence_frame = tk.Frame(controls_container)
+    
+    def _setup_silence_row(self, parent):
+        """Setup silence trailing duration row"""
+        silence_frame = tk.Frame(parent)
         silence_frame.pack(fill=tk.X, pady=2)
         
         tk.Label(silence_frame, text="Silence Trailing (s):", width=20, anchor="w").pack(side=tk.LEFT)
@@ -246,9 +177,10 @@ class TalkieGUI:
                                      variable=self.silence_var,
                                      command=self.update_silence_duration)
         self.silence_scale.pack(fill=tk.X, expand=True)
-        
-        # Speech Timeout row
-        timeout_frame = tk.Frame(controls_container)
+    
+    def _setup_timeout_row(self, parent):
+        """Setup speech timeout row"""
+        timeout_frame = tk.Frame(parent)
         timeout_frame.pack(fill=tk.X, pady=2)
         
         tk.Label(timeout_frame, text="Speech Timeout (s):", width=20, anchor="w").pack(side=tk.LEFT)
@@ -262,9 +194,10 @@ class TalkieGUI:
                                      variable=self.timeout_var,
                                      command=self.update_speech_timeout)
         self.timeout_scale.pack(fill=tk.X, expand=True)
-        
-        # Lookback Frames row
-        lookback_frame = tk.Frame(controls_container)
+    
+    def _setup_lookback_row(self, parent):
+        """Setup lookback frames row"""
+        lookback_frame = tk.Frame(parent)
         lookback_frame.pack(fill=tk.X, pady=2)
         
         tk.Label(lookback_frame, text="Lookback Frames (ms):", width=20, anchor="w").pack(side=tk.LEFT)
@@ -280,6 +213,56 @@ class TalkieGUI:
                                       variable=self.lookback_var,
                                       command=self.update_lookback_frames)
         self.lookback_scale.pack(fill=tk.X, expand=True)
+    
+    def _setup_text_areas_in_pane(self):
+        """Setup text areas within the text pane"""
+        # Frame for text areas
+        text_frame = tk.Frame(self.text_pane)
+        text_frame.pack(pady=10, fill=tk.BOTH, expand=True)
+        
+        # Final results history (top)
+        self.final_text = scrolledtext.ScrolledText(text_frame, wrap=tk.WORD, width=80, height=12)
+        self.final_text.pack(fill=tk.BOTH, expand=True, pady=(0, 5))
+        
+        # Configure tags for final results
+        self.final_text.tag_configure("final", foreground="black")
+        self.final_text.tag_configure("timestamp", foreground="gray", font=("Arial", 8))
+        
+        # Rolling buffer for final results (max 15 entries)
+        from collections import deque
+        self.final_results_buffer = deque(maxlen=15)
+        
+        # Current partial text (bottom, smaller)
+        self.partial_text = scrolledtext.ScrolledText(text_frame, wrap=tk.WORD, width=80, height=3)
+        self.partial_text.pack(fill=tk.X, pady=(5, 0))
+        
+        # Configure tags for partial results
+        self.partial_text.tag_configure("sent", foreground="gray")
+        self.partial_text.tag_configure("unsent", foreground="black")
+    
+    def show_controls_view(self):
+        """Switch to controls view"""
+        if hasattr(self, 'text_pane'):
+            self.text_pane.pack_forget()
+        if hasattr(self, 'controls_pane'):
+            self.controls_pane.pack(fill=tk.BOTH, expand=True)
+        
+        # Update button states
+        self.controls_view_button.config(relief="sunken")
+        self.text_view_button.config(relief="raised")
+        self.current_view = "controls"
+    
+    def show_text_view(self):
+        """Switch to text view"""
+        if hasattr(self, 'controls_pane'):
+            self.controls_pane.pack_forget()
+        if hasattr(self, 'text_pane'):
+            self.text_pane.pack(fill=tk.BOTH, expand=True)
+        
+        # Update button states
+        self.controls_view_button.config(relief="raised")
+        self.text_view_button.config(relief="sunken")
+        self.current_view = "text"
     
     def _start_energy_display_updates(self):
         """Start updating audio energy display"""
@@ -349,12 +332,13 @@ class TalkieGUI:
     
     def update_energy_display(self):
         """Update the audio energy display in real-time"""
-        # Update energy display with color coding (show as integer for int16 audio)
-        energy_text = f"Audio: {int(self.audio_manager.current_audio_energy)}"
+        # Format energy value to be consistent width to prevent button size changes
+        energy_value = int(self.audio_manager.current_audio_energy)
+        energy_text = f"Audio: {energy_value:5d}"  # Fixed 5-digit width with leading spaces
         if self.audio_manager.current_audio_energy > self.audio_manager.voice_threshold:
-            self.energy_label.config(text=energy_text, fg="green")  # Voice detected
+            self.energy_label.config(text=energy_text, fg="darkgreen")  # Voice detected
         else:
-            self.energy_label.config(text=energy_text, fg="red")    # Silence
+            self.energy_label.config(text=energy_text, fg="darkred")    # Silence - darker red for better readability
         
         # Schedule next update
         self.master.after(100, self.update_energy_display)
@@ -362,11 +346,11 @@ class TalkieGUI:
     def update_ui(self):
         """Update UI based on transcription state"""
         if self.audio_manager.transcribing:
-            self.button.config(text="Stop Transcription")
-            self.status_label.config(text="Transcription: ON")
+            self.button.config(text="Stop Transcription", bg="lightgreen", fg="black", 
+                              activebackground="mediumseagreen")
         else:
-            self.button.config(text="Start Transcription")
-            self.status_label.config(text="Transcription: OFF")
+            self.button.config(text="Start Transcription", bg="lightcoral", fg="black",
+                              activebackground="indianred")
     
     def update_partial_text(self, text):
         """Update partial text display with sent/unsent word styling"""
