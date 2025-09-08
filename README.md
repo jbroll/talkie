@@ -17,6 +17,7 @@ A modular speech-to-text application designed for seamless Ubuntu Linux integrat
 
 ### Advanced Features  
 - **Voice Activity Detection**: Configurable thresholds with pre-speech audio buffering
+- **Confidence Filtering**: Post-processing confidence filtering for improved transcription quality
 - **Configurable Audio Pipeline**: Adjustable sample rates, block duration, and silence handling
 - **State Management**: Persistent configuration and external control via JSON state files
 - **Desktop Integration**: Global hotkeys and background operation support
@@ -116,6 +117,7 @@ Uses adapter pattern with factory-based instantiation:
 - **Vosk Engine**: CPU-based recognition with high accuracy, real-time streaming
 - **Sherpa-ONNX Engine**: Optimized CPU implementation with INT8 quantization  
 - **Automatic Detection**: Intelligent engine selection with graceful fallback
+- **Confidence Scoring**: Real-time confidence assessment with configurable filtering thresholds
 
 ## Voice Commands
 
@@ -139,8 +141,9 @@ Uses adapter pattern with factory-based instantiation:
 ### Standard Mode
 - Transcription control toggle with visual feedback
 - Audio device selection dropdown
-- Real-time energy level display
+- Real-time energy level and confidence score display
 - Partial transcription result preview
+- Confidence filtering with adjustable thresholds
 - Configuration parameter adjustment
 
 ### Bubble Mode
@@ -157,16 +160,20 @@ Configuration is stored in `~/.talkie.conf`:
 ```json
 {
     "audio_device": "pulse",
-    "voice_threshold": 50.0,
+    "energy_threshold": 50.0,
     "silence_trailing_duration": 0.5,
     "speech_timeout": 3.0,
-    "lookback_frames": 5,
+    "lookback_frames": 10,
     "engine": "vosk",
     "model_path": "/home/john/Downloads/vosk-model-en-us-0.22-lgraph",
     "window_x": 100,
     "window_y": 100,
     "bubble_enabled": false,
-    "bubble_silence_timeout": 3.0
+    "bubble_silence_timeout": 3.0,
+    "vosk_max_alternatives": 0,
+    "vosk_beam": 20,
+    "vosk_lattice_beam": 8,
+    "confidence_threshold": 280.0
 }
 ```
 

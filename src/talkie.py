@@ -73,7 +73,7 @@ def setup_engine_environment(engine_config):
         # Vosk doesn't need special environment configuration
         logger.debug("Using Vosk engine - no special environment setup needed")
 
-def detect_best_engine():
+def detect_best_engine(config=None):
     """Detect best available speech engine with Vosk preferred for accuracy"""
     # Try Vosk first (preferred default for accuracy and reliability)
     try:
@@ -82,10 +82,19 @@ def detect_best_engine():
         # Check if the Vosk model path exists
         if os.path.exists(DEFAULT_MODEL_PATH):
             logger.info("Using Vosk engine (default)")
-            return SpeechEngineType.VOSK, {
+            vosk_params = {
                 'model_path': DEFAULT_MODEL_PATH,
                 'samplerate': 16000
             }
+            # Add Vosk parameters if config is provided
+            if config:
+                vosk_params.update({
+                    'max_alternatives': config.get('vosk_max_alternatives', 0),
+                    'beam': config.get('vosk_beam', 20),
+                    'lattice_beam': config.get('vosk_lattice_beam', 8),
+                    'confidence_threshold': config.get('confidence_threshold', 280.0)
+                })
+            return SpeechEngineType.VOSK, vosk_params
         else:
             logger.warning(f"Vosk model not found at {DEFAULT_MODEL_PATH}")
     except ImportError:
@@ -124,6 +133,9 @@ class TalkieApplication:
         self.transcribe_thread = None
         self.keyboard_thread = None
         
+        # Current speech confidence for UI display
+        self.current_confidence = 0.0
+        
         # Load initial configuration
         self.config = self.config_manager.load_config()
     
@@ -137,15 +149,9 @@ class TalkieApplication:
         self.text_processor.set_text_output_callback(self.keyboard_simulator.type_text)
         
         # Initialize audio manager with config values
-        # Command line --raw arg takes precedence over config
-        raw_mode = getattr(self.args, 'raw', False) or self.config.get("raw_mode", False)
-        
         self.audio_manager = AudioManager(
-            voice_threshold=self.config.get("voice_threshold", 50.0),
-            silence_trailing_duration=self.config.get("silence_trailing_duration", 0.5),
             speech_timeout=self.config.get("speech_timeout", 3.0),
-            lookback_frames=self.config.get("lookback_frames", 5),
-            raw_mode=raw_mode
+            energy_threshold=self.config.get("energy_threshold", 50.0)
         )
         
     
@@ -155,7 +161,11 @@ class TalkieApplication:
             engine_config = {
                 'engine_type': SpeechEngineType.VOSK,
                 'model_path': self.args.model or DEFAULT_MODEL_PATH,
-                'samplerate': 16000
+                'samplerate': 16000,
+                'max_alternatives': self.config.get('vosk_max_alternatives', 0),
+                'beam': self.config.get('vosk_beam', 20),
+                'lattice_beam': self.config.get('vosk_lattice_beam', 8),
+                'confidence_threshold': self.config.get('confidence_threshold', 280.0)
             }
             # Check if the Vosk model path exists
             if not os.path.exists(engine_config['model_path']):
@@ -169,7 +179,7 @@ class TalkieApplication:
                 'samplerate': 16000
             }
         else:  # auto
-            engine_type, engine_params = detect_best_engine()
+            engine_type, engine_params = detect_best_engine(self.config)
             if engine_type is None:
                 logger.error("No speech engines available")
                 return None
@@ -204,12 +214,18 @@ class TalkieApplication:
     def handle_speech_result(self, result: SpeechResult):
         """Handle speech recognition results"""
         if self.audio_manager.transcribing:
+            # Update current confidence for UI display
+            self.current_confidence = result.confidence
+            
+            current_energy = self.audio_manager.current_audio_energy
             if result.is_final:
+                print(f"FINAL RESULT: '{result.text}' (confidence={result.confidence:.2f}, energy={current_energy:.1f})")
                 self.text_processor.process_text(result.text, is_final=True)
                 if self.gui:
                     self.gui.add_final_result(result.text)  # Add to final results buffer
                     self.gui.clear_partial_text()
             else:
+                print(f"PARTIAL RESULT: '{result.text}' (confidence={result.confidence:.2f}, energy={current_energy:.1f})")
                 if self.gui:
                     self.gui.update_partial_text(result.text)
     
@@ -241,6 +257,10 @@ class TalkieApplication:
                     
                     # Get audio data and process directly
                     data = self.audio_manager.q.get(timeout=0.1)
+                    # Debug: track audio processing 
+                    current_energy = self.audio_manager.current_audio_energy
+                    qsize = self.audio_manager.q.qsize()
+                    print(f"PROCESSING: energy={current_energy:.1f}, qsize={qsize}")
                     result = self.speech_manager.adapter.process_audio(data)
                     if result:
                         self.handle_speech_result(result)
@@ -267,11 +287,7 @@ class TalkieApplication:
         """Main transcription function - runs in separate thread"""
         logger.info("Transcribe function started")
         
-        # Update audio manager with final block duration settings
-        self.audio_manager.update_silence_duration(
-            self.audio_manager.silence_trailing_duration, 
-            BLOCK_DURATION
-        )
+        # Audio manager is now simplified - no silence duration configuration needed
         
         # Create speech manager with selected engine
         engine_type = engine_config.pop('engine_type')
@@ -368,9 +384,12 @@ class TalkieApplication:
         
         logger.debug("Initializing Tkinter UI")
         tk_root = tk.Tk()
-        self.gui = TalkieGUI(tk_root, self.audio_manager, self.config_manager, self.text_processor)
+        self.gui = TalkieGUI(tk_root, self.audio_manager, self.config_manager, self.text_processor, self)
         self.gui.set_quit_callback(self.tk_cleanup)
         self.gui.update_ui()  # Set initial UI state
+        
+        # Set up callback to clear partial text when speech ends
+        self.audio_manager.set_speech_end_callback(self.gui.clear_partial_text)
         
         return True
     
@@ -476,6 +495,34 @@ class TalkieApplication:
 
         logger.info("Main loop exited. Shutting down.")
         return 0
+    
+    def update_vosk_max_alternatives(self, value):
+        """Update Vosk max alternatives parameter in the active engine"""
+        if (self.speech_manager and 
+            hasattr(self.speech_manager, 'adapter') and 
+            hasattr(self.speech_manager.adapter, 'update_max_alternatives')):
+            self.speech_manager.adapter.update_max_alternatives(value)
+    
+    def update_vosk_beam(self, value):
+        """Update Vosk beam parameter in the active engine"""
+        if (self.speech_manager and 
+            hasattr(self.speech_manager, 'adapter') and 
+            hasattr(self.speech_manager.adapter, 'update_beam')):
+            self.speech_manager.adapter.update_beam(value)
+    
+    def update_vosk_lattice_beam(self, value):
+        """Update Vosk lattice beam parameter in the active engine"""
+        if (self.speech_manager and 
+            hasattr(self.speech_manager, 'adapter') and 
+            hasattr(self.speech_manager.adapter, 'update_lattice_beam')):
+            self.speech_manager.adapter.update_lattice_beam(value)
+    
+    def update_vosk_confidence_threshold(self, value):
+        """Update Vosk confidence threshold in the active engine"""
+        if (self.speech_manager and 
+            hasattr(self.speech_manager, 'adapter') and 
+            hasattr(self.speech_manager.adapter, 'update_confidence_threshold')):
+            self.speech_manager.adapter.update_confidence_threshold(value)
 
 def main():
     """Application entry point"""
@@ -486,7 +533,6 @@ def main():
     parser.add_argument("-t", "--transcribe", action="store_true", help="Start transcription immediately")
     parser.add_argument("--engine", choices=["auto", "vosk", "sherpa-onnx"], 
                        default="auto", help="Speech engine (default: auto)")
-    parser.add_argument("--raw", action="store_true", help="Raw mode: bypass VAD, feed all audio to engine")
     args = parser.parse_args()
 
     # Setup logging

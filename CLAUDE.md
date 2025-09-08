@@ -150,14 +150,30 @@ python3 talkie.py                   # Direct Python execution
 - Timeout-based number sequence finalization
 - State-based processing for complex numbers
 
+#### Confidence Filtering
+- **Post-processing Quality Filter**: Filters out low-confidence recognition results
+- **Real-time Display**: Shows current confidence score in UI (250-400 range typical)
+- **Configurable Threshold**: Adjustable via GUI slider (200-400 range)
+- **Color-coded Feedback**: Green (≥350), Orange (300-349), Red (<300)
+- **Vosk Integration**: Uses Vosk's built-in confidence scoring system
+- **Noise Reduction**: Reduces false positives and background noise artifacts
+
+**Recommended Thresholds:**
+- **High Quality**: 320-350 (strict filtering, quiet environments)
+- **Balanced**: 280-320 (normal use, moderate filtering)
+- **Permissive**: 250-280 (noisy environments, accept more results)
+
 ### GUI Features
 
 #### Standard Mode
 - Transcription control toggle
 - Audio device selection
 - Real-time energy level display
+- Real-time confidence score display
 - Partial result preview
 - Configuration parameter adjustment
+- Vosk engine parameter tuning
+- Confidence threshold filtering
 
 #### Bubble Mode
 - Minimized floating window interface
@@ -171,16 +187,20 @@ python3 talkie.py                   # Direct Python execution
 ```json
 {
     "audio_device": "pulse",
-    "voice_threshold": 50.0,
+    "energy_threshold": 50.0,
     "silence_trailing_duration": 0.5,
     "speech_timeout": 3.0,
-    "lookback_frames": 5,
+    "lookback_frames": 10,
     "engine": "vosk",
     "model_path": "/home/john/Downloads/vosk-model-en-us-0.22-lgraph",
     "window_x": 100,
     "window_y": 100,
     "bubble_enabled": false,
-    "bubble_silence_timeout": 3.0
+    "bubble_silence_timeout": 3.0,
+    "vosk_max_alternatives": 0,
+    "vosk_beam": 20,
+    "vosk_lattice_beam": 8,
+    "confidence_threshold": 280.0
 }
 ```
 

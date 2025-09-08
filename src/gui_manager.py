@@ -1,6 +1,7 @@
 #!/home/john/src/talkie/bin/python3
 
 import logging
+import numpy as np
 import tkinter as tk
 from tkinter import scrolledtext, ttk
 
@@ -9,11 +10,12 @@ logger = logging.getLogger(__name__)
 class TalkieGUI:
     """Manages the Tkinter GUI interface for Talkie"""
     
-    def __init__(self, master, audio_manager, config_manager, text_processor):
+    def __init__(self, master, audio_manager, config_manager, text_processor, app=None):
         self.master = master
         self.audio_manager = audio_manager
         self.config_manager = config_manager
         self.text_processor = text_processor
+        self.app = app  # Reference to TalkieApplication for Vosk parameter updates
         
         # Set up callbacks
         self.audio_manager.set_transcription_change_callback(self.update_ui)
@@ -62,12 +64,19 @@ class TalkieGUI:
                                          relief="sunken")  # Start with text view active
         self.text_view_button.pack(side=tk.LEFT, pady=0)
         
-        # Audio energy display (center-right) - styled like a button, same row
+        # Audio energy display (center-left) - styled like a button, same row
         self.energy_label = tk.Label(button_frame, text="Audio: 0", 
                                     relief="raised", bd=2, 
                                     padx=10, pady=5, 
                                     font=("Arial", 10))
-        self.energy_label.pack(side=tk.LEFT, expand=True, padx=10, pady=0)
+        self.energy_label.pack(side=tk.LEFT, expand=True, padx=(10, 5), pady=0)
+        
+        # Confidence display (center-right) - styled like a button, same row
+        self.confidence_label = tk.Label(button_frame, text="Conf: --", 
+                                       relief="raised", bd=2, 
+                                       padx=10, pady=5, 
+                                       font=("Arial", 10))
+        self.confidence_label.pack(side=tk.LEFT, expand=True, padx=(5, 10), pady=0)
         
         # Quit button (flush right)
         self.quit_button = tk.Button(button_frame, text="Quit", command=self.quit_app)
@@ -160,13 +169,11 @@ class TalkieGUI:
         controls_container = tk.Frame(self.scrollable_controls_frame)
         controls_container.pack(pady=10, padx=20, fill=tk.X)
         
-        # Setup all the control rows (copy of existing logic but in pane)
+        # Setup simplified control rows
         self._setup_device_row(controls_container)
-        self._setup_threshold_row(controls_container)
-        self._setup_silence_row(controls_container)
         self._setup_timeout_row(controls_container)
-        self._setup_lookback_row(controls_container)
-        self._setup_raw_mode_row(controls_container)
+        self._setup_energy_threshold_row(controls_container)
+        self._setup_vosk_parameters_row(controls_container)
         self._setup_bubble_row(controls_container)
     
     def _setup_device_row(self, parent):
@@ -222,8 +229,7 @@ class TalkieGUI:
         self.silence_var = tk.DoubleVar(value=self.audio_manager.silence_trailing_duration)
         self.silence_scale = tk.Scale(silence_control_frame, from_=0.1, to=2.0, 
                                      resolution=0.1, orient=tk.HORIZONTAL, 
-                                     variable=self.silence_var,
-                                     command=self.update_silence_duration)
+                                     variable=self.silence_var)
         self.silence_scale.pack(fill=tk.X, expand=True)
     
     def _setup_timeout_row(self, parent):
@@ -258,8 +264,7 @@ class TalkieGUI:
         self.lookback_var = tk.IntVar(value=initial_ms)
         self.lookback_scale = tk.Scale(lookback_control_frame, from_=100, to=2000, 
                                       resolution=100, orient=tk.HORIZONTAL, 
-                                      variable=self.lookback_var,
-                                      command=self.update_lookback_frames)
+                                      variable=self.lookback_var)
         self.lookback_scale.pack(fill=tk.X, expand=True)
     
     def _setup_raw_mode_row(self, parent):
@@ -277,6 +282,87 @@ class TalkieGUI:
                                                variable=self.raw_mode_var,
                                                command=self.update_raw_mode)
         self.raw_mode_checkbox.pack(side=tk.LEFT)
+    
+    def _setup_energy_threshold_row(self, parent):
+        """Setup energy threshold row"""
+        threshold_frame = tk.Frame(parent)
+        threshold_frame.pack(fill=tk.X, pady=2)
+        
+        tk.Label(threshold_frame, text="Energy Threshold:", width=20, anchor="w").pack(side=tk.LEFT)
+        
+        threshold_control_frame = tk.Frame(threshold_frame)
+        threshold_control_frame.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        
+        self.energy_threshold_var = tk.DoubleVar(value=self.audio_manager.energy_threshold)
+        self.energy_threshold_scale = tk.Scale(threshold_control_frame, from_=10.0, to=200.0, 
+                                             resolution=5.0, orient=tk.HORIZONTAL, 
+                                             variable=self.energy_threshold_var,
+                                             command=self.update_energy_threshold)
+        self.energy_threshold_scale.pack(fill=tk.X, expand=True)
+    
+    def _setup_vosk_parameters_row(self, parent):
+        """Setup Vosk parameters controls"""
+        vosk_frame = tk.Frame(parent)
+        vosk_frame.pack(fill=tk.X, pady=5)
+        
+        # Title label
+        tk.Label(vosk_frame, text="Vosk Engine Parameters:", font=("Arial", 10, "bold")).pack(anchor="w")
+        
+        # Max Alternatives
+        max_alt_frame = tk.Frame(vosk_frame)
+        max_alt_frame.pack(fill=tk.X, pady=1)
+        tk.Label(max_alt_frame, text="Max Alternatives:", width=20, anchor="w").pack(side=tk.LEFT)
+        max_alt_control = tk.Frame(max_alt_frame)
+        max_alt_control.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        
+        self.vosk_max_alt_var = tk.IntVar(value=self.config_manager.get_config_value('vosk_max_alternatives', 0))
+        self.vosk_max_alt_scale = tk.Scale(max_alt_control, from_=0, to=5, 
+                                          resolution=1, orient=tk.HORIZONTAL, 
+                                          variable=self.vosk_max_alt_var,
+                                          command=self.update_vosk_max_alternatives)
+        self.vosk_max_alt_scale.pack(fill=tk.X, expand=True)
+        
+        # Beam
+        beam_frame = tk.Frame(vosk_frame)
+        beam_frame.pack(fill=tk.X, pady=1)
+        tk.Label(beam_frame, text="Beam (selectivity):", width=20, anchor="w").pack(side=tk.LEFT)
+        beam_control = tk.Frame(beam_frame)
+        beam_control.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        
+        self.vosk_beam_var = tk.IntVar(value=self.config_manager.get_config_value('vosk_beam', 20))
+        self.vosk_beam_scale = tk.Scale(beam_control, from_=10, to=30, 
+                                       resolution=1, orient=tk.HORIZONTAL, 
+                                       variable=self.vosk_beam_var,
+                                       command=self.update_vosk_beam)
+        self.vosk_beam_scale.pack(fill=tk.X, expand=True)
+        
+        # Lattice Beam
+        lattice_frame = tk.Frame(vosk_frame)
+        lattice_frame.pack(fill=tk.X, pady=1)
+        tk.Label(lattice_frame, text="Lattice Beam:", width=20, anchor="w").pack(side=tk.LEFT)
+        lattice_control = tk.Frame(lattice_frame)
+        lattice_control.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        
+        self.vosk_lattice_var = tk.IntVar(value=self.config_manager.get_config_value('vosk_lattice_beam', 8))
+        self.vosk_lattice_scale = tk.Scale(lattice_control, from_=4, to=12, 
+                                          resolution=1, orient=tk.HORIZONTAL, 
+                                          variable=self.vosk_lattice_var,
+                                          command=self.update_vosk_lattice_beam)
+        self.vosk_lattice_scale.pack(fill=tk.X, expand=True)
+        
+        # Confidence Threshold
+        confidence_frame = tk.Frame(vosk_frame)
+        confidence_frame.pack(fill=tk.X, pady=1)
+        tk.Label(confidence_frame, text="Confidence Threshold:", width=20, anchor="w").pack(side=tk.LEFT)
+        confidence_control = tk.Frame(confidence_frame)
+        confidence_control.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+        
+        self.vosk_confidence_var = tk.DoubleVar(value=self.config_manager.get_config_value('confidence_threshold', 280.0))
+        self.vosk_confidence_scale = tk.Scale(confidence_control, from_=200.0, to=400.0, 
+                                             resolution=10.0, orient=tk.HORIZONTAL, 
+                                             variable=self.vosk_confidence_var,
+                                             command=self.update_vosk_confidence_threshold)
+        self.vosk_confidence_scale.pack(fill=tk.X, expand=True)
     
     def _setup_bubble_row(self, parent):
         """Setup bubble feature controls"""
@@ -370,20 +456,6 @@ class TalkieGUI:
         """Toggle transcription state"""
         self.audio_manager.toggle_transcription()
     
-    def update_threshold(self, value):
-        """Update the global voice threshold when slider changes"""
-        threshold = float(value)
-        self.audio_manager.update_voice_threshold(threshold)
-        self.config_manager.update_config_param("voice_threshold", threshold)
-        logger.debug(f"Voice threshold updated to: {threshold}")
-    
-    def update_silence_duration(self, value):
-        """Update the global silence trailing duration when slider changes"""
-        duration = float(value)
-        self.audio_manager.update_silence_duration(duration)
-        self.config_manager.update_config_param("silence_trailing_duration", duration)
-        logger.debug(f"Silence trailing duration updated to: {duration}s")
-    
     def update_speech_timeout(self, value):
         """Update the global speech timeout when slider changes"""
         timeout = float(value)
@@ -391,20 +463,50 @@ class TalkieGUI:
         self.config_manager.update_config_param("speech_timeout", timeout)
         logger.debug(f"Speech timeout updated to: {timeout}s")
     
-    def update_lookback_frames(self, value):
-        """Update the lookback buffer size when slider changes"""
-        duration_ms = int(value)
-        frames = duration_ms // 100  # Convert milliseconds back to frames
-        self.audio_manager.update_lookback_frames(frames)
-        self.config_manager.update_config_param("lookback_frames", frames)
-        
-        logger.debug(f"Lookback buffer updated to: {duration_ms}ms ({frames} frames)")
+    def update_energy_threshold(self, value):
+        """Update the energy threshold for UI color changes"""
+        threshold = float(value)
+        self.audio_manager.update_energy_threshold(threshold)
+        self.config_manager.update_config_param("energy_threshold", threshold)
+        logger.debug(f"Energy threshold updated to: {threshold}")
     
-    def update_raw_mode(self):
-        """Update raw mode when checkbox changes"""
-        self.audio_manager.raw_mode = self.raw_mode_var.get()
-        self.config_manager.update_config_param("raw_mode", self.audio_manager.raw_mode)
-        logger.debug(f"Raw mode updated to: {self.audio_manager.raw_mode}")
+    def update_vosk_max_alternatives(self, value):
+        """Update Vosk max alternatives parameter"""
+        max_alt = int(value)
+        self.config_manager.update_config_param("vosk_max_alternatives", max_alt)
+        # Update the active speech engine if it's available
+        if self.app:
+            self.app.update_vosk_max_alternatives(max_alt)
+        logger.debug(f"Vosk max alternatives updated to: {max_alt}")
+    
+    def update_vosk_beam(self, value):
+        """Update Vosk beam parameter"""
+        beam = int(value)
+        self.config_manager.update_config_param("vosk_beam", beam)
+        # Update the active speech engine if it's available
+        if self.app:
+            self.app.update_vosk_beam(beam)
+        logger.debug(f"Vosk beam updated to: {beam}")
+    
+    def update_vosk_lattice_beam(self, value):
+        """Update Vosk lattice beam parameter"""
+        lattice_beam = int(value)
+        self.config_manager.update_config_param("vosk_lattice_beam", lattice_beam)
+        # Update the active speech engine if it's available
+        if self.app:
+            self.app.update_vosk_lattice_beam(lattice_beam)
+        logger.debug(f"Vosk lattice beam updated to: {lattice_beam}")
+    
+    def update_vosk_confidence_threshold(self, value):
+        """Update Vosk confidence threshold parameter"""
+        confidence = float(value)
+        self.config_manager.update_config_param("confidence_threshold", confidence)
+        # Update the active speech engine if it's available
+        if self.app:
+            self.app.update_vosk_confidence_threshold(confidence)
+        logger.debug(f"Vosk confidence threshold updated to: {confidence:.2f}")
+    
+    
     
     def on_device_change(self, event=None):
         """Handle audio device change from dropdown"""
@@ -437,12 +539,39 @@ class TalkieGUI:
     def update_energy_display(self):
         """Update the audio energy display in real-time"""
         # Format energy value to be consistent width to prevent button size changes
-        energy_value = int(self.audio_manager.current_audio_energy)
-        energy_text = f"Audio: {energy_value:5d}"  # Fixed 5-digit width with leading spaces
-        if self.audio_manager.current_audio_energy > self.audio_manager.voice_threshold:
-            self.energy_label.config(text=energy_text, fg="darkgreen")  # Voice detected
+        # Protect against NaN values
+        raw_energy = self.audio_manager.current_audio_energy
+        if raw_energy is None or not np.isfinite(raw_energy):
+            energy_value = 0
         else:
-            self.energy_label.config(text=energy_text, fg="darkred")    # Silence - darker red for better readability
+            energy_value = int(max(0, min(99999, raw_energy)))  # Display max clamp only
+        
+        # Simple audio level display
+        energy_text = f"Audio: {energy_value:5d}"
+        
+        # Simple color coding based on configurable energy threshold
+        if energy_value > self.audio_manager.energy_threshold:
+            self.energy_label.config(text=energy_text, fg="darkgreen")
+        else:
+            self.energy_label.config(text=energy_text, fg="darkred")
+        
+        # Update confidence display
+        if self.app and hasattr(self.app, 'current_confidence'):
+            confidence = self.app.current_confidence
+            if confidence > 0:
+                confidence_text = f"Conf: {confidence:.0f}"  # Show as integer for 250-400 range
+                # Color coding based on confidence level (adjusted for 250-400 range)
+                if confidence >= 350:
+                    confidence_color = "darkgreen"  # High confidence
+                elif confidence >= 300:
+                    confidence_color = "orange"     # Medium confidence  
+                else:
+                    confidence_color = "darkred"    # Low confidence
+                self.confidence_label.config(text=confidence_text, fg=confidence_color)
+            else:
+                self.confidence_label.config(text="Conf: --", fg="gray")
+        else:
+            self.confidence_label.config(text="Conf: --", fg="gray")
         
         # Schedule next update
         self.master.after(100, self.update_energy_display)
@@ -622,8 +751,7 @@ class TalkieGUI:
         current_time = time.time()
         
         audio_energy = self.audio_manager.current_audio_energy
-        voice_threshold = self.audio_manager.voice_threshold
-        has_voice = audio_energy > voice_threshold
+        has_voice = audio_energy > self.audio_manager.energy_threshold  # Configurable threshold for bubble feature
         
         # Debug logging every 50 cycles (5 seconds)
         if not hasattr(self, '_bubble_debug_count'):

@@ -11,7 +11,7 @@ DEFAULT_MODEL_PATH = "/home/john/Downloads/vosk-model-en-us-0.22-lgraph"
 CONFIG_FILE = Path.home() / ".talkie.conf"
 DEFAULT_CONFIG = {
     "audio_device": "pulse",
-    "voice_threshold": 50.0,
+    "energy_threshold": 50.0,
     "silence_trailing_duration": 0.5,
     "speech_timeout": 3.0,
     "lookback_frames": 10,
@@ -21,7 +21,10 @@ DEFAULT_CONFIG = {
     "window_y": 100,
     "bubble_enabled": False,
     "bubble_silence_timeout": 3.0,
-    "raw_mode": False
+    "vosk_max_alternatives": 0,
+    "vosk_beam": 20,
+    "vosk_lattice_beam": 8,
+    "confidence_threshold": 280.0
 }
 
 class ConfigManager:
