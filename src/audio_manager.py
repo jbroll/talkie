@@ -5,6 +5,7 @@ import numpy as np
 import queue
 import sounddevice as sd
 import time
+import traceback
 from collections import deque
 from pathlib import Path
 
@@ -237,6 +238,12 @@ class AudioManager:
             self.current_audio_energy = current_energy
         except Exception as e:
             logger.error(f"Error processing audio in callback: {e}")
+            print(f"\n=== AUDIO CALLBACK ERROR ===")
+            print(f"Error: {str(e)}")
+            print(f"Type: {type(e).__name__}")
+            print(f"Stack trace:")
+            traceback.print_exc()
+            print(f"============================\n")
             self.current_audio_energy = 0.0
             return
 

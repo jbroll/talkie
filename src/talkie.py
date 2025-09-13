@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+import traceback
 from pathlib import Path
 
 # Import our modular components
@@ -237,27 +238,42 @@ class TalkieApplication:
         global running
         
         while running:
-            if self.audio_manager.transcribing:
-                try:
-                    # Handle number timeout
-                    if self.text_processor.check_number_timeout():
-                        self.text_processor.force_number_timeout()
-                    
-                    
-                    # Get audio data and process directly
-                    data = self.audio_manager.q.get(timeout=0.1)
-                    result = self.speech_manager.adapter.process_audio(data)
-                    if result:
-                        self.handle_speech_result(result)
-                    
-                except queue.Empty:
-                    # Handle timeout logic
-                    if self.text_processor.check_number_timeout():
-                        self.text_processor.force_number_timeout()
-                        
-            else:
-                # Reset logic when transcription is off
-                self.text_processor.reset_state()
+            try:
+                if self.audio_manager.transcribing:
+                    try:
+                        # Handle number timeout
+                        if self.text_processor.check_number_timeout():
+                            self.text_processor.force_number_timeout()
+
+
+                        # Get audio data and process directly
+                        data = self.audio_manager.q.get(timeout=0.1)
+                        result = self.speech_manager.adapter.process_audio(data)
+                        if result:
+                            self.handle_speech_result(result)
+
+                    except queue.Empty:
+                        # Handle timeout logic
+                        if self.text_processor.check_number_timeout():
+                            self.text_processor.force_number_timeout()
+
+                else:
+                    # Reset logic when transcription is off
+                    self.text_processor.reset_state()
+                    time.sleep(0.1)
+
+            except Exception as e:
+                # Comprehensive error handling with stack trace
+                error_msg = f"Error in main processing loop: {str(e)}"
+                logger.error(error_msg)
+                print(f"\n=== PROCESSING LOOP ERROR ===")
+                print(f"Error: {str(e)}")
+                print(f"Type: {type(e).__name__}")
+                print(f"Stack trace:")
+                traceback.print_exc()
+                print(f"=============================\n")
+
+                # Brief pause to prevent rapid error spam
                 time.sleep(0.1)
     
     def transcribe(self, device_id, samplerate, engine_config):
@@ -318,7 +334,12 @@ class TalkieApplication:
                     
             except Exception as e:
                 logger.error(f"Error in audio stream: {e}")
-                print(f"Error in audio stream: {e}")
+                print(f"\n=== AUDIO STREAM ERROR ===")
+                print(f"Error: {str(e)}")
+                print(f"Type: {type(e).__name__}")
+                print(f"Stack trace:")
+                traceback.print_exc()
+                print(f"==========================\n")
             finally:
                 if self.speech_manager:
                     self.speech_manager.cleanup()
