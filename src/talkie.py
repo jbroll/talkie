@@ -150,7 +150,6 @@ class TalkieApplication:
         
         # Initialize audio manager with config values
         self.audio_manager = AudioManager(
-            speech_timeout=self.config.get("speech_timeout", 3.0),
             energy_threshold=self.config.get("energy_threshold", 50.0),
             lookback_duration=self.config.get("lookback_duration", 1.0),
             silence_duration=self.config.get("silence_duration", 2.0)
@@ -247,15 +246,6 @@ class TalkieApplication:
                     if self.text_processor.check_number_timeout():
                         self.text_processor.force_number_timeout()
                     
-                    # Handle speech timeout - force final result if speech has been going too long
-                    if (self.audio_manager.last_speech_time and 
-                        time.time() - self.audio_manager.last_speech_time > self.audio_manager.speech_timeout):
-                        final_result = self.speech_manager.adapter.get_final_result()
-                        if final_result:
-                            self.handle_speech_result(final_result)
-                        # Reset speech engine for next utterance
-                        self.speech_manager.adapter.reset()
-                        self.audio_manager.last_speech_time = None
                     
                     # Get audio data and process directly
                     data = self.audio_manager.q.get(timeout=0.1)
@@ -272,14 +262,6 @@ class TalkieApplication:
                     if self.text_processor.check_number_timeout():
                         self.text_processor.force_number_timeout()
                         
-                    # Handle speech timeout in empty queue case too
-                    if (self.audio_manager.last_speech_time and 
-                        time.time() - self.audio_manager.last_speech_time > self.audio_manager.speech_timeout):
-                        final_result = self.speech_manager.adapter.get_final_result()
-                        if final_result:
-                            self.handle_speech_result(final_result)
-                        self.speech_manager.adapter.reset()
-                        self.audio_manager.last_speech_time = None
             else:
                 # Reset logic when transcription is off
                 self.text_processor.reset_state()

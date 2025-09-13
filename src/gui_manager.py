@@ -171,7 +171,6 @@ class TalkieGUI:
         
         # Setup simplified control rows
         self._setup_device_row(controls_container)
-        self._setup_timeout_row(controls_container)
         self._setup_energy_threshold_row(controls_container)
         self._setup_lookback_duration_row(controls_container)
         self._setup_silence_duration_row(controls_container)
@@ -234,22 +233,6 @@ class TalkieGUI:
                                      variable=self.silence_var)
         self.silence_scale.pack(fill=tk.X, expand=True)
     
-    def _setup_timeout_row(self, parent):
-        """Setup speech timeout row"""
-        timeout_frame = tk.Frame(parent)
-        timeout_frame.pack(fill=tk.X, pady=2)
-        
-        tk.Label(timeout_frame, text="Speech Timeout (s):", width=20, anchor="w").pack(side=tk.LEFT)
-        
-        timeout_control_frame = tk.Frame(timeout_frame)
-        timeout_control_frame.pack(side=tk.RIGHT, fill=tk.X, expand=True)
-        
-        self.timeout_var = tk.DoubleVar(value=self.audio_manager.speech_timeout)
-        self.timeout_scale = tk.Scale(timeout_control_frame, from_=1.0, to=10.0, 
-                                     resolution=0.5, orient=tk.HORIZONTAL, 
-                                     variable=self.timeout_var,
-                                     command=self.update_speech_timeout)
-        self.timeout_scale.pack(fill=tk.X, expand=True)
     
     def _setup_lookback_row(self, parent):
         """Setup lookback frames row"""
@@ -491,13 +474,6 @@ class TalkieGUI:
     def toggle_transcription(self):
         """Toggle transcription state"""
         self.audio_manager.toggle_transcription()
-    
-    def update_speech_timeout(self, value):
-        """Update the global speech timeout when slider changes"""
-        timeout = float(value)
-        self.audio_manager.update_speech_timeout(timeout)
-        self.config_manager.update_config_param("speech_timeout", timeout)
-        logger.debug(f"Speech timeout updated to: {timeout}s")
     
     def update_energy_threshold(self, value):
         """Update the energy threshold for UI color changes"""

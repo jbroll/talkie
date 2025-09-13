@@ -13,7 +13,6 @@ DEFAULT_CONFIG = {
     "audio_device": "pulse",
     "energy_threshold": 50.0,
     "silence_trailing_duration": 0.5,
-    "speech_timeout": 3.0,
     "lookback_frames": 10,
     "lookback_duration": 1.0,    # seconds of audio to look back when speech detected
     "silence_duration": 2.0,     # seconds of silence before stopping speech detection

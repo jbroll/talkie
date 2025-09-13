@@ -15,9 +15,7 @@ logger = logging.getLogger(__name__)
 class AudioManager:
     """Manages audio input, device selection, and voice activity detection"""
 
-    def __init__(self, speech_timeout=3.0, energy_threshold=50.0,
-                 lookback_duration=1.0, silence_duration=2.0):
-        self.speech_timeout = speech_timeout
+    def __init__(self, energy_threshold=50.0, lookback_duration=1.0, silence_duration=2.0):
         self.energy_threshold = energy_threshold
         self.lookback_duration = lookback_duration  # seconds of audio to look back
         self.silence_duration = silence_duration    # seconds of silence before stopping
@@ -25,7 +23,6 @@ class AudioManager:
         # Audio stream state
         self.transcribing = False
         self.current_audio_energy = 0.0  # Keep for display only
-        self.last_speech_time = None
 
         # Speech detection state machine
         self.speech_state = "SILENT"  # SILENT, SPEECH
@@ -83,11 +80,6 @@ class AudioManager:
         """Set callback for when speech detection ends"""
         self.on_speech_end_callback = callback
     
-    
-    def update_speech_timeout(self, timeout):
-        """Update speech timeout duration"""
-        self.speech_timeout = float(timeout)
-        logger.debug(f"Speech timeout updated to: {self.speech_timeout}s")
     
     def update_energy_threshold(self, threshold):
         """Update energy threshold for UI display"""
