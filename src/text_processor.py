@@ -127,7 +127,12 @@ class TextProcessor:
     def process_text(self, text, is_final=False):
         """Process speech text with state management, number conversion, and punctuation"""
         logger.info(f"Processing text: {text}")
-        
+
+        # Only process final results for output - partial results are just for UI display
+        if not is_final:
+            logger.debug("Skipping processing for partial result")
+            return
+
         words = text.split()
         output = []
         current_time = time.time()
