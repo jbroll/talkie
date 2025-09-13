@@ -14,20 +14,37 @@ logger = logging.getLogger(__name__)
 
 class AudioManager:
     """Manages audio input, device selection, and voice activity detection"""
-    
-    def __init__(self, speech_timeout=3.0, energy_threshold=50.0):
+
+    def __init__(self, speech_timeout=3.0, energy_threshold=50.0,
+                 lookback_duration=1.0, silence_duration=2.0):
         self.speech_timeout = speech_timeout
         self.energy_threshold = energy_threshold
-        
+        self.lookback_duration = lookback_duration  # seconds of audio to look back
+        self.silence_duration = silence_duration    # seconds of silence before stopping
+
         # Audio stream state
         self.transcribing = False
         self.current_audio_energy = 0.0  # Keep for display only
         self.last_speech_time = None
-        
-        
-        # Queue for audio data
+
+        # Speech detection state machine
+        self.speech_state = "SILENT"  # SILENT, SPEECH
+        self.last_speech_buffer_time = None
+        self.silence_start_time = None
+        self.consecutive_silence_buffers = 0
+
+        # Buffer parameters (set when audio stream starts)
+        self.sample_rate = None
+        self.block_duration = None
+        self.lookback_buffer_count = 0
+        self.silence_buffer_count = 0
+
+        # Circular buffer for lookback
+        self.lookback_buffer = deque()
+
+        # Queue for audio data to speech engine
         self.q = None
-        
+
         # File monitor for state changes
         self.file_monitor = None
         self.on_transcription_change_callback = None
@@ -76,6 +93,32 @@ class AudioManager:
         """Update energy threshold for UI display"""
         self.energy_threshold = float(threshold)
         logger.debug(f"Energy threshold updated to: {self.energy_threshold}")
+
+    def update_lookback_duration(self, duration):
+        """Update lookback duration and recalculate buffer count"""
+        self.lookback_duration = float(duration)
+        if self.block_duration:
+            self.lookback_buffer_count = max(1, int(self.lookback_duration / self.block_duration))
+            # Resize circular buffer if needed
+            while len(self.lookback_buffer) > self.lookback_buffer_count:
+                self.lookback_buffer.popleft()
+        logger.debug(f"Lookback duration updated to: {self.lookback_duration}s ({self.lookback_buffer_count} buffers)")
+
+    def update_silence_duration(self, duration):
+        """Update silence duration and recalculate buffer count"""
+        self.silence_duration = float(duration)
+        if self.block_duration:
+            self.silence_buffer_count = max(1, int(self.silence_duration / self.block_duration))
+        logger.debug(f"Silence duration updated to: {self.silence_duration}s ({self.silence_buffer_count} buffers)")
+
+    def set_audio_params(self, sample_rate, block_duration):
+        """Set audio parameters and calculate buffer counts"""
+        self.sample_rate = sample_rate
+        self.block_duration = block_duration
+        self.lookback_buffer_count = max(1, int(self.lookback_duration / self.block_duration))
+        self.silence_buffer_count = max(1, int(self.silence_duration / self.block_duration))
+        logger.debug(f"Audio params set: {sample_rate}Hz, {block_duration}s blocks")
+        logger.debug(f"Lookback: {self.lookback_buffer_count} buffers, Silence: {self.silence_buffer_count} buffers")
     
     def list_audio_devices(self):
         """List available audio input devices"""
@@ -193,23 +236,69 @@ class AudioManager:
         return device_id, samplerate
     
     def audio_callback(self, indata, frames, time_info, status):
-        """Simple audio stream callback - just feed audio to speech engine"""
+        """Audio callback with speech detection and buffering"""
         try:
             audio_raw = indata.flatten()  # Keep original int16 data for speech engines
-            # Simple energy calculation for UI display only
+            # Calculate energy for UI display and speech detection
             audio_normalized = audio_raw.astype(np.float32) / 32768.0
-            self.current_audio_energy = np.abs(audio_normalized).mean() * 1000  # Scale for display
+            current_energy = np.abs(audio_normalized).mean() * 1000  # Scale for display
+            self.current_audio_energy = current_energy
         except Exception as e:
             logger.error(f"Error processing audio in callback: {e}")
             self.current_audio_energy = 0.0
             return
-        
+
         if not self.transcribing or not self.q:
             return
-            
-        # Stream everything to Vosk - let it handle all VAD
-        if not self.q.full():
-            self.q.put(audio_raw.tobytes())
+
+        current_time = time.time()
+        audio_bytes = audio_raw.tobytes()
+
+        # Always maintain lookback buffer (circular buffer)
+        self.lookback_buffer.append(audio_bytes)
+        while len(self.lookback_buffer) > self.lookback_buffer_count:
+            self.lookback_buffer.popleft()
+
+        # Speech detection state machine
+        speech_detected = current_energy >= self.energy_threshold
+
+        if self.speech_state == "SILENT":
+            if speech_detected:
+                # Speech detected - send lookback buffer first
+                logger.debug("Speech detected - sending lookback buffer and entering SPEECH state")
+                for buffered_audio in self.lookback_buffer:
+                    if not self.q.full():
+                        self.q.put(buffered_audio)
+
+                self.speech_state = "SPEECH"
+                self.last_speech_buffer_time = current_time
+                self.consecutive_silence_buffers = 0
+
+        elif self.speech_state == "SPEECH":
+            # Always send audio during speech state
+            if not self.q.full():
+                self.q.put(audio_bytes)
+
+            if speech_detected:
+                # Reset silence counter - continue or restart speech
+                self.last_speech_buffer_time = current_time
+                self.consecutive_silence_buffers = 0
+                logger.debug("Speech continues - silence counter reset")
+            else:
+                # Increment silence buffer counter
+                self.consecutive_silence_buffers += 1
+
+                if self.consecutive_silence_buffers == 1:
+                    logger.debug("Starting silence period during speech")
+
+                # Check if silence buffer count exceeded
+                if self.consecutive_silence_buffers >= self.silence_buffer_count:
+                    logger.debug(f"Silence duration exceeded ({self.consecutive_silence_buffers} buffers >= {self.silence_buffer_count}) - returning to SILENT state")
+                    self.speech_state = "SILENT"
+                    self.consecutive_silence_buffers = 0
+                    # Signal end of speech if callback is set
+                    if self.on_speech_end_callback:
+                        self.on_speech_end_callback()
     
     def setup_file_monitor(self, on_file_change_callback):
         """Setup file monitor for transcription state changes"""

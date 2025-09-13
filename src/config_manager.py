@@ -15,6 +15,8 @@ DEFAULT_CONFIG = {
     "silence_trailing_duration": 0.5,
     "speech_timeout": 3.0,
     "lookback_frames": 10,
+    "lookback_duration": 1.0,    # seconds of audio to look back when speech detected
+    "silence_duration": 2.0,     # seconds of silence before stopping speech detection
     "engine": "vosk",
     "model_path": DEFAULT_MODEL_PATH,
     "window_x": 100,

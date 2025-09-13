@@ -151,7 +151,9 @@ class TalkieApplication:
         # Initialize audio manager with config values
         self.audio_manager = AudioManager(
             speech_timeout=self.config.get("speech_timeout", 3.0),
-            energy_threshold=self.config.get("energy_threshold", 50.0)
+            energy_threshold=self.config.get("energy_threshold", 50.0),
+            lookback_duration=self.config.get("lookback_duration", 1.0),
+            silence_duration=self.config.get("silence_duration", 2.0)
         )
         
     
@@ -321,7 +323,10 @@ class TalkieApplication:
         # Initialize audio queue and processing
         self.audio_manager.initialize_queue(QUEUE_SIZE)
         block_size = int(samplerate * BLOCK_DURATION)
-        
+
+        # Set audio parameters for buffer calculations
+        self.audio_manager.set_audio_params(samplerate, BLOCK_DURATION)
+
         # Setup file monitor
         self.audio_manager.setup_file_monitor(self.on_file_change)
 

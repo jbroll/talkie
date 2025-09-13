@@ -173,6 +173,8 @@ class TalkieGUI:
         self._setup_device_row(controls_container)
         self._setup_timeout_row(controls_container)
         self._setup_energy_threshold_row(controls_container)
+        self._setup_lookback_duration_row(controls_container)
+        self._setup_silence_duration_row(controls_container)
         self._setup_vosk_parameters_row(controls_container)
         self._setup_bubble_row(controls_container)
     
@@ -299,7 +301,41 @@ class TalkieGUI:
                                              variable=self.energy_threshold_var,
                                              command=self.update_energy_threshold)
         self.energy_threshold_scale.pack(fill=tk.X, expand=True)
-    
+
+    def _setup_lookback_duration_row(self, parent):
+        """Setup lookback duration row"""
+        lookback_frame = tk.Frame(parent)
+        lookback_frame.pack(fill=tk.X, pady=2)
+
+        tk.Label(lookback_frame, text="Lookback Duration (s):", width=20, anchor="w").pack(side=tk.LEFT)
+
+        lookback_control_frame = tk.Frame(lookback_frame)
+        lookback_control_frame.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+
+        self.lookback_duration_var = tk.DoubleVar(value=self.audio_manager.lookback_duration)
+        self.lookback_duration_scale = tk.Scale(lookback_control_frame, from_=0.5, to=3.0,
+                                              resolution=0.1, orient=tk.HORIZONTAL,
+                                              variable=self.lookback_duration_var,
+                                              command=self.update_lookback_duration)
+        self.lookback_duration_scale.pack(fill=tk.X, expand=True)
+
+    def _setup_silence_duration_row(self, parent):
+        """Setup silence duration row"""
+        silence_frame = tk.Frame(parent)
+        silence_frame.pack(fill=tk.X, pady=2)
+
+        tk.Label(silence_frame, text="Silence Duration (s):", width=20, anchor="w").pack(side=tk.LEFT)
+
+        silence_control_frame = tk.Frame(silence_frame)
+        silence_control_frame.pack(side=tk.RIGHT, fill=tk.X, expand=True)
+
+        self.silence_duration_var = tk.DoubleVar(value=self.audio_manager.silence_duration)
+        self.silence_duration_scale = tk.Scale(silence_control_frame, from_=0.5, to=5.0,
+                                             resolution=0.1, orient=tk.HORIZONTAL,
+                                             variable=self.silence_duration_var,
+                                             command=self.update_silence_duration)
+        self.silence_duration_scale.pack(fill=tk.X, expand=True)
+
     def _setup_vosk_parameters_row(self, parent):
         """Setup Vosk parameters controls"""
         vosk_frame = tk.Frame(parent)
@@ -469,7 +505,21 @@ class TalkieGUI:
         self.audio_manager.update_energy_threshold(threshold)
         self.config_manager.update_config_param("energy_threshold", threshold)
         logger.debug(f"Energy threshold updated to: {threshold}")
-    
+
+    def update_lookback_duration(self, value):
+        """Update the lookback duration for speech detection"""
+        duration = float(value)
+        self.audio_manager.update_lookback_duration(duration)
+        self.config_manager.update_config_param("lookback_duration", duration)
+        logger.debug(f"Lookback duration updated to: {duration}s")
+
+    def update_silence_duration(self, value):
+        """Update the silence duration for speech detection"""
+        duration = float(value)
+        self.audio_manager.update_silence_duration(duration)
+        self.config_manager.update_config_param("silence_duration", duration)
+        logger.debug(f"Silence duration updated to: {duration}s")
+
     def update_vosk_max_alternatives(self, value):
         """Update Vosk max alternatives parameter"""
         max_alt = int(value)
