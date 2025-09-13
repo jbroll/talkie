@@ -218,15 +218,12 @@ class TalkieApplication:
             # Update current confidence for UI display
             self.current_confidence = result.confidence
             
-            current_energy = self.audio_manager.current_audio_energy
             if result.is_final:
-                print(f"FINAL RESULT: '{result.text}' (confidence={result.confidence:.2f}, energy={current_energy:.1f})")
                 self.text_processor.process_text(result.text, is_final=True)
                 if self.gui:
                     self.gui.add_final_result(result.text)  # Add to final results buffer
                     self.gui.clear_partial_text()
             else:
-                print(f"PARTIAL RESULT: '{result.text}' (confidence={result.confidence:.2f}, energy={current_energy:.1f})")
                 if self.gui:
                     self.gui.update_partial_text(result.text)
     
@@ -249,10 +246,6 @@ class TalkieApplication:
                     
                     # Get audio data and process directly
                     data = self.audio_manager.q.get(timeout=0.1)
-                    # Debug: track audio processing 
-                    current_energy = self.audio_manager.current_audio_energy
-                    qsize = self.audio_manager.q.qsize()
-                    print(f"PROCESSING: energy={current_energy:.1f}, qsize={qsize}")
                     result = self.speech_manager.adapter.process_audio(data)
                     if result:
                         self.handle_speech_result(result)
