@@ -1,269 +1,76 @@
-# <img src="icon.svg" alt="Talkie Icon" style="float: left; margin-right: 10px; width: 64px; height: 64px;"/> Talkie - Chat with your desktop
-
+<h1 style="display: flex; align-items: center;"><img src="icon.svg" alt="Talkie Icon" width="64" height="64" style="margin-right: 15px;"/> Talkie - Chat with your Linux desktop</h1>
 <img src="Screenshot%20from%202025-09-07%2015-22-01.png" alt="Talkie Desktop UI" align="right" width="500"/>
 
-Talkie is a modular speech-to-text application designed for Ubuntu Linux desktop integration. It provides real-time audio transcription with direct keyboard input simulation, supporting continuous voice recognition, intelligent text processing, and configurable audio pipeline management. The application features a modern Tkinter GUI with both standard and minimized bubble modes for unobtrusive operation.
+Talkie listens to your voice and types what you say. It works with any app on
+Linux - email, documents, chat, anywhere you need to type. Speak naturally
+and watch your words as they are typed onto the screen.
+
+Uses the Vosk speech recognition engine for accurate, fast transcription that works offline.
 
 <br clear="right"/>
 
-## Features
+## What it does
 
-### Speech Recognition
-- **Dual Engine Support**: Vosk (primary) and Sherpa-ONNX (fallback) with automatic engine detection and graceful fallback
-- **Real-time Processing**: Continuous 16kHz audio stream processing with sub-second latency
-- **Confidence Scoring**: Real-time confidence assessment with configurable filtering thresholds (200-400 range)
-- **Partial Results**: Live transcription preview with final result processing
+- **Real-time speech recognition** - Converts your speech to text as you speak
+- **Universal compatibility** - Works with any application that accepts text input
+- **Voice command punctuation** - Say punctuation words like "period" or "comma"
+- **Automatic number conversion** - Converts spoken numbers to digits ("twenty five" → "25")
+- **Dual interface modes** - Choose between full control window or minimal bubble view
+- **Persistent configuration** - Remembers your preferences and window positions
+- **Offline operation** - No internet required, everything runs locally
 
-### Audio Processing
-- **Voice Activity Detection**: Energy-based threshold detection with configurable sensitivity
-- **Pre-speech Buffering**: Circular buffer with configurable lookback frames for complete utterance capture
-- **Device Management**: Automatic audio device detection with manual override capability
-- **Adaptive Processing**: Configurable silence trailing duration and speech timeout handling
+## How to use it
 
-### Text Processing
-- **Voice Commands**: Punctuation insertion via voice commands ("period", "comma", "new line", etc.)
-- **Number Conversion**: Automatic word-to-digit conversion using word2number library
-- **State Management**: Context-aware processing with timeout-based number sequence finalization
-- **Unicode Support**: Full Unicode text output with proper encoding
+### Start it up
+```bash
+./talkie.sh
+```
 
-### User Interface
-- **Dual Mode Operation**: Standard control interface and minimized bubble mode
-- **Real-time Feedback**: Energy level visualization and confidence score display
-- **Persistent Configuration**: Window positioning and parameter settings automatically saved
-- **Device Selection**: Dropdown interface for audio device configuration
-- **Parameter Tuning**: Real-time adjustment of Vosk engine parameters and confidence thresholds
+### Turn listening on and off
+```bash
+./talkie.sh start     # Start listening
+./talkie.sh stop      # Stop listening
+./talkie.sh toggle    # Switch on/off
+```
 
-### System Integration
-- **Direct Keyboard Simulation**: uinput-based text insertion compatible with all applications
-- **External Control**: JSON state file monitoring for programmatic transcription control
-- **Shell Interface**: Command-line tools for start/stop/toggle operations via `talkie.sh`
-- **Configuration Persistence**: JSON-based settings storage in `~/.talkie.conf`
-- **Desktop Integration**: Designed for background operation and system service deployment
+## Voice commands you can say
 
-## Quick Start
+- Say "period" to type a dot (.)
+- Say "comma" to type a comma (,)
+- Say "question mark" to type (?)
+- Say "new line" to press Enter
+- Say numbers like "twenty five" and it types 25
 
-### Installation
+## Settings you can change
+
+The program saves your settings in a file called `~/.talkie.conf`. Here's what you can change:
+
+- **energy_threshold**: How loud you need to speak (50 is normal)
+- **speech_timeout**: How long to wait before stopping (3 seconds)
+- **confidence_threshold**: How sure the program needs to be (280 is good)
+- **bubble_enabled**: Use tiny window instead of big one (false = big window)
+
+## What you need
+
+To use Talkie, your computer needs:
+- Linux with a desltop (Gnome, KDE, XFCE, ...)
+- A microphone
+- Python 3.8 or newer
+
+The program will install these parts automatically:
+- sounddevice (to hear your voice)
+- vosk (to understand your words)
+- word2number (to convert "twenty" to "20")
+
+## Installation
 
 ```bash
-# Clone and enter directory
+# Go to the talkie folder
 cd /home/john/src/talkie
 
-# Install dependencies (virtual environment detected automatically)
+# Install the parts it needs
 pip install -r requirements.txt
 
-# Run the application
+# Start using it
 ./talkie.sh
 ```
-
-### Basic Usage
-
-```bash
-# Launch with GUI
-./talkie.sh
-
-# Transcription control
-./talkie.sh start                   # Enable transcription
-./talkie.sh stop                    # Disable transcription  
-./talkie.sh toggle                  # Toggle transcription state
-./talkie.sh state                   # Show current state
-
-# Start with transcription enabled
-./talkie.sh --transcribe
-```
-
-### Advanced Usage
-
-```bash
-# Engine selection
-./talkie.sh --engine auto           # Auto-detect (default: Vosk)
-./talkie.sh --engine vosk           # Force Vosk engine
-./talkie.sh --engine sherpa-onnx    # Force Sherpa-ONNX
-
-# Audio device selection
-./talkie.sh --device "USB"          # Select device by name substring
-./talkie.sh --verbose               # Enable debug logging
-
-# Direct Python execution
-python3 talkie.py --help            # See all options
-```
-
-## Architecture
-
-### Modular Design
-
-The application uses a clean modular architecture with separated concerns:
-
-```
-talkie/
-├── talkie.py                    # Main application orchestrator
-├── audio_manager.py             # Audio processing and device management
-├── gui_manager.py               # Tkinter GUI with bubble mode
-├── config_manager.py            # Configuration persistence  
-├── text_processor.py            # Text processing and punctuation
-├── keyboard_simulator.py        # Keyboard input simulation
-├── talkie.sh                    # Shell launcher with state management
-└── speech/                      # Speech recognition engines
-    ├── speech_engine.py         # Base classes and factory
-    ├── Vosk_engine.py           # Vosk adapter
-    └── SherpaONNX_engine.py     # Sherpa-ONNX adapter
-```
-
-### Core Components
-
-#### TalkieApplication (talkie.py)
-Main orchestrator coordinating all components, handling engine configuration, audio device setup, and threading coordination.
-
-#### AudioManager (audio_manager.py) 
-Manages audio input with voice activity detection, configurable thresholds, circular buffering for pre-speech audio, and silence/timeout handling.
-
-#### TalkieGUI (gui_manager.py)
-Modern Tkinter interface supporting both standard and bubble modes, real-time transcription display, audio device selection, and persistent window positioning.
-
-#### TextProcessor (text_processor.py)
-Intelligent text processing with voice command punctuation mapping, number word-to-digit conversion, and processing state management.
-
-#### ConfigManager (config_manager.py)
-JSON-based configuration persistence with runtime parameter updates and window position management.
-
-#### KeyboardSimulator (keyboard_simulator.py)
-Direct keyboard input simulation via uinput for real-time text insertion into any application.
-
-### Speech Recognition Engines
-
-Uses adapter pattern with factory-based instantiation:
-
-- **Vosk Engine**: CPU-based recognition with high accuracy, real-time streaming
-- **Sherpa-ONNX Engine**: Optimized CPU implementation with INT8 quantization  
-- **Automatic Detection**: Intelligent engine selection with graceful fallback
-- **Confidence Scoring**: Real-time confidence assessment with configurable filtering thresholds
-
-## Voice Commands
-
-### Punctuation Commands
-- "period" → "."
-- "comma" → ","
-- "question mark" → "?"  
-- "exclamation mark" → "!"
-- "colon" → ":"
-- "semicolon" → ";"
-- "new line" → "\\n"
-- "new paragraph" → "\\n\\n"
-
-### Number Processing
-- Automatic word-to-number conversion using word2number
-- Timeout-based number sequence finalization
-- State-based processing for complex numbers
-
-## GUI Features
-
-### Standard Mode
-- Transcription control toggle with visual feedback
-- Audio device selection dropdown
-- Real-time energy level and confidence score display
-- Partial transcription result preview
-- Confidence filtering with adjustable thresholds
-- Configuration parameter adjustment
-
-### Bubble Mode
-- Minimized floating window interface
-- Persistent positioning across sessions
-- Configurable silence timeout
-- Quick transcription toggle
-
-## Configuration
-
-### Default Settings
-Configuration is stored in `~/.talkie.conf`:
-
-```json
-{
-    "audio_device": "pulse",
-    "energy_threshold": 50.0,
-    "silence_trailing_duration": 0.5,
-    "speech_timeout": 3.0,
-    "lookback_frames": 10,
-    "engine": "vosk",
-    "model_path": "/home/john/Downloads/vosk-model-en-us-0.22-lgraph",
-    "window_x": 100,
-    "window_y": 100,
-    "bubble_enabled": false,
-    "bubble_silence_timeout": 3.0,
-    "vosk_max_alternatives": 0,
-    "vosk_beam": 20,
-    "vosk_lattice_beam": 8,
-    "confidence_threshold": 280.0
-}
-```
-
-### State Management
-- **`~/.talkie`**: Transcription state JSON (`{"transcribing": true/false}`)
-- **JSONFileMonitor**: Real-time state change detection
-- **External Control**: Shell commands update state file automatically
-
-## Technical Specifications
-
-### Audio Pipeline
-1. **Capture**: sounddevice input stream (16kHz, 0.1s blocks)
-2. **Detection**: Voice activity detection with energy thresholds  
-3. **Buffering**: Circular buffer for pre-speech audio lookback (5 frames)
-4. **Processing**: Real-time speech recognition with partial results
-5. **Output**: Direct keyboard simulation via uinput
-
-### Performance
-- **Latency**: Sub-second response times
-- **Sample Rate**: 16kHz with automatic device rate conversion
-- **Memory Usage**: Optimized for continuous operation
-- **Threading**: Separate GUI and transcription threads for responsiveness
-
-### Hardware Requirements
-- **OS**: Ubuntu Linux 22.04+ with PulseAudio/ALSA
-- **Python**: 3.8+ with virtual environment support
-- **Audio**: Microphone input capability
-- **System**: uinput kernel module for keyboard simulation
-- **CPU**: Tested on Intel Core Ultra 7 155H
-
-## Dependencies
-
-Core requirements from `requirements.txt`:
-```
-sounddevice      # Audio capture
-vosk             # Primary speech recognition
-sherpa-onnx      # Alternative speech engine
-word2number      # Number word conversion
-numpy            # Audio data processing
-```
-
-System requirements:
-- Tkinter (usually included with Python)
-- uinput kernel module
-- PulseAudio or ALSA
-
-## Development
-
-### Testing Tools
-```bash
-python3 test_speech_engines.py     # Test available engines
-python3 test_modular.py             # Test modular components
-```
-
-### Debugging
-```bash
-./talkie.sh --verbose               # Enable debug logging
-python3 talkie.py -v                # Direct execution with verbose output
-```
-
-### Adding New Speech Engines
-1. Implement `SpeechEngine` abstract class in `speech/` directory
-2. Register with `SpeechEngineFactory` 
-3. Add engine type to `SpeechEngineType` enum
-4. Update CLI arguments and detection logic
-
-### Integration Points
-- **Global Hotkeys**: Meta+E toggle transcription
-- **External Control**: JSON state file for programmatic control
-- **Desktop Integration**: Works with all applications via keyboard simulation
-- **Background Operation**: Can run as system service
-
-## License
-
-This project is designed for Ubuntu Linux integration and follows standard open-source practices.
