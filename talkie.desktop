@@ -1,0 +1,14 @@
+[Desktop Entry]
+Version=1.0
+Name=Talkie
+Comment=Real-time speech-to-text application with keyboard simulation
+GenericName=Speech Recognition
+Exec=/home/john/src/talkie/src/talkie.sh
+Icon=/home/john/src/talkie/icon.svg
+Terminal=false
+Type=Application
+Categories=AudioVideo;Audio;Accessibility;Utility;
+StartupNotify=true
+Keywords=speech;recognition;voice;transcription;accessibility;
+MimeType=
+StartupWMClass=Talkie

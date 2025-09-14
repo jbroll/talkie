@@ -2,13 +2,24 @@
 
 import json
 import logging
+import os
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL_PATH = "/home/john/Downloads/vosk-model-en-us-0.22-lgraph"
 
-CONFIG_FILE = Path.home() / ".talkie.conf"
+def get_config_file_path():
+    """Get config file path using XDG directories if available, fallback to ~/.talkie.conf"""
+    xdg_config_home = os.environ.get('XDG_CONFIG_HOME')
+    if xdg_config_home:
+        config_dir = Path(xdg_config_home)
+        config_dir.mkdir(exist_ok=True)
+        return config_dir / "talkie.conf"
+    else:
+        return Path.home() / ".talkie.conf"
+
+CONFIG_FILE = get_config_file_path()
 DEFAULT_CONFIG = {
     "audio_device": "pulse",
     "energy_threshold": 50.0,
