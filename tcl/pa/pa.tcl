@@ -196,9 +196,9 @@ static void tcl_notify_proc(ClientData cd, int mask) {
 
     /* Build Tcl command: callback + args: streamName timestamp data */
     if (ctx->callback && got > 0) {
-        Tcl_IncrRefCount(ctx->callback); /* protect stored callback */
-        /* Duplicate callback into a list command where first element is the callback string/command */
+        /* Create command copy for safe evaluation */
         Tcl_Obj *cmd = Tcl_DuplicateObj(ctx->callback);
+        Tcl_IncrRefCount(cmd);
 
         /* Append stream command name */
         Tcl_ListObjAppendElement(interp, cmd, ctx->cmdname);
@@ -214,10 +214,9 @@ static void tcl_notify_proc(ClientData cd, int mask) {
 
         /* Append binary data object */
         Tcl_Obj *dataObj = Tcl_NewByteArrayObj(buf, got);
-        Tcl_IncrRefCount(dataObj);
         Tcl_ListObjAppendElement(interp, cmd, dataObj);
 
-        /* Evaluate */
+        /* Evaluate callback safely */
         int code = Tcl_EvalObjEx(interp, cmd, TCL_EVAL_GLOBAL);
         if (code != TCL_OK) {
             const char *err = Tcl_GetStringResult(interp);
@@ -225,9 +224,8 @@ static void tcl_notify_proc(ClientData cd, int mask) {
             /* continue; do not abort */
         }
 
-        Tcl_DecrRefCount(dataObj);
+        /* Only decrement the command copy */
         Tcl_DecrRefCount(cmd);
-        Tcl_DecrRefCount(ctx->callback);
     }
 
     ckfree(buf);

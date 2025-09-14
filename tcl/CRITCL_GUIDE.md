@@ -172,6 +172,37 @@ critcl -keep -show -debug symbols -pkg mylib mylib.tcl
 - **Documentation**: Document parameters, return values, and usage examples
 - **Testing**: Test error paths, memory management, and performance
 
-This guide covers the essential patterns for robust Critcl wrappers. Adapt
-these patterns to your specific C library while maintaining proper error
-handling and resource management.
+## Package Structure Pitfalls
+
+### Missing `package provide` Error
+**Problem**: `ERROR: 'package provide' missing in package sources`
+
+**Cause**: CRITCL requires the exact structure from PortAudio pattern:
+```tcl
+critcl::ccode { /* C code */ }
+critcl::cproc PackageName_Init {Tcl_Interp* interp} int { /* init */ }
+package provide packagename 1.0
+```
+
+**Solution**: Follow the proven PortAudio template exactly:
+- Place all C code in single `critcl::ccode` block
+- Use `PackageName_InitPackage()` function in C code
+- Wire with `critcl::cproc PackageName_Init` calling the C init function
+- End with `package provide packagename 1.0`
+
+### Library Extraction Strategy
+**Problem**: Complex C libraries (like Vosk) not available as system packages
+
+**Solution**: Extract from official Python wheels:
+```bash
+wget -O /tmp/lib.whl https://github.com/project/releases/download/v1.0/lib-py3-none-linux_x86_64.whl
+cd /tmp && unzip -q lib.whl
+cp lib/libname.so ~/.local/lib/
+cp src/libname_api.h ~/.local/include/
+```
+
+Then configure CRITCL:
+```tcl
+critcl::cheaders ~/.local/include/libname_api.h
+critcl::clibraries -L~/.local/lib -llibname -lm -lstdc++
+```
