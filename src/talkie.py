@@ -384,7 +384,7 @@ class TalkieApplication:
         global tk_root
         
         logger.debug("Initializing Tkinter UI")
-        tk_root = tk.Tk()
+        tk_root = tk.Tk(className='Talkie')
         self.gui = TalkieGUI(tk_root, self.audio_manager, self.config_manager, self.text_processor, self)
         self.gui.set_quit_callback(self.tk_cleanup)
         self.gui.update_ui()  # Set initial UI state

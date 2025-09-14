@@ -32,7 +32,17 @@ class TalkieGUI:
     def _setup_ui(self):
         """Initialize the main UI components"""
         self.master.title("Talkie")
-        
+
+        # Set window icon (window class is set at Tk() creation in talkie.py)
+        try:
+            import os
+            icon_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "icon.png")
+            if os.path.exists(icon_path):
+                self.master.iconphoto(True, tk.PhotoImage(file=icon_path))
+                logger.debug(f"Set window icon: {icon_path}")
+        except Exception as e:
+            logger.warning(f"Could not set window icon: {e}")
+
         # Set fixed window size to prevent resizing when switching views
         self._restore_window_position()
         self.master.minsize(800, 400)

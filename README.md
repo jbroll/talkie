@@ -1,4 +1,4 @@
-# <img src="icon.svg" alt="Talkie Icon" style="float: left; margin-right: 10px; width: 32px; height: 32px;"/> Talkie - Chat with your desktop
+# <img src="icon.svg" alt="Talkie Icon" style="float: left; margin-right: 10px; width: 64px; height: 64px;"/> Talkie - Chat with your desktop
 
 <img src="Screenshot%20from%202025-09-07%2015-22-01.png" alt="Talkie Desktop UI" align="right" width="500"/>
 
