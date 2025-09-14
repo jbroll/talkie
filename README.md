@@ -1,5 +1,5 @@
 <h1 style="display: flex; align-items: center;"><img src="icon.svg" alt="Talkie Icon" width="64" height="64" style="margin-right: 15px;"/> Talkie - Chat with your Linux desktop</h1>
-<img src="Screenshot%20from%202025-09-07%2015-22-01.png" alt="Talkie Desktop UI" align="right" width="500"/>
+<img src="screenshot.png" alt="Talkie Desktop UI" align="right" width="500"/>
 
 Talkie listens to your voice and types what you say. It works with any app on
 Linux - email, documents, chat, anywhere you need to type. Speak naturally
