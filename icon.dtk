@@ -1,0 +1,20 @@
+image 0 0 icon.png
+
+proc ll { cx cy length args } { 
+	line [list $cx [expr {$cy-$length}] $cx [expr {$cy+$length}]] {*}$args
+}
+
+rect -50 50 450 450 -outline white -fill white -rnd 100
+ngon -150 -170 150 200 -outline white -fill white -rot -90 -sides 3 -join round -width 10 
+
+ll -150 50  50 -cap round -width 32
+ll -100 50 100 -cap round -width 32
+ll  -50 50  25 -cap round -width 32
+ll    0 50  50 -cap round -width 32
+ll   50 50 125 -cap round -width 32
+ll  100 50  75 -cap round -width 32
+ll  150 50  25 -cap round -width 32
+
+
+
+

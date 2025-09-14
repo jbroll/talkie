@@ -1,26 +1,44 @@
-# Talkie - Modular Speech-to-Text for Ubuntu Linux
+# <img src="icon.svg" alt="Talkie Icon" style="float: left; margin-right: 10px; width: 32px; height: 32px;"/> Talkie - Chat with your desktop
 
-<img src="Screenshot%20from%202025-09-07%2015-22-01.png" alt="Talkie UI" align="right" width="500"/>
+<img src="Screenshot%20from%202025-09-07%2015-22-01.png" alt="Talkie Desktop UI" align="right" width="500"/>
 
-A modular speech-to-text application designed for seamless Ubuntu Linux integration. Talkie provides real-time audio transcription with intelligent keyboard simulation, featuring a modern GUI with bubble mode, configurable audio processing, and support for multiple speech recognition engines.
+Talkie is a modular speech-to-text application designed for Ubuntu Linux desktop integration. It provides real-time audio transcription with direct keyboard input simulation, supporting continuous voice recognition, intelligent text processing, and configurable audio pipeline management. The application features a modern Tkinter GUI with both standard and minimized bubble modes for unobtrusive operation.
 
 <br clear="right"/>
 
 ## Features
 
-### Core Capabilities
-- **Real-time Speech Recognition**: Continuous audio processing with immediate transcription
-- **Multiple Speech Engines**: Vosk (primary) and Sherpa-ONNX (fallback) with automatic detection
-- **Intelligent Text Processing**: Voice command punctuation and word-to-number conversion
-- **Direct Keyboard Integration**: Text insertion into any focused application via uinput
-- **Modern GUI**: Standard and bubble mode interfaces with persistent configuration
+### Speech Recognition
+- **Dual Engine Support**: Vosk (primary) and Sherpa-ONNX (fallback) with automatic engine detection and graceful fallback
+- **Real-time Processing**: Continuous 16kHz audio stream processing with sub-second latency
+- **Confidence Scoring**: Real-time confidence assessment with configurable filtering thresholds (200-400 range)
+- **Partial Results**: Live transcription preview with final result processing
 
-### Advanced Features  
-- **Voice Activity Detection**: Configurable thresholds with pre-speech audio buffering
-- **Confidence Filtering**: Post-processing confidence filtering for improved transcription quality
-- **Configurable Audio Pipeline**: Adjustable sample rates, block duration, and silence handling
-- **State Management**: Persistent configuration and external control via JSON state files
-- **Desktop Integration**: Global hotkeys and background operation support
+### Audio Processing
+- **Voice Activity Detection**: Energy-based threshold detection with configurable sensitivity
+- **Pre-speech Buffering**: Circular buffer with configurable lookback frames for complete utterance capture
+- **Device Management**: Automatic audio device detection with manual override capability
+- **Adaptive Processing**: Configurable silence trailing duration and speech timeout handling
+
+### Text Processing
+- **Voice Commands**: Punctuation insertion via voice commands ("period", "comma", "new line", etc.)
+- **Number Conversion**: Automatic word-to-digit conversion using word2number library
+- **State Management**: Context-aware processing with timeout-based number sequence finalization
+- **Unicode Support**: Full Unicode text output with proper encoding
+
+### User Interface
+- **Dual Mode Operation**: Standard control interface and minimized bubble mode
+- **Real-time Feedback**: Energy level visualization and confidence score display
+- **Persistent Configuration**: Window positioning and parameter settings automatically saved
+- **Device Selection**: Dropdown interface for audio device configuration
+- **Parameter Tuning**: Real-time adjustment of Vosk engine parameters and confidence thresholds
+
+### System Integration
+- **Direct Keyboard Simulation**: uinput-based text insertion compatible with all applications
+- **External Control**: JSON state file monitoring for programmatic transcription control
+- **Shell Interface**: Command-line tools for start/stop/toggle operations via `talkie.sh`
+- **Configuration Persistence**: JSON-based settings storage in `~/.talkie.conf`
+- **Desktop Integration**: Designed for background operation and system service deployment
 
 ## Quick Start
 
