@@ -1,5 +1,5 @@
 #!/usr/bin/env tclsh
-# talkie_python_like.tcl - Tcl version matching Python interface exactly
+# talkie.tcl - Tcl version matching Python interface exactly
 
 package require Tk
 
@@ -44,9 +44,9 @@ if {[catch {package require ttk}]} {
 
 # Setup paths for existing packages
 set script_dir [file dirname [file normalize [info script]]]
-lappend auto_path [file join $script_dir pa lib]
-lappend auto_path [file join $script_dir vosk lib]
-lappend auto_path [file join $script_dir audio lib]
+lappend auto_path [file join $script_dir pa lib pa]
+lappend auto_path [file join $script_dir vosk lib vosk]
+lappend auto_path [file join $script_dir audio lib audio]
 set ::env(TCLLIBPATH) "$::env(HOME)/.local/lib"
 
 # Test mode detection
@@ -106,11 +106,116 @@ array set config {
     device "pulse"
     model_path "/home/john/Downloads/vosk-model-en-us-0.22-lgraph"
     silence_trailing_duration 0.5
-    speech_timeout 3.0
+    lookback_duration 1.0
     lookback_frames 10
     vosk_max_alternatives 0
     vosk_beam 20
     vosk_lattice_beam 8
+}
+
+# Initialize lookback_frames based on lookback_duration
+set config(lookback_frames) [expr {int($config(lookback_duration) * 10 + 0.5)}]
+
+# Config file path - XDG-compliant like Python version
+proc get_config_file_path {} {
+    if {[info exists ::env(XDG_CONFIG_HOME)] && $::env(XDG_CONFIG_HOME) ne ""} {
+        set config_dir $::env(XDG_CONFIG_HOME)
+        file mkdir $config_dir
+        return [file join $config_dir talkie.conf]
+    } else {
+        return [file join $::env(HOME) .talkie.conf]
+    }
+}
+
+# Load configuration from JSON file
+proc load_config {} {
+    global config test_mode
+
+    set config_file [get_config_file_path]
+
+    if {[file exists $config_file]} {
+        if {[catch {
+            set fp [open $config_file r]
+            set json_data [read $fp]
+            close $fp
+
+            # Parse JSON and update config array
+            set config_dict [json::decode $json_data]
+            dict for {key value} $config_dict {
+                set config($key) $value
+            }
+
+            if {$test_mode} {
+                puts "CONFIG: Loaded from $config_file"
+            }
+        } err]} {
+            if {$test_mode} {
+                puts "CONFIG: Error loading config: $err"
+            }
+        }
+    } else {
+        # Create default config file
+        save_config
+        if {$test_mode} {
+            puts "CONFIG: Created default config at $config_file"
+        }
+    }
+
+    # Recalculate lookback_frames based on loaded lookback_duration
+    set config(lookback_frames) [expr {int($config(lookback_duration) * 10 + 0.5)}]
+}
+
+# Save configuration to JSON file
+proc save_config {} {
+    global config test_mode
+
+    set config_file [get_config_file_path]
+
+    if {[catch {
+        # Convert config array to JSON
+        set json_data "{\n"
+        set first true
+        foreach key [lsort [array names config]] {
+            if {!$first} {
+                append json_data ",\n"
+            }
+            set first false
+
+            # Format value based on type
+            set value $config($key)
+            if {[string is double -strict $value]} {
+                append json_data "  \"$key\": $value"
+            } elseif {[string is integer -strict $value]} {
+                append json_data "  \"$key\": $value"
+            } elseif {[string is boolean -strict $value]} {
+                append json_data "  \"$key\": [expr {$value ? "true" : "false"}]"
+            } else {
+                # String value - escape quotes
+                set escaped_value [string map {\" \\\"} $value]
+                append json_data "  \"$key\": \"$escaped_value\""
+            }
+        }
+        append json_data "\n}"
+
+        set fp [open $config_file w]
+        puts $fp $json_data
+        close $fp
+
+        if {$test_mode} {
+            puts "CONFIG: Saved to $config_file"
+        }
+    } err]} {
+        if {$test_mode} {
+            puts "CONFIG: Error saving config: $err"
+        }
+    }
+}
+
+# Update a single config parameter and save to file
+proc update_config_param {key value} {
+    global config
+    set config($key) $value
+    save_config
 }
 
 # Global state
@@ -123,6 +228,12 @@ set vosk_recognizer ""
 set callback_count 0
 set last_update_time 0
 set current_view "text"
+
+# Lookback buffering state
+set audio_buffer_list {}
+set speech_active false
+set silence_start_time 0
+set last_speech_time 0
 
 # UI variables
 array set ui {}
@@ -181,9 +292,106 @@ pack $ui(quit_btn) -side right -pady 0
 set ui(content_frame) [frame .content]
 pack $ui(content_frame) -fill both -expand true -padx 10 -pady 5
 
-# Audio callback function - handles real PA buffer data
+# Initialize lookback buffer
+proc init_lookback_buffer {} {
+    global audio_buffer_list
+    set audio_buffer_list {}
+}
+
+# Add data to lookback buffer and maintain size limit
+proc add_to_buffer {data} {
+    global audio_buffer_list config
+
+    # Add new data to end of list
+    lappend audio_buffer_list $data
+
+    # Keep only the last N frames using end-based indexing
+    if {[llength $audio_buffer_list] > $config(lookback_frames)} {
+        set audio_buffer_list [lrange $audio_buffer_list end-[expr {$config(lookback_frames)-1}] end]
+    }
+}
+
+# Process buffered audio chunks directly through Vosk (force_final only when silence timeout expires)
+proc process_buffered_audio {force_final} {
+    global audio_buffer_list vosk_recognizer test_mode
+
+    if {$vosk_recognizer eq ""} {
+        return
+    }
+
+    if {$test_mode} {
+        puts "VOSK-PROCESS: Processing [llength $audio_buffer_list] buffered chunks directly"
+    }
+
+    # Process each chunk through Vosk
+    foreach chunk $audio_buffer_list {
+        if {[catch {
+            set result [$vosk_recognizer process $chunk]
+            if {$result ne ""} {
+                parse_and_display_result $result false
+            }
+        } err]} {
+            if {$test_mode} {
+                puts "VOSK-CHUNK-ERROR: $err"
+            }
+        }
+    }
+
+    # Only get final result if forced (when silence timeout expires)
+    if {$force_final} {
+        if {[catch {
+            set final_result [$vosk_recognizer final-result]
+            if {$final_result ne ""} {
+                parse_and_display_result $final_result true
+            }
+        } err]} {
+            if {$test_mode} {
+                puts "VOSK-FINAL-ERROR: $err"
+            }
+        }
+    }
+
+    # Clear the buffer
+    set audio_buffer_list {}
+}
+
+# Parse and display Vosk recognition result
+proc parse_and_display_result {result is_final} {
+    global current_confidence config test_mode
+
+    if {$test_mode && $result ne ""} {
+        puts "VOSK-RAW-JSON: $result"
+    }
+
+    if {[catch {
+        set result_dict [json::decode $result]
+        if {[dict exists $result_dict text] && [dict get $result_dict text] ne ""} {
+            set text [dict get $result_dict text]
+            set conf 0.0
+            if {[dict exists $result_dict conf]} {
+                set conf [expr {[dict get $result_dict conf] * 1000}]
+            }
+            set current_confidence $conf
+
+            # Always display text for now - confidence filtering can be re-enabled later
+            after idle [list display_final_text $text $conf]
+
+            if {$test_mode} {
+                set type [expr {$is_final ? "FINAL" : "PARTIAL"}]
+                puts "VOSK-$type: text='$text', confidence=$conf, threshold=$config(confidence_threshold)"
+            }
+        }
+    } parse_err]} {
+        if {$test_mode} {
+            puts "VOSK-PARSE-ERROR: $parse_err"
+        }
+    }
+}
+
+# Audio callback function - handles real PA buffer data with lookback buffering
 proc audio_callback {stream_name timestamp data} {
     global vosk_recognizer current_energy current_confidence config test_mode callback_count transcribing
+    global speech_active silence_start_time last_speech_time audio_buffer_list
 
     incr callback_count
 
@@ -192,76 +400,71 @@ proc audio_callback {stream_name timestamp data} {
         puts "PA-CALLBACK #$callback_count: stream=$stream_name, timestamp=[format "%.3f" $timestamp], data_size=[string length $data] bytes"
     }
 
-    # Always calculate energy for UI display
-    if {[info commands audio::energy] ne ""} {
-        set current_energy [audio::energy $data int16]
-        if {$test_mode && $callback_count % 20 == 1} {
-            puts "ENERGY-CALC: Using C function audio::energy, result=$current_energy"
-        }
-    } else {
-        set current_energy 0.0
-        if {$test_mode} {
-            puts "ENERGY-ERROR: audio::energy command not available"
-        }
+    set current_energy [audio::energy $data int16]
+    if {$test_mode && $callback_count % 20 == 1} {
+        puts "ENERGY-CALC: Using C function audio::energy, result=$current_energy"
     }
 
     # Always update UI with current energy
     after idle update_energy_display
 
-    # Only process with Vosk if transcription is enabled
-    if {$transcribing && $vosk_recognizer ne "" && $current_energy > $config(energy_threshold)} {
-        if {[catch {
-            set vosk_result [$vosk_recognizer process $data]
+    # Only process with voice activity detection if transcription is enabled
+    if {$transcribing && $vosk_recognizer ne ""} {
+        # Add current data to circular buffer for lookback
+        add_to_buffer $data
 
-            if {$vosk_result ne ""} {
+        set current_time $timestamp
+        set is_speech [expr {$current_energy > $config(energy_threshold)}]
+
+        if {$test_mode && $callback_count % 20 == 1} {
+            puts "VAD: energy=$current_energy, threshold=$config(energy_threshold), is_speech=$is_speech, speech_active=$speech_active"
+        }
+
+        # Voice activity detection logic
+        if {$is_speech} {
+            # Speech detected
+            if {!$speech_active} {
+                # Speech just started - start collecting from lookback buffer
+                set speech_active true
+
                 if {$test_mode} {
-                    puts "VOSK-RESULT: $vosk_result"
+                    puts "SPEECH-START: Using [llength $audio_buffer_list] buffered chunks as lookback"
                 }
-
-                # Parse JSON result and display if confidence is good
-                if {[catch {
-                    set result_dict [json::decode $vosk_result]
-                    if {[dict exists $result_dict text] && [dict get $result_dict text] ne ""} {
-                        set text [dict get $result_dict text]
-                        set conf 0.0
-                        if {[dict exists $result_dict conf]} {
-                            set conf [expr {[dict get $result_dict conf] * 1000}]
-                        }
-                        set current_confidence $conf
-
-                        if {$conf >= $config(confidence_threshold)} {
-                            after idle [list display_final_text $text $conf]
-                        }
-
-                        if {$test_mode} {
-                            puts "VOSK-RESULT: text='$text', confidence=$conf"
-                        }
-                    }
-                } parse_err]} {
-                    if {$test_mode} {
-                        puts "VOSK-PARSE-ERROR: $parse_err"
-                    }
-                }
-            } else {
-                # Partial result
-                set partial_result [$vosk_recognizer PartialResult]
-                if {$test_mode && $callback_count % 20 == 1} {
-                    puts "VOSK-PARTIAL: $partial_result"
-                }
-
-                # Update partial text display
-                after idle [list update_partial_text $partial_result]
             }
-        } vosk_err]} {
-            if {$test_mode} {
-                puts "VOSK-ERROR: $vosk_err"
+
+            set last_speech_time $current_time
+
+        } else {
+            # No speech detected
+            if {$speech_active} {
+                # We were in speech, now checking for silence duration
+                if {$silence_start_time == 0} {
+                    set silence_start_time $current_time
+                    if {$test_mode} {
+                        puts "SILENCE-START: Beginning silence trailing at $current_time"
+                    }
+                }
+
+                # Check if silence duration exceeded
+                set silence_duration [expr {$current_time - $silence_start_time}]
+                if {$silence_duration >= $config(silence_trailing_duration)} {
+                    # End of speech - process buffered audio and force final result
+                    if {$test_mode} {
+                        puts "SPEECH-END: Processing [llength $audio_buffer_list] chunks after ${silence_duration}s silence"
+                    }
+
+                    # Process all buffered chunks and force final result from Vosk
+                    process_buffered_audio true
+
+                    # Reset state
+                    set speech_active false
+                    set silence_start_time 0
+                }
             }
         }
     }
-
-    # Update UI in main thread
-    after idle update_energy_display
 }
+
 
 # Setup switchable panes - matching Python exactly
 proc setup_switchable_panes {} {
@@ -448,6 +651,22 @@ proc setup_controls_content {} {
         -command alternatives_changed]
     pack $ui(alternatives_scale) -fill x -expand true
     $ui(alternatives_scale) set $config(vosk_max_alternatives)
+
+    # Lookback duration row
+    set lookback_frame [frame $controls_container.lookback]
+    pack $lookback_frame -fill x -pady 2
+
+    label $lookback_frame.label -text "Lookback Duration (s):" -width 20 -anchor w
+    pack $lookback_frame.label -side left
+
+    set lookback_control_frame [frame $lookback_frame.control]
+    pack $lookback_control_frame -side right -fill x -expand true
+
+    set ui(lookback_scale) [scale $lookback_control_frame.scale \
+        -from 0.1 -to 3.0 -resolution 0.1 -orient horizontal \
+        -command lookback_changed]
+    pack $ui(lookback_scale) -fill x -expand true
+    $ui(lookback_scale) set $config(lookback_duration)
 }
 
 # Setup text pane - matching Python exactly
@@ -617,9 +836,18 @@ proc start_audio_stream {} {
 
 # Display functions
 proc display_final_text {text confidence} {
-    global ui
+    global ui test_mode
 
-    if {![info exists ui(final_text)]} return
+    if {$test_mode} {
+        puts "DISPLAY-TEXT: Called with text='$text', confidence=$confidence"
+    }
+
+    if {![info exists ui(final_text)]} {
+        if {$test_mode} {
+            puts "DISPLAY-TEXT: ui(final_text) does not exist!"
+        }
+        return
+    }
 
     set timestamp [clock format [clock seconds] -format "%H:%M:%S"]
 
@@ -675,33 +903,36 @@ proc device_selected {device} {
 }
 
 proc energy_changed {value} {
-    global config
-    set config(energy_threshold) $value
+    update_config_param energy_threshold $value
 }
 
 proc silence_changed {value} {
-    global config
-    set config(silence_trailing_duration) $value
+    update_config_param silence_trailing_duration $value
 }
 
 proc confidence_changed {value} {
-    global config
-    set config(confidence_threshold) $value
+    update_config_param confidence_threshold $value
 }
 
 proc beam_changed {value} {
-    global config
-    set config(vosk_beam) $value
+    update_config_param vosk_beam $value
 }
 
 proc lattice_changed {value} {
-    global config
-    set config(vosk_lattice_beam) $value
+    update_config_param vosk_lattice_beam $value
 }
 
 proc alternatives_changed {value} {
+    update_config_param vosk_max_alternatives $value
+}
+
+proc lookback_changed {value} {
     global config
-    set config(vosk_max_alternatives) $value
+    update_config_param lookback_duration $value
+    # Convert seconds to frames: each buffer is ~0.1 seconds (4410 frames at 44100 Hz)
+    # So frames = duration * 10, rounded to nearest integer
+    set config(lookback_frames) [expr {int($value * 10 + 0.5)}]
+    update_config_param lookback_frames $config(lookback_frames)
 }
 
 # Audio device detection
@@ -751,6 +982,15 @@ proc refresh_devices {} {
 # Transcription functions
 proc start_transcription {} {
     global config vosk_model vosk_recognizer test_mode transcribing
+    global speech_active silence_start_time last_speech_time audio_buffer_list
+
+    # Initialize lookback buffer
+    init_lookback_buffer
+
+    # Reset voice activity detection state
+    set speech_active false
+    set silence_start_time 0
+    set last_speech_time 0
 
     # Initialize Vosk
     if {[catch {
@@ -783,9 +1023,16 @@ proc start_transcription {} {
 
 proc stop_transcription {} {
     global vosk_recognizer vosk_model test_mode transcribing
+    global speech_active silence_start_time last_speech_time audio_buffer_list
 
     # Disable transcription - audio stream keeps running for energy monitoring
     set transcribing false
+
+    # Reset voice activity detection state
+    set speech_active false
+    set silence_start_time 0
+    set last_speech_time 0
+    set audio_buffer_list {}
 
     # Clean up Vosk resources
     set vosk_recognizer ""
@@ -837,6 +1084,7 @@ proc quit_app {} {
 }
 
 # Initialize application
+load_config
 setup_switchable_panes
 refresh_devices
 start_ui_updates

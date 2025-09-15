@@ -165,11 +165,7 @@ static int ModelObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *con
             return TCL_ERROR;
         }
 
-        /* Set callback if provided */
-        if (callback) {
-            rec_ctx->callback = callback;
-            Tcl_IncrRefCount(rec_ctx->callback);
-        }
+        /* Callback functionality removed - processing inline now */
 
         /* Set recognizer parameters */
         vosk_recognizer_set_max_alternatives(rec_ctx->recognizer, max_alternatives);
@@ -264,6 +260,10 @@ static int RecognizerObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj
         Tcl_SetObjResult(interp, Tcl_NewStringObj(json_result ? json_result : "", -1));
         return TCL_OK;
 
+    } else if (strcmp(sub, "final-result") == 0) {
+        const char *json_result = vosk_recognizer_final_result(ctx->recognizer);
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(json_result ? json_result : "", -1));
+        return TCL_OK;
     } else if (strcmp(sub, "reset") == 0) {
         vosk_recognizer_reset(ctx->recognizer);
         Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", -1));
@@ -294,20 +294,6 @@ static int RecognizerObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj
             }
             i++;
         }
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", -1));
-        return TCL_OK;
-
-    } else if (strcmp(sub, "set_callback") == 0) {
-        if (objc != 3) {
-            Tcl_WrongNumArgs(interp, 2, objv, "callback_script");
-            return TCL_ERROR;
-        }
-
-        /* Replace callback */
-        if (ctx->callback) Tcl_DecrRefCount(ctx->callback);
-        ctx->callback = objv[2];
-        Tcl_IncrRefCount(ctx->callback);
-
         Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", -1));
         return TCL_OK;
 
