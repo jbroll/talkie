@@ -254,26 +254,13 @@ static int RecognizerObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj
         int result = vosk_recognizer_accept_waveform(ctx->recognizer, (const char*)data, length);
 
         const char *json_result = NULL;
-        int is_final = 0;
 
         if (result) {
-            /* Final result */
-            json_result = vosk_recognizer_result(ctx->recognizer);
-            is_final = 1;
+            json_result = vosk_recognizer_final_result(ctx->recognizer);
         } else {
-            /* Partial result */
             json_result = vosk_recognizer_partial_result(ctx->recognizer);
-            is_final = 0;
         }
 
-        /* No callback - just return the result synchronously */
-
-        /* Return result JSON */
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(json_result ? json_result : "", -1));
-        return TCL_OK;
-
-    } else if (strcmp(sub, "final_result") == 0) {
-        const char *json_result = vosk_recognizer_final_result(ctx->recognizer);
         Tcl_SetObjResult(interp, Tcl_NewStringObj(json_result ? json_result : "", -1));
         return TCL_OK;
 
