@@ -2,6 +2,7 @@
 # talkie.tcl - Tcl version matching Python interface exactly
 
 package require Tk
+package require json
 
 # Try to load ttk, but don't fail if not available
 if {[catch {package require ttk}]} {
@@ -100,7 +101,7 @@ array set config {
     sample_rate 44100
     frames_per_buffer 4410
     energy_threshold 5.0
-    confidence_threshold 280.0
+    confidence_threshold 200.0
     window_x 100
     window_y 100
     device "pulse"
@@ -140,7 +141,7 @@ proc load_config {} {
             close $fp
 
             # Parse JSON and update config array
-            set config_dict [json::decode $json_data]
+            set config_dict [json::json2dict $json_data]
             dict for {key value} $config_dict {
                 set config($key) $value
             }
@@ -165,14 +166,12 @@ proc load_config {} {
     set config(lookback_frames) [expr {int($config(lookback_duration) * 10 + 0.5)}]
 }
 
-# Save configuration to JSON file
 proc save_config {} {
     global config test_mode
 
     set config_file [get_config_file_path]
 
     if {[catch {
-        # Convert config array to JSON
         set json_data "{\n"
         set first true
         foreach key [lsort [array names config]] {
@@ -231,8 +230,6 @@ set current_view "text"
 
 # Lookback buffering state
 set audio_buffer_list {}
-set speech_active false
-set silence_start_time 0
 set last_speech_time 0
 
 # UI variables
@@ -288,17 +285,9 @@ set ui(quit_btn) [button $button_frame.quit \
     -command quit_app]
 pack $ui(quit_btn) -side right -pady 0
 
-# Content frame for switchable panes
 set ui(content_frame) [frame .content]
 pack $ui(content_frame) -fill both -expand true -padx 10 -pady 5
 
-# Initialize lookback buffer
-proc init_lookback_buffer {} {
-    global audio_buffer_list
-    set audio_buffer_list {}
-}
-
-# Add data to lookback buffer and maintain size limit
 proc add_to_buffer {data} {
     global audio_buffer_list config
 
@@ -311,7 +300,6 @@ proc add_to_buffer {data} {
     }
 }
 
-# Process buffered audio chunks directly through Vosk (force_final only when silence timeout expires)
 proc process_buffered_audio {force_final} {
     global audio_buffer_list vosk_recognizer test_mode
 
@@ -319,16 +307,11 @@ proc process_buffered_audio {force_final} {
         return
     }
 
-    if {$test_mode} {
-        puts "VOSK-PROCESS: Processing [llength $audio_buffer_list] buffered chunks directly"
-    }
-
-    # Process each chunk through Vosk
     foreach chunk $audio_buffer_list {
         if {[catch {
             set result [$vosk_recognizer process $chunk]
             if {$result ne ""} {
-                parse_and_display_result $result false
+                parse_and_display_result $result
             }
         } err]} {
             if {$test_mode} {
@@ -337,12 +320,11 @@ proc process_buffered_audio {force_final} {
         }
     }
 
-    # Only get final result if forced (when silence timeout expires)
     if {$force_final} {
         if {[catch {
             set final_result [$vosk_recognizer final-result]
             if {$final_result ne ""} {
-                parse_and_display_result $final_result true
+                parse_and_display_result $final_result
             }
         } err]} {
             if {$test_mode} {
@@ -351,35 +333,68 @@ proc process_buffered_audio {force_final} {
         }
     }
 
-    # Clear the buffer
     set audio_buffer_list {}
 }
 
-# Parse and display Vosk recognition result
-proc parse_and_display_result {result is_final} {
-    global current_confidence config test_mode
+proc json-get {container args} {
+    set current $container
+    foreach step $args {
+        if {[string is integer -strict $step]} {
+            set current [lindex $current $step]
+        } else {
+            set current [dict get $current $step]
+        }
+    }
+    return $current
+}
 
-    if {$test_mode && $result ne ""} {
-        puts "VOSK-RAW-JSON: $result"
+proc json-exists {container args} {
+    set current $container
+    foreach step $args {
+        if {[string is integer -strict $step]} {
+            # List index
+            if {$step < 0 || $step >= [llength $current]} {
+                return 0
+            }
+            set current [lindex $current $step]
+        } else {
+            # Dict key
+            if {![dict exists $current $step]} {
+                return 0
+            }
+            set current [dict get $current $step]
+        }
+    }
+    return 1
+}
+
+proc parse_and_display_result {result} {
+    global current_confidence config test_mode transcribing
+
+    if {!$transcribing} {
+        return
     }
 
     if {[catch {
-        set result_dict [json::decode $result]
-        if {[dict exists $result_dict text] && [dict get $result_dict text] ne ""} {
-            set text [dict get $result_dict text]
-            set conf 0.0
-            if {[dict exists $result_dict conf]} {
-                set conf [expr {[dict get $result_dict conf] * 1000}]
+        set result_dict [json::json2dict $result]
+
+        if {[dict exists $result_dict partial] && [dict get $result_dict partial] ne ""} {
+            set text [dict get $result_dict partial]
+            after idle [list update_partial_text $text]
+
+            return
+        }
+
+        set text [json-get $result_dict alternatives 0 text]
+        set conf [json-get $result_dict alternatives 0 confidence]
+
+        if {$text ne ""} {
+            if {$config(confidence_threshold) == 0 || $conf >= $config(confidence_threshold)} {
+                after idle [list display_final_text $text $conf]
+            } elseif {$test_mode} {
+                puts "VOSK-FILTERED: text='$text' confidence=$conf below threshold $config(confidence_threshold)"
             }
             set current_confidence $conf
-
-            # Always display text for now - confidence filtering can be re-enabled later
-            after idle [list display_final_text $text $conf]
-
-            if {$test_mode} {
-                set type [expr {$is_final ? "FINAL" : "PARTIAL"}]
-                puts "VOSK-$type: text='$text', confidence=$conf, threshold=$config(confidence_threshold)"
-            }
         }
     } parse_err]} {
         if {$test_mode} {
@@ -388,81 +403,34 @@ proc parse_and_display_result {result is_final} {
     }
 }
 
-# Audio callback function - handles real PA buffer data with lookback buffering
 proc audio_callback {stream_name timestamp data} {
     global vosk_recognizer current_energy current_confidence config test_mode callback_count transcribing
-    global speech_active silence_start_time last_speech_time audio_buffer_list
+    global last_speech_time audio_buffer_list
 
     incr callback_count
 
-    # TEST MODE: Show PA buffer information
-    if {$test_mode && $callback_count % 20 == 1} {
-        puts "PA-CALLBACK #$callback_count: stream=$stream_name, timestamp=[format "%.3f" $timestamp], data_size=[string length $data] bytes"
-    }
-
     set current_energy [audio::energy $data int16]
-    if {$test_mode && $callback_count % 20 == 1} {
-        puts "ENERGY-CALC: Using C function audio::energy, result=$current_energy"
-    }
 
-    # Always update UI with current energy
-    after idle update_energy_display
-
-    # Only process with voice activity detection if transcription is enabled
     if {$transcribing && $vosk_recognizer ne ""} {
-        # Add current data to circular buffer for lookback
         add_to_buffer $data
 
-        set current_time $timestamp
         set is_speech [expr {$current_energy > $config(energy_threshold)}]
 
-        if {$test_mode && $callback_count % 20 == 1} {
-            puts "VAD: energy=$current_energy, threshold=$config(energy_threshold), is_speech=$is_speech, speech_active=$speech_active"
-        }
-
-        # Voice activity detection logic
         if {$is_speech} {
-            # Speech detected
-            if {!$speech_active} {
-                # Speech just started - start collecting from lookback buffer
-                set speech_active true
-
-                if {$test_mode} {
-                    puts "SPEECH-START: Using [llength $audio_buffer_list] buffered chunks as lookback"
-                }
-            }
-
-            set last_speech_time $current_time
-
+            process_buffered_audio false
+            set last_speech_time $timestamp
         } else {
-            # No speech detected
-            if {$speech_active} {
-                # We were in speech, now checking for silence duration
-                if {$silence_start_time == 0} {
-                    set silence_start_time $current_time
-                    if {$test_mode} {
-                        puts "SILENCE-START: Beginning silence trailing at $current_time"
-                    }
-                }
-
-                # Check if silence duration exceeded
-                set silence_duration [expr {$current_time - $silence_start_time}]
-                if {$silence_duration >= $config(silence_trailing_duration)} {
-                    # End of speech - process buffered audio and force final result
-                    if {$test_mode} {
-                        puts "SPEECH-END: Processing [llength $audio_buffer_list] chunks after ${silence_duration}s silence"
-                    }
-
-                    # Process all buffered chunks and force final result from Vosk
+            if { $last_speech_time } {
+                if { $last_speech_time + $config(silence_trailing_duration) < $timestamp } {
                     process_buffered_audio true
-
-                    # Reset state
-                    set speech_active false
-                    set silence_start_time 0
+                    set last_speech_time 0
+                } else {
+                    process_buffered_audio false
                 }
-            }
+            } 
         }
     }
+    after idle update_energy_display
 }
 
 
@@ -599,7 +567,7 @@ proc setup_controls_content {} {
     pack $confidence_control_frame -side right -fill x -expand true
 
     set ui(confidence_scale) [scale $confidence_control_frame.scale \
-        -from 200 -to 400 -resolution 10 -orient horizontal \
+        -from 0 -to 400 -resolution 10 -orient horizontal \
         -command confidence_changed]
     pack $ui(confidence_scale) -fill x -expand true
     $ui(confidence_scale) set $config(confidence_threshold)
@@ -797,10 +765,6 @@ proc update_energy_display {} {
     } else {
         $ui(confidence_label) config -bg "#f44336" -fg white
     }
-
-    if {$test_mode && $current_energy > 0} {
-        puts "UI-ENERGY: Updated energy=$current_energy, confidence=$current_confidence"
-    }
 }
 
 # Start UI update timer and background energy monitoring
@@ -870,24 +834,13 @@ proc display_final_text {text confidence} {
     $ui(final_text) config -state disabled
 }
 
-proc update_partial_text {partial_result} {
+proc update_partial_text {text} {
     global ui
 
-    if {![info exists ui(partial_text)]} return
-
-    # Parse partial result JSON
-    if {[catch {
-        set result_dict [json::decode $partial_result]
-        if {[dict exists $result_dict partial]} {
-            set partial [dict get $result_dict partial]
-            $ui(partial_text) config -state normal
-            $ui(partial_text) delete 1.0 end
-            $ui(partial_text) insert end $partial
-            $ui(partial_text) config -state disabled
-        }
-    }]} {
-        # Ignore parse errors for partial results
-    }
+    $ui(partial_text) config -state normal
+    $ui(partial_text) delete 1.0 end
+    $ui(partial_text) insert end $text
+    $ui(partial_text) config -state disabled
 }
 
 # Control change handlers
@@ -982,15 +935,9 @@ proc refresh_devices {} {
 # Transcription functions
 proc start_transcription {} {
     global config vosk_model vosk_recognizer test_mode transcribing
-    global speech_active silence_start_time last_speech_time audio_buffer_list
 
-    # Initialize lookback buffer
-    init_lookback_buffer
-
-    # Reset voice activity detection state
-    set speech_active false
-    set silence_start_time 0
-    set last_speech_time 0
+    set ::audio_buffer_list {}
+    set ::last_speech_time 0
 
     # Initialize Vosk
     if {[catch {
@@ -1022,53 +969,15 @@ proc start_transcription {} {
 }
 
 proc stop_transcription {} {
-    global vosk_recognizer vosk_model test_mode transcribing
-    global speech_active silence_start_time last_speech_time audio_buffer_list
+    set ::transcribing false
 
-    # Disable transcription - audio stream keeps running for energy monitoring
-    set transcribing false
+    set ::last_speech_time 0
+    set ::audio_buffer_list {}
 
-    # Reset voice activity detection state
-    set speech_active false
-    set silence_start_time 0
-    set last_speech_time 0
-    set audio_buffer_list {}
-
-    # Clean up Vosk resources
-    set vosk_recognizer ""
-    set vosk_model ""
-
-    if {$test_mode} {
-        puts "TRANSCRIPTION-STOP: Vosk disabled, audio stream continues for energy monitoring"
-    }
+    set ::vosk_recognizer ""
+    set ::vosk_model ""
 }
 
-# Simple JSON parser
-namespace eval json {
-    proc decode {json_string} {
-        set json_string [string trim $json_string]
-        if {[string index $json_string 0] ne "\{" || [string index $json_string end] ne "\}"} {
-            error "Invalid JSON format"
-        }
-
-        set content [string range $json_string 1 end-1]
-        set result {}
-
-        set pairs [split $content ","]
-        foreach pair $pairs {
-            set pair [string trim $pair]
-            if {[regexp {"([^"]+)"\s*:\s*"([^"]*)"} $pair -> key value]} {
-                dict set result $key $value
-            } elseif {[regexp {"([^"]+)"\s*:\s*([0-9.-]+)} $pair -> key value]} {
-                dict set result $key $value
-            }
-        }
-
-        return $result
-    }
-}
-
-# Quit function
 proc quit_app {} {
     global transcribing
 
@@ -1084,6 +993,7 @@ proc quit_app {} {
 }
 
 # Initialize application
+#
 load_config
 setup_switchable_panes
 refresh_devices
@@ -1104,11 +1014,9 @@ if {$test_mode} {
 
 puts "✓ Talkie Tcl Edition ready - Python-like interface"
 
-# Force text view to be displayed at startup after all UI is initialized
 after idle {
     set current_view ""
     show_text_view
 }
 
-# Handle window close
 wm protocol . WM_DELETE_WINDOW quit_app

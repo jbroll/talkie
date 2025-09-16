@@ -6,7 +6,7 @@ puts [string repeat "=" 50]
 
 # Test syntax by parsing without running main
 if {[catch {
-    set fd [open "talkie_python_like.tcl" r]
+    set fd [open "talkie.tcl" r]
     set content [read $fd]
     close $fd
 
