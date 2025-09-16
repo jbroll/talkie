@@ -8,19 +8,6 @@ namespace eval ::audio {
     variable audio_buffer_list {}
     variable last_speech_time 0
 
-    proc add_to_buffer {data} {
-        variable audio_buffer_list
-
-        # Add new data to end of list
-        lappend audio_buffer_list $data
-
-        # Keep only the last N frames using end-based indexing
-        set lookback_frames [::config::get lookback_frames]
-        if {[llength $audio_buffer_list] > $lookback_frames} {
-            set audio_buffer_list [lrange $audio_buffer_list end-[expr {$lookback_frames-1}] end]
-        }
-    }
-
     proc process_buffered_audio {force_final} {
         variable audio_buffer_list
 
@@ -29,26 +16,22 @@ namespace eval ::audio {
             return
         }
 
-        foreach chunk $audio_buffer_list {
-            if {[catch {
+        try {
+            foreach chunk $audio_buffer_list {
                 set result [$vosk_recognizer process $chunk]
                 if {$result ne ""} {
-                    ::vosk::parse_and_display_result $result
+                    parse_and_display_result $result
                 }
-            } err]} {
-                puts "VOSK-CHUNK-ERROR: $err"
             }
-        }
 
-        if {$force_final} {
-            if {[catch {
+            if {$force_final} {
                 set final_result [$vosk_recognizer final-result]
                 if {$final_result ne ""} {
-                    ::vosk::parse_and_display_result $final_result
+                    parse_and_display_result $final_result
                 }
-            } err]} {
-                puts "VOSK-FINAL-ERROR: $err"
             }
+        } on error message {
+            puts "ERROR $message"
         }
 
         set audio_buffer_list {}
@@ -61,12 +44,15 @@ namespace eval ::audio {
         variable last_speech_time
         variable audio_buffer_list
 
+        set lookback_frames [::config::get lookback_frames]
+
         incr callback_count
 
         set current_energy [audio::energy $data int16]
 
         if {$transcribing} {
-            add_to_buffer $data
+            lappend audio_buffer_list $data
+            set audio_buffer_list [lrange $audio_buffer_list end-$lookback_frames end]
 
             set energy_threshold [::config::get energy_threshold]
             set is_speech [expr {$current_energy > $energy_threshold}]

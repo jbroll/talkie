@@ -6,47 +6,6 @@ namespace eval ::vosk {
     variable recognizer ""
     variable current_confidence 0.0
 
-    proc json-get {container args} {
-        set current $container
-        foreach step $args {
-            if {[string is integer -strict $step]} {
-                set current [lindex $current $step]
-            } else {
-                set current [dict get $current $step]
-            }
-        }
-        return $current
-    }
-
-    proc parse_and_display_result {result} {
-        variable current_confidence
-
-        try {
-            set result_dict [json::json2dict $result]
-
-            if {[dict exists $result_dict partial]} {
-                set text [dict get $result_dict partial]
-                after idle [list ::display::update_partial_text $text]
-                return
-            }
-
-            set text [json-get $result_dict alternatives 0 text]
-            set conf [json-get $result_dict alternatives 0 confidence]
-
-            if {$text ne ""} {
-                set confidence_threshold [::config::get confidence_threshold]
-                if {$confidence_threshold == 0 || $conf >= $confidence_threshold} {
-                    after idle [list ::display::display_final_text $text $conf]
-                } else {
-                    puts "VOSK-FILTERED: text='$text' confidence=$conf below threshold $confidence_threshold"
-                }
-                set current_confidence $conf
-            }
-        } on error message {
-            puts "VOSK-PARSE-ERROR: $message"
-        }
-    }
-
     proc initialize {} {
         variable model
         variable recognizer

@@ -127,19 +127,6 @@ namespace eval ::config {
     }
 }
 
-# Provide global config compatibility
-proc get_config_file_path {} {
-    return [::config::get_config_file_path]
-}
-
-proc load_config {} {
-    ::config::load
-}
-
-proc save_config {} {
-    ::config::save
-}
-
 proc update_config_param {key value} {
     ::config::update_param $key $value
 }
