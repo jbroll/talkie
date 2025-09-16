@@ -1,6 +1,9 @@
 #!/usr/bin/env tclsh
 
 package require Tk
+
+set script_dir [file dirname [file normalize [info script]]]
+lappend auto_path [file join $script_dir lib uinput]
 package require uinput
 
 # Create the main window

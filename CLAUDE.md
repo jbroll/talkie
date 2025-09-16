@@ -4,106 +4,100 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Talkie is a modular speech-to-text application designed for Ubuntu Linux. It provides real-time audio transcription with intelligent keyboard simulation, featuring a modern GUI with bubble mode, configurable audio processing, and support for multiple speech recognition engines.
+Talkie is a modular speech-to-text application designed for Ubuntu Linux. It
+provides real-time audio transcription with intelligent keyboard simulation,
+featuring a modern GUI, configurable audio processing, and support for
+multiple speech recognition engines.
 
 ## Architecture
 
-### Modular Design (September 2025)
+### Tcl Implementation (Primary - September 2025)
 
-The application has been completely refactored into a modular architecture:
+The main development focus is now on the Tcl version located in the `tcl/` directory:
 
 ```
-talkie/
-├── talkie.py                    # Main application orchestrator
-├── audio_manager.py             # Audio processing and device management
-├── gui_manager.py               # Tkinter GUI with bubble mode
-├── config_manager.py            # Configuration persistence
-├── text_processor.py            # Text processing and punctuation
-├── keyboard_simulator.py        # Keyboard input simulation
-├── talkie.sh                    # Shell launcher with state management
-├── requirements.txt             # Dependencies
-├── JSONFileMonitor.py           # State file monitoring
-└── speech/                      # Speech recognition engines
-    ├── __init__.py              # Package initialization
-    ├── speech_engine.py         # Base classes and factory
-    ├── Vosk_engine.py           # Vosk adapter
-    └── SherpaONNX_engine.py     # Sherpa-ONNX adapter
+talkie/tcl/
+├── talkie.tcl                   # Main application orchestrator
+├── config.tcl                   # Configuration and state management
+├── audio.tcl                    # Audio processing and transcription control
+├── gui.tcl                      # Tk UI interface
+├── display.tcl                  # Text display and visualization
+├── device.tcl                   # Audio device management
+├── vosk.tcl                     # Vosk speech engine integration
+├── uinput/                      # Keyboard simulation
+│   ├── uinput.tcl              # uinput wrapper
+│   └── test_uinput_verify.tcl  # Testing tools
+├── pa/                          # PortAudio bindings
+├── vosk/                        # Vosk bindings
+└── audio/                       # Audio processing bindings
 ```
 
-### Core Components
+### Core Components (Tcl)
 
-#### TalkieApplication (talkie.py)
-Main application orchestrator that coordinates all components:
-- Component initialization and lifecycle management
-- Engine configuration and fallback logic
-- Audio device setup and management
-- Threading coordination for GUI and transcription
-- Signal handling and cleanup
+#### Main Application (talkie.tcl)
+- Global state management with `::transcribing` variable
+- Trace-based architecture for state synchronization
+- Module initialization and coordination
+- Package requirements and auto_path setup
 
-#### AudioManager (audio_manager.py)
-Manages audio input and voice activity detection:
-- Audio device selection and configuration
-- Voice activity detection with configurable thresholds
+#### Configuration Management (config.tcl)
+- JSON-based configuration in `~/.talkie.conf`
+- State file persistence in `~/.talkie`
+- File watching with `jbr::filewatch` for external changes
+- Auto-save traces on configuration changes
+- Minimal load/save functions using `cat` and `echo`
+
+#### Audio Processing (audio.tcl)
+- Real-time audio stream processing via PortAudio
+- Voice activity detection with energy thresholds
 - Circular buffer for pre-speech audio lookback
-- Silence trailing and speech timeout handling
-- Integration with JSONFileMonitor for state changes
+- Vosk speech recognition integration
+- Global transcription state management
 
-#### TalkieGUI (gui_manager.py)
-Tkinter-based GUI interface:
-- Standard window and bubble mode interfaces
-- Real-time transcription display with partial results
-- Audio device selection dropdown
-- Configurable voice threshold and timeouts
-- Persistent window positioning and configuration
-- Energy level visualization
+#### GUI Interface (gui.tcl)
+- Tk-based responsive interface
+- Controls and text view switching
+- Real-time audio energy and confidence display
+- Automatic button updates via `::transcribing` trace
+- Device selection and parameter adjustment
 
-#### TextProcessor (text_processor.py)
-Intelligent text processing and formatting:
-- Voice command punctuation mapping
-- Number word-to-digit conversion using word2number
-- Processing state management (NORMAL/NUMBER modes)
-- Timeout handling for number sequences
-- Keyboard output coordination
+#### Display Management (display.tcl)
+- Text output formatting and display
+- Partial and final result handling
+- Energy level and confidence visualization
+- Rolling buffer management
 
-#### ConfigManager (config_manager.py)
-Configuration persistence and management:
-- JSON-based configuration storage in `~/.talkie.conf`
-- Default configuration with sensible values
-- Runtime parameter updates and persistence
-- Window position and state management
+#### Device Management (device.tcl)
+- Audio device enumeration and selection
+- GUI dropdown population
+- Device configuration updates
 
-#### KeyboardSimulator (keyboard_simulator.py)  
-Direct keyboard input simulation via uinput:
-- Real-time text insertion into focused applications
-- Virtual keyboard device creation and management
-- Unicode text support with proper encoding
+### State Management Architecture
 
-### Speech Recognition Engines
+#### Trace-Based Synchronization
+- **`::transcribing` Global Variable**: Central state for transcription control
+- **Transcription Trace**: Automatically starts/stops audio processing when state changes
+- **GUI Trace**: Updates button appearance when transcription state changes
+- **File Watcher**: Monitors `~/.talkie` file for external state changes
 
-#### Engine Architecture
-Uses adapter pattern with factory-based instantiation:
-- **SpeechEngine**: Abstract base class defining common interface
-- **SpeechResult**: Standardized result format with confidence and timing
-- **SpeechEngineType**: Enumeration of supported engines
-- **SpeechEngineFactory**: Factory for creating engine adapters
+#### State Persistence
+- **Configuration**: `~/.talkie.conf` (JSON format with auto-save)
+- **Transcription State**: `~/.talkie` (JSON format: `{"transcribing": true/false}`)
+- **File Watching**: 500ms interval monitoring for external control
 
-#### Supported Engines
+### Speech Recognition
 
-1. **Vosk Engine** (Primary)
-   - CPU-based recognition with high accuracy
-   - Model path: `/home/john/Downloads/vosk-model-en-us-0.22-lgraph`
-   - Real-time streaming with partial results
-   - Reliable fallback option
+#### Vosk Engine Integration
+- Model path: `/home/john/Downloads/vosk-model-en-us-0.22-lgraph`
+- Real-time streaming with partial results
+- Configurable beam search parameters
+- Confidence-based filtering
 
-2. **Sherpa-ONNX Engine** (Alternative)
-   - CPU-optimized implementation
-   - INT8 quantization for performance
-   - Model path: `models/sherpa-onnx/sherpa-onnx-streaming-zipformer-en-2023-06-26`
-
-#### Engine Selection Logic
-- **Auto**: Prefers Vosk for accuracy, falls back to Sherpa-ONNX
-- **Manual**: Force specific engine via CLI arguments
-- **Fallback**: Automatic fallback if primary engine fails
+#### Configuration Parameters
+- `vosk_max_alternatives`: Number of alternative results (0-5)
+- `vosk_beam`: Beam search width (5-50)
+- `vosk_lattice_beam`: Lattice beam width (1-20)
+- `confidence_threshold`: Minimum confidence for output (0-400)
 
 ## Usage
 
@@ -111,33 +105,25 @@ Uses adapter pattern with factory-based instantiation:
 
 ```bash
 # Basic usage
-./talkie.sh                         # Launch with GUI
-python3 talkie.py                   # Direct Python execution
+cd tcl && ./talkie.tcl           # Launch Tcl version
+```
 
-# Engine selection
-./talkie.sh --engine auto           # Auto-detect (default)
-./talkie.sh --engine vosk           # Force Vosk engine
-./talkie.sh --engine sherpa-onnx    # Force Sherpa-ONNX
+### External Control
 
-# Audio device
-./talkie.sh --device "USB"          # Select device by substring
-./talkie.sh --verbose               # Enable debug logging
+State can be controlled externally by modifying `~/.talkie`:
+```bash
+# Enable transcription
+echo '{"transcribing": true}' > ~/.talkie
 
-# Transcription control
-./talkie.sh start                   # Enable transcription
-./talkie.sh stop                    # Disable transcription
-./talkie.sh toggle                  # Toggle transcription state
-./talkie.sh state                   # Show current state
-
-# Start with transcription enabled
-./talkie.sh --transcribe            # Start transcribing immediately
+# Disable transcription
+echo '{"transcribing": false}' > ~/.talkie
 ```
 
 ### Voice Commands
 
 #### Punctuation Commands
 - "period" → "."
-- "comma" → ","  
+- "comma" → ","
 - "question mark" → "?"
 - "exclamation mark" → "!"
 - "colon" → ":"
@@ -145,125 +131,101 @@ python3 talkie.py                   # Direct Python execution
 - "new line" → "\n"
 - "new paragraph" → "\n\n"
 
-#### Number Processing
-- Automatic word-to-number conversion
-- Timeout-based number sequence finalization
-- State-based processing for complex numbers
-
 #### Confidence Filtering
-- **Post-processing Quality Filter**: Filters out low-confidence recognition results
-- **Real-time Display**: Shows current confidence score in UI (250-400 range typical)
-- **Configurable Threshold**: Adjustable via GUI slider (200-400 range)
-- **Color-coded Feedback**: Green (≥350), Orange (300-349), Red (<300)
-- **Vosk Integration**: Uses Vosk's built-in confidence scoring system
-- **Noise Reduction**: Reduces false positives and background noise artifacts
-
-**Recommended Thresholds:**
-- **High Quality**: 320-350 (strict filtering, quiet environments)
-- **Balanced**: 280-320 (normal use, moderate filtering)
-- **Permissive**: 250-280 (noisy environments, accept more results)
+- **Real-time Display**: Shows current confidence score in UI
+- **Configurable Threshold**: Adjustable via GUI slider (0-400 range)
+- **Noise Reduction**: Filters out low-confidence artifacts
 
 ### GUI Features
 
-#### Standard Mode
-- Transcription control toggle
-- Audio device selection
-- Real-time energy level display
-- Real-time confidence score display
-- Partial result preview
-- Configuration parameter adjustment
-- Vosk engine parameter tuning
-- Confidence threshold filtering
+#### Main Interface
+- **Transcription Toggle**: Start/Stop button with color feedback
+  - Red: "Start Transcription" (stopped state)
+  - Green: "Stop Transcription" (running state)
+- **View Switching**: Controls and Text view tabs
+- **Real-time Displays**: Audio energy and confidence levels
+- **Parameter Controls**: Sliders for all configuration options
 
-#### Bubble Mode
-- Minimized floating window interface
-- Persistent positioning across sessions
-- Configurable silence timeout
-- Quick transcription toggle
+#### Configuration Controls
+- **Audio Device**: Dropdown selection with refresh
+- **Energy Threshold**: Voice activity detection (0-100)
+- **Silence Duration**: Trailing silence timeout (0.1-2.0s)
+- **Confidence Threshold**: Recognition quality filter (0-400)
+- **Vosk Parameters**: Beam search and alternatives tuning
+- **Lookback Seconds**: Pre-speech audio buffer (0.1-3.0s)
 
 ### Configuration
 
 #### Default Settings
 ```json
 {
-    "audio_device": "pulse",
-    "energy_threshold": 50.0,
-    "silence_trailing_duration": 0.5,
-    "speech_timeout": 3.0,
-    "lookback_frames": 10,
-    "engine": "vosk",
-    "model_path": "/home/john/Downloads/vosk-model-en-us-0.22-lgraph",
+    "sample_rate": 44100,
+    "frames_per_buffer": 4410,
+    "energy_threshold": 5.0,
+    "confidence_threshold": 200.0,
     "window_x": 100,
     "window_y": 100,
-    "bubble_enabled": false,
-    "bubble_silence_timeout": 3.0,
+    "device": "pulse",
+    "model_path": "/home/john/Downloads/vosk-model-en-us-0.22-lgraph",
+    "silence_trailing_duration": 0.5,
+    "lookback_seconds": 1.0,
     "vosk_max_alternatives": 0,
     "vosk_beam": 20,
-    "vosk_lattice_beam": 8,
-    "confidence_threshold": 280.0
+    "vosk_lattice_beam": 8
 }
 ```
 
-#### Configuration Files
-- **`~/.talkie.conf`**: Main configuration persistence
-- **`~/.talkie`**: Transcription state (JSON with `{"transcribing": true/false}`)
-
 ### Dependencies
 
-#### Core Requirements (requirements.txt)
-```
-sounddevice
-vosk
-word2number
-numpy
-sherpa-onnx
-```
+#### Tcl Packages
+- **Tk**: GUI framework
+- **json**: JSON parsing/generation
+- **jbr::unix**: Unix utilities (`cat`, `echo`)
+- **jbr::filewatch**: File monitoring
+- **pa**: PortAudio bindings
+- **vosk**: Vosk speech recognition bindings
+- **audio**: Audio processing utilities
+- **uinput**: Keyboard simulation
 
 #### System Requirements
-- Python 3.8+ with virtual environment
+- Tcl/Tk 8.6+
 - PulseAudio or ALSA audio system
 - uinput kernel module for keyboard simulation
-- Tkinter for GUI (usually included with Python)
+- Vosk model files
 
 ## Development
 
-### Testing Tools
+### Architecture Principles
+- **Minimal Code**: Prefer one-liners over bloated functions
+- **Trace-Based**: Use variable traces for state synchronization
+- **Global State**: Central `::transcribing` variable for simplicity
+- **File-Based IPC**: JSON state files for external control
+
+### Testing
 ```bash
-python3 test_speech_engines.py     # Test available engines
-python3 test_modular.py             # Test modular components
+cd tcl
+./talkie.tcl                     # Launch application
 ```
 
-### Debugging
-```bash
-./talkie.sh --verbose               # Enable debug logging
-python3 talkie.py -v                # Direct Python with verbose
-```
-
-### Adding New Engines
-1. Implement `SpeechEngine` abstract class
-2. Create adapter in `speech/` directory  
-3. Register with `SpeechEngineFactory`
-4. Add engine type to `SpeechEngineType` enum
-5. Update CLI arguments and detection logic
+### Adding Features
+1. **State Changes**: Modify `::transcribing` trace handlers
+2. **GUI Updates**: Add to existing trace callbacks
+3. **Configuration**: Add to `config` array with auto-save trace
+4. **External Control**: Leverage existing file watcher system
 
 ## Performance
 
 ### Audio Processing
-- **Sample Rate**: 16kHz
-- **Block Duration**: 0.1 seconds (configurable)
-- **Queue Size**: 5 blocks
+- **Sample Rate**: 44.1kHz (configurable)
+- **Buffer Size**: 4410 frames (~0.1s at 44.1kHz)
 - **Latency**: Sub-second response times
-- **Lookback Buffer**: 5 frames for pre-speech audio
+- **Lookback**: Configurable pre-speech audio buffering
 
-### Speech Recognition
-- **Vosk**: Real-time CPU processing, high accuracy
-- **Sherpa-ONNX**: Optimized CPU implementation with INT8
-- **Memory Usage**: Optimized for continuous operation
-
-### GUI Performance  
-- **Update Rate**: 100ms UI refresh
-- **Energy Display**: Real-time audio level visualization
-- **Bubble Mode**: Minimal resource overhead
+### Real-time Features
+- **Energy Display**: Live audio level visualization
+- **Confidence Display**: Real-time recognition quality
+- **Partial Results**: Streaming transcription preview
+- **State Sync**: 500ms file watcher updates
 
 ## Hardware Support
 
@@ -274,52 +236,13 @@ python3 talkie.py -v                # Direct Python with verbose
 
 ### Audio Devices
 - Automatic device detection and selection
-- Configurable device selection by name substring
-- Support for multiple sample rates with automatic conversion
+- Configurable device selection via GUI
+- PulseAudio and ALSA support
 
-## State Management
+## Legacy Python Version (Deprecated)
 
-### Transcription State
-- File-based state persistence in `~/.talkie`
-- JSONFileMonitor watches for external state changes
-- Immediate UI updates on state transitions
-- Shell command integration for external control
+The Python version in the python/ directory is deprecated in favor of the Tcl
+implementation. The Python code remains for reference but is no longer actively
+developed. The Tcl version provides equivalent functionality with better
+performance and simpler architecture.
 
-### Configuration Persistence
-- Automatic configuration saving on parameter changes
-- Window position persistence across sessions  
-- Device selection memory
-- Engine preference storage
-
-## Integration
-
-### Desktop Integration
-- Global hotkey support (Meta+E toggle)
-- Keyboard input simulation works with all applications
-- Window focus management for text insertion
-- Background operation support
-
-### External Control
-- Shell command interface via `talkie.sh`
-- JSON state file for programmatic control
-- File monitor for real-time state synchronization
-
-## Technical Implementation
-
-### Threading Model
-- Main GUI thread for UI responsiveness
-- Dedicated transcription thread for audio processing
-- Thread-safe communication via queues and callbacks
-
-### Audio Pipeline
-1. **Capture**: sounddevice input stream with configurable blocksize
-2. **Detection**: Voice activity detection with energy thresholds
-3. **Buffering**: Circular buffer for pre-speech audio lookback
-4. **Processing**: Real-time speech recognition with partial results
-5. **Output**: Direct keyboard simulation via uinput
-
-### Error Handling
-- Graceful engine fallback on initialization failure
-- Audio device failure recovery
-- Comprehensive logging with configurable verbosity
-- Clean resource cleanup on application exit

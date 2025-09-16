@@ -24,11 +24,12 @@ else
         stop) echo '{"transcribing": false}' > $HOME/.talkie ;;
         
         *)
+            $HOME/src/talkie/tcl/talkie.tcl
             # Default: run talkie.py with all original arguments
             # Environment setup is now handled in talkie.py based on selected engine
-            cd "$HOME/src/talkie"
-            . bin/activate
-            python src/talkie.py "$@"
+            # cd "$HOME/src/talkie"
+            # . bin/activate
+            # python src/talkie.py "$@"
     esac
 fi
 

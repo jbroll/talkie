@@ -85,7 +85,6 @@ critcl::ccode {
         return 0;
     }
 
-    // Initialize uinput device
     static int uinput_init_device() {
         if (device.initialized) return 0;
 
@@ -214,10 +213,9 @@ critcl::ccode {
     }
 }
 
-# Simple wrapper functions using critcl::cproc
-critcl::cproc uinput::init {} int {
-    return uinput_init_device();
-}
+critcl::cinit {
+    uinput_init_device();
+} ""
 
 critcl::cproc uinput::type {char* text} void {
     uinput_type_string(text);

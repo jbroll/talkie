@@ -15,10 +15,10 @@ namespace eval ::vosk {
                 vosk::set_log_level -1
             }
 
-            set model_path [::config::get model_path]
+            set model_path $::config::config(model_path)
             if {[file exists $model_path]} {
                 set model [vosk::load_model -path $model_path]
-                set recognizer [$model create_recognizer -rate [::config::get sample_rate]]
+                set recognizer [$model create_recognizer -rate $::config::config(sample_rate)]
                 return true
             } else {
                 puts "Vosk model not found at $model_path"

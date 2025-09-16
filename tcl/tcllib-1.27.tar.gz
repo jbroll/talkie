@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<base href="https://core.tcl-lang.org/tcllib/artifact">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; script-src 'self' 'nonce-3724cc7f10ad118e184ac64ab54bbff8e6bd0e742baafe6f'; style-src 'self' 'unsafe-inline'; img-src * data:">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tcl Library Source Code: Bad Request</title>
+<link rel="alternate" type="application/rss+xml" title="RSS Feed"  href="/tcllib/timeline.rss">
+<link rel="stylesheet" href="/tcllib/style.css?id=a8a03aae" type="text/css">
+</head>
+<body class="artifact rpage-artifact cpage-artifact">
+<div class="header">
+  <div class="title"><h1>Tcl Library Source Code</h1>Bad Request</div>
+    <div class="status"><a href='/tcllib/login'>Login</a>
+</div>
+</div>
+<div class="mainmenu">
+<a href='//core.tcl.tk'>Core <img src='//core.tcl.tk/images/ext.png'></a><a href='/tcllib/doc/trunk/embedded/index.md'>Home</a>
+<a href='/tcllib/timeline?y=e&v=0'>Blog</a>
+<a href='/tcllib/doc/trunk/embedded/md/toc.md'>Docs</a>
+<a href='/tcllib/wiki?name=Downloads'>Downloads</a>
+<a href='/tcllib/ticket'>Tickets</a>
+<a href='/tcllib/timeline'>Timeline</a>
+<a href='/tcllib/brlist'>Branches</a>
+<a href='/tcllib/taglist'>Tags</a>
+<a href='/tcllib/wiki'>Wiki</a>
+</div>
+<div class="content"><span id="debugMsg"></span>
+<p>Something did not work right.</p>
+<p>cannot resolve name: 1.27/tcllib-1.27.tar.gz</p>
+</div>
+<div class="footer">
+This page was generated in about
+0.009s by
+Fossil 2.27 [fb8697872b] 2025-09-10 14:29:32
+</div>
+<script nonce="3724cc7f10ad118e184ac64ab54bbff8e6bd0e742baafe6f">/* style.c:903 */
+function debugMsg(msg){
+var n = document.getElementById("debugMsg");
+if(n){n.textContent=msg;}
+}
+</script>
+</body>
+</html>
