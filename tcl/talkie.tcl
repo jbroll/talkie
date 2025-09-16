@@ -35,6 +35,26 @@ proc handle_transcribing_change {args} {
 # Set up trace
 trace add variable ::transcribing write handle_transcribing_change
 
+# Check uinput device access
+proc check_uinput_access {} {
+    if {![file exists /dev/uinput]} {
+        puts "ERROR: /dev/uinput device not found"
+        puts "       Run: sudo modprobe uinput"
+        return false
+    }
+
+    if {![file writable /dev/uinput]} {
+        set groups [exec groups]
+        puts "ERROR: Cannot write to /dev/uinput"
+        puts "       Current groups: $groups"
+        puts "       Run: sudo usermod -a -G input $::env(USER)"
+        puts "       Then logout and login again"
+        return false
+    }
+
+    return true
+}
+
 # Source all modules
 source [file join $script_dir config.tcl]
 source [file join $script_dir device.tcl]
@@ -85,9 +105,24 @@ proc parse_and_display_result {result} {
 }
 
 
+# Check uinput access after GUI is ready
+proc check_and_display_uinput_status {} {
+    if {![check_uinput_access]} {
+        set error_msg "⚠️ KEYBOARD SIMULATION DISABLED\n\n"
+        append error_msg "uinput device access failed. To fix:\n\n"
+        append error_msg "1. Load uinput module:\n"
+        append error_msg "   sudo modprobe uinput\n\n"
+        append error_msg "2. Add user to input group:\n"
+        append error_msg "   sudo usermod -a -G input $::env(USER)\n\n"
+        append error_msg "3. Logout and login again\n\n"
+        append error_msg "Current groups: [exec groups]\n"
+
+        after idle [list ::display::display_final_text $error_msg 0]
+    }
+}
+
 ::config::load
 ::config::setup_trace
-puts ::config::setup_file_watcher
 ::config::setup_file_watcher
 ::gui::initialize
 ::device::refresh_devices
