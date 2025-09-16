@@ -1,11 +1,13 @@
 # config.tcl - Configuration management for Talkie
+
 package require json
 
 namespace eval ::config {
-    variable defaults
-    variable current
+    # Configuration array - directly usable with Tk -variable
+    variable config
 
-    array set defaults {
+    # Default configuration
+    array set config {
         sample_rate 44100
         frames_per_buffer 4410
         energy_threshold 5.0
@@ -15,118 +17,71 @@ namespace eval ::config {
         device "pulse"
         model_path "/home/john/Downloads/vosk-model-en-us-0.22-lgraph"
         silence_trailing_duration 0.5
-        lookback_duration 1.0
-        lookback_frames 10
+        lookback_seconds 1.0
         vosk_max_alternatives 0
         vosk_beam 20
         vosk_lattice_beam 8
     }
 
-    # Initialize current config with defaults
-    array set current [array get defaults]
+    proc config_file {} {
+        expr {[info exists ::env(XDG_CONFIG_HOME)] && $::env(XDG_CONFIG_HOME) ne ""
+            ? [file join $::env(XDG_CONFIG_HOME) talkie.conf]
+            : [file join $::env(HOME) .talkie.conf]}
+    }
 
-    # Initialize lookback_frames based on lookback_duration
-    set current(lookback_frames) [expr {int($current(lookback_duration) * 10 + 0.5)}]
-
-    proc get_config_file_path {} {
-        if {[info exists ::env(XDG_CONFIG_HOME)] && $::env(XDG_CONFIG_HOME) ne ""} {
-            set config_dir $::env(XDG_CONFIG_HOME)
-            file mkdir $config_dir
-            return [file join $config_dir talkie.conf]
-        } else {
-            return [file join $::env(HOME) .talkie.conf]
+    proc save {args} {
+        variable config
+        if {[catch {
+            echo [json::dict2json [array get config]] > [config_file]
+        } err]} {
+            puts "CONFIG: Error saving: $err"
         }
     }
 
     proc load {} {
-        variable current
+        variable config
 
-        set config_file [get_config_file_path]
-
-        if {[file exists $config_file]} {
-            if {[catch {
-                set fp [open $config_file r]
-                set json_data [read $fp]
-                close $fp
-
-                # Parse JSON and update config array
-                set config_dict [json::json2dict $json_data]
-                dict for {key value} $config_dict {
-                    set current($key) $value
-                }
-            } err]} {
-                puts "CONFIG: Error loading config: $err"
-            }
-        } else {
-            # Create default config file
+        set file [config_file]
+        if {![file exists $file]} {
             save
+            return
         }
-
-        # Recalculate lookback_frames based on loaded lookback_duration
-        set current(lookback_frames) [expr {int($current(lookback_duration) * 10 + 0.5)}]
-    }
-
-    proc save {} {
-        variable current
-
-        set config_file [get_config_file_path]
 
         if {[catch {
-            set json_data "{\n"
-            set first true
-            foreach key [lsort [array names current]] {
-                if {!$first} {
-                    append json_data ",\n"
-                }
-                set first false
-
-                # Format value based on type
-                set value $current($key)
-                if {[string is double -strict $value]} {
-                    append json_data "  \"$key\": $value"
-                } elseif {[string is integer -strict $value]} {
-                    append json_data "  \"$key\": $value"
-                } elseif {[string is boolean -strict $value]} {
-                    append json_data "  \"$key\": [expr {$value ? "true" : "false"}]"
-                } else {
-                    # String value - escape quotes
-                    set escaped_value [string map {\" \\\"} $value]
-                    append json_data "  \"$key\": \"$escaped_value\""
-                }
-            }
-            append json_data "\n}"
-
-            set fp [open $config_file w]
-            puts $fp $json_data
-            close $fp
-
+            array set config [json::json2dict [cat $file]]
         } err]} {
-            puts "CONFIG: Error saving config: $err"
+            puts "CONFIG: Error loading: $err"
         }
     }
 
+    # Simple accessors
     proc get {key} {
-        variable current
-        return $current($key)
+        variable config
+        return $config($key)
     }
 
-    proc set_value {key value} {
-        variable current
-        set current($key) $value
+    # Setup auto-save trace after array initialization
+    proc setup_trace {} {
+        variable config
+        # Add trace to each config element for auto-save
+        foreach key [array names config] {
+            trace add variable config($key) write ::config::save
+        }
     }
 
-    proc update_param {key value} {
-        variable current
-        set current($key) $value
-        save
+    proc state_file {} {
+        return [file join $::env(HOME) .talkie]
     }
 
-    proc get_all {} {
-        variable current
-        return [array get current]
+    proc load_state {} {
+        expr {[file exists [state_file]] ? [dict get [json::json2dict [cat [state_file]]] transcribing] : false}
     }
-}
 
-proc update_config_param {key value} {
-    ::config::update_param $key $value
+    proc save_state {transcribing} {
+        echo [json::dict2json [dict create transcribing $transcribing]] > [state_file]
+    }
+
+    proc setup_file_watcher {} {
+        filewatch [state_file] {set ::transcribing [::config::load_state]} 500
+    }
 }
