@@ -268,7 +268,7 @@ static int find_device_by_name(const char *name) {
     return -1;
 }
 
-/* Tcl command: pa::init (optional) */
+/* Tcl command: pa::init */
 static int PaInitCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     (void)cd; (void)objv; (void)objc;
     PaError err = Pa_Initialize();
@@ -505,31 +505,15 @@ static int PaOpenStreamCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj 
     return TCL_OK;
 }
 
-/* package initialization: create commands */
-int Pa_InitPackage(Tcl_Interp *interp) {
-    /* Ensure PortAudio initialized */
+} ;# end of ccode
+
+critcl::cinit {
     Pa_Initialize();
     Tcl_CreateObjCommand(interp, "pa::init", PaInitCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "pa::list_devices", PaListDevicesCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "pa::open_stream", PaOpenStreamCmd, NULL, NULL);
-    return TCL_OK;
-}
-} ;# end of ccode
-
-# Wire up initialization
-critcl::cproc Pa_Init {Tcl_Interp* interp} int {
-    return Pa_InitPackage(interp);
-}
-# Export package commands
-critcl::cproc pa::init {} int {
-    PaError err = Pa_Initialize();
-    if (err != paNoError) {
-        return TCL_ERROR;
-    }
-    return TCL_OK;
-}
+} ""
 
 # Provide the package
 package provide pa 1.0
 
-# Package commands are initialized by Pa_InitPackage in the C code

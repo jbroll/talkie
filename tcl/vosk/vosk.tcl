@@ -379,31 +379,19 @@ static int VoskLoadModelCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj
     return TCL_OK;
 }
 
-/* Package initialization: create commands */
-int Vosk_InitPackage(Tcl_Interp *interp) {
-    /* Initialize Vosk library safely - minimal initialization */
-    vosk_set_log_level(-1);
-
-    /* Create package commands */
-    Tcl_CreateObjCommand(interp, "vosk::load_model", VoskLoadModelCmd, NULL, NULL);
-
-    return TCL_OK;
-}
-
 } ;# end of ccode
 
-# Wire up initialization
-critcl::cproc Vosk_Init {Tcl_Interp* interp} int {
-    return Vosk_InitPackage(interp);
-}
-
-# Export package commands
 critcl::cproc vosk::set_log_level {int level} int {
     vosk_set_log_level(level);
     return TCL_OK;
 }
 
-# Provide the package
-package provide vosk 1.0
+critcl::cinit {
+    /* Initialize Vosk library safely - minimal initialization */
+    vosk_set_log_level(-1);
 
-# Package commands are initialized by Vosk_InitPackage in the C code
+    /* Create package commands */
+    Tcl_CreateObjCommand(interp, "vosk::load_model", VoskLoadModelCmd, NULL, NULL);
+} ""
+
+package provide vosk 1.0

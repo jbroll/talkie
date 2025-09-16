@@ -64,7 +64,7 @@ test: all
 
 # Run the application
 run: all
-	./talkie_main.tcl
+	./talkie.tcl
 
 # Clean build artifacts
 clean:

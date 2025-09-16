@@ -3,100 +3,18 @@
 
 package require Tk
 package require json
+package require Ttk
 
-# Try to load ttk, but don't fail if not available
-if {[catch {package require ttk}]} {
-    # Create a simple combobox replacement if ttk is not available
-    namespace eval ttk {}
-    proc ttk::combobox {path args} {
-        # Parse args to extract non-entry options
-        set entry_args {}
-        set values {}
-
-        foreach {opt val} $args {
-            if {$opt eq "-values"} {
-                set values $val
-            } else {
-                lappend entry_args $opt $val
-            }
-        }
-
-        # Create entry widget
-        eval [list entry $path] $entry_args
-
-        # Store values as a property
-        if {$values ne ""} {
-            $path configure -validate none
-        }
-
-        # Add config method to handle -values
-        rename $path ${path}_orig
-        proc $path {args} [subst -nocommands {
-            if {[llength \$args] >= 2 && [lindex \$args 0] eq "config" && [lindex \$args 1] eq "-values"} {
-                # Handle config -values
-                return
-            }
-            eval [list ${path}_orig] \$args
-        }]
-
-        return $path
-    }
-}
-
-# Setup paths for existing packages
 set script_dir [file dirname [file normalize [info script]]]
 lappend auto_path [file join $script_dir pa lib pa]
 lappend auto_path [file join $script_dir vosk lib vosk]
 lappend auto_path [file join $script_dir audio lib audio]
 set ::env(TCLLIBPATH) "$::env(HOME)/.local/lib"
 
-# Test mode detection
-set test_mode false
-if {[lsearch $argv "-test"] >= 0} {
-    set test_mode true
-    puts "=== TALKIE TEST MODE ENABLED ==="
-    puts "This will show detailed pipeline instrumentation"
-}
+package require pa
+package require vosk
+package require audio
 
-# Load packages
-puts "Talkie Tcl Edition"
-puts "=================="
-puts "\nInitializing components..."
-
-if {[catch {
-    package require pa
-    pa::init
-    Pa_Init
-    puts "✓ PortAudio loaded and initialized"
-} err]} {
-    puts "✗ PortAudio error: $err"
-    exit 1
-}
-
-if {[catch {
-    package require vosk
-    if {[info commands Vosk_Init] ne ""} {
-        Vosk_Init
-    }
-    # Check what commands are available and set log level
-    if {[info commands vosk::set_log_level] ne ""} {
-        vosk::set_log_level -1
-    }
-    puts "✓ Vosk loaded and initialized"
-} err]} {
-    puts "✗ Vosk error: $err"
-    exit 1
-}
-
-if {[catch {
-    package require audio
-    puts "✓ Audio processing loaded"
-} err]} {
-    puts "✗ Audio processing error: $err"
-    exit 1
-}
-
-# Configuration
 array set config {
     sample_rate 44100
     frames_per_buffer 4410
@@ -117,7 +35,6 @@ array set config {
 # Initialize lookback_frames based on lookback_duration
 set config(lookback_frames) [expr {int($config(lookback_duration) * 10 + 0.5)}]
 
-# Config file path - XDG-compliant like Python version
 proc get_config_file_path {} {
     if {[info exists ::env(XDG_CONFIG_HOME)] && $::env(XDG_CONFIG_HOME) ne ""} {
         set config_dir $::env(XDG_CONFIG_HOME)
@@ -128,9 +45,8 @@ proc get_config_file_path {} {
     }
 }
 
-# Load configuration from JSON file
 proc load_config {} {
-    global config test_mode
+    global config 
 
     set config_file [get_config_file_path]
 
@@ -145,21 +61,12 @@ proc load_config {} {
             dict for {key value} $config_dict {
                 set config($key) $value
             }
-
-            if {$test_mode} {
-                puts "CONFIG: Loaded from $config_file"
-            }
         } err]} {
-            if {$test_mode} {
-                puts "CONFIG: Error loading config: $err"
-            }
+            puts "CONFIG: Error loading config: $err"
         }
     } else {
         # Create default config file
         save_config
-        if {$test_mode} {
-            puts "CONFIG: Created default config at $config_file"
-        }
     }
 
     # Recalculate lookback_frames based on loaded lookback_duration
@@ -167,7 +74,7 @@ proc load_config {} {
 }
 
 proc save_config {} {
-    global config test_mode
+    global config
 
     set config_file [get_config_file_path]
 
@@ -200,13 +107,8 @@ proc save_config {} {
         puts $fp $json_data
         close $fp
 
-        if {$test_mode} {
-            puts "CONFIG: Saved to $config_file"
-        }
     } err]} {
-        if {$test_mode} {
-            puts "CONFIG: Error saving config: $err"
-        }
+        puts "CONFIG: Error saving config: $err"
     }
 }
 
@@ -301,7 +203,7 @@ proc add_to_buffer {data} {
 }
 
 proc process_buffered_audio {force_final} {
-    global audio_buffer_list vosk_recognizer test_mode
+    global audio_buffer_list vosk_recognizer
 
     if {$vosk_recognizer eq ""} {
         return
@@ -314,9 +216,7 @@ proc process_buffered_audio {force_final} {
                 parse_and_display_result $result
             }
         } err]} {
-            if {$test_mode} {
-                puts "VOSK-CHUNK-ERROR: $err"
-            }
+            puts "VOSK-CHUNK-ERROR: $err"
         }
     }
 
@@ -327,9 +227,7 @@ proc process_buffered_audio {force_final} {
                 parse_and_display_result $final_result
             }
         } err]} {
-            if {$test_mode} {
-                puts "VOSK-FINAL-ERROR: $err"
-            }
+            puts "VOSK-FINAL-ERROR: $err"
         }
     }
 
@@ -348,37 +246,13 @@ proc json-get {container args} {
     return $current
 }
 
-proc json-exists {container args} {
-    set current $container
-    foreach step $args {
-        if {[string is integer -strict $step]} {
-            # List index
-            if {$step < 0 || $step >= [llength $current]} {
-                return 0
-            }
-            set current [lindex $current $step]
-        } else {
-            # Dict key
-            if {![dict exists $current $step]} {
-                return 0
-            }
-            set current [dict get $current $step]
-        }
-    }
-    return 1
-}
-
 proc parse_and_display_result {result} {
-    global current_confidence config test_mode transcribing
+    global current_confidence config
 
-    if {!$transcribing} {
-        return
-    }
-
-    if {[catch {
+    try {
         set result_dict [json::json2dict $result]
 
-        if {[dict exists $result_dict partial] && [dict get $result_dict partial] ne ""} {
+        if {[dict exists $result_dict partial]} {
             set text [dict get $result_dict partial]
             after idle [list update_partial_text $text]
 
@@ -391,20 +265,18 @@ proc parse_and_display_result {result} {
         if {$text ne ""} {
             if {$config(confidence_threshold) == 0 || $conf >= $config(confidence_threshold)} {
                 after idle [list display_final_text $text $conf]
-            } elseif {$test_mode} {
+            } else {
                 puts "VOSK-FILTERED: text='$text' confidence=$conf below threshold $config(confidence_threshold)"
             }
             set current_confidence $conf
         }
-    } parse_err]} {
-        if {$test_mode} {
-            puts "VOSK-PARSE-ERROR: $parse_err"
-        }
+    } on error message {
+        puts "VOSK-PARSE-ERROR: $message "
     }
 }
 
 proc audio_callback {stream_name timestamp data} {
-    global vosk_recognizer current_energy current_confidence config test_mode callback_count transcribing
+    global vosk_recognizer current_energy current_confidence config callback_count transcribing
     global last_speech_time audio_buffer_list
 
     incr callback_count
@@ -535,7 +407,7 @@ proc setup_controls_content {} {
     pack $energy_control_frame -side right -fill x -expand true
 
     set ui(energy_scale) [scale $energy_control_frame.scale \
-        -from 10 -to 100 -resolution 5 -orient horizontal \
+        -from 0 -to 100 -resolution 5 -orient horizontal \
         -command energy_changed]
     pack $ui(energy_scale) -fill x -expand true
     $ui(energy_scale) set $config(energy_threshold)
@@ -726,19 +598,7 @@ proc toggle_transcription {} {
 
 # Update displays
 proc update_energy_display {} {
-    global current_energy current_confidence ui test_mode last_update_time
-
-    # TEST MODE: Track UI update timing
-    if {$test_mode} {
-        set current_time [clock milliseconds]
-        if {$last_update_time > 0} {
-            set time_diff [expr {$current_time - $last_update_time}]
-            if {$time_diff > 500} {
-                puts "UI-UPDATE: Energy display update after ${time_diff}ms, energy=$current_energy, confidence=$current_confidence"
-            }
-        }
-        set last_update_time $current_time
-    }
+    global current_energy current_confidence ui last_update_time
 
     # Update energy display
     $ui(energy_label) config -text [format "Audio: %.1f" $current_energy]
@@ -775,7 +635,7 @@ proc start_ui_updates {} {
 
 # Audio stream management - always running for energy monitoring
 proc start_audio_stream {} {
-    global config audio_stream test_mode
+    global config audio_stream
 
     if {[catch {
         set audio_stream [pa::open_stream \
@@ -788,9 +648,6 @@ proc start_audio_stream {} {
 
         $audio_stream start
 
-        if {$test_mode} {
-            puts "AUDIO-STREAM: Started audio capture for energy monitoring"
-        }
     } stream_err]} {
         puts "Audio stream error: $stream_err"
         set audio_stream ""
@@ -800,18 +657,7 @@ proc start_audio_stream {} {
 
 # Display functions
 proc display_final_text {text confidence} {
-    global ui test_mode
-
-    if {$test_mode} {
-        puts "DISPLAY-TEXT: Called with text='$text', confidence=$confidence"
-    }
-
-    if {![info exists ui(final_text)]} {
-        if {$test_mode} {
-            puts "DISPLAY-TEXT: ui(final_text) does not exist!"
-        }
-        return
-    }
+    global ui
 
     set timestamp [clock format [clock seconds] -format "%H:%M:%S"]
 
@@ -934,7 +780,7 @@ proc refresh_devices {} {
 
 # Transcription functions
 proc start_transcription {} {
-    global config vosk_model vosk_recognizer test_mode transcribing
+    global config vosk_model vosk_recognizer transcribing
 
     set ::audio_buffer_list {}
     set ::last_speech_time 0
@@ -948,10 +794,6 @@ proc start_transcription {} {
         if {[file exists $config(model_path)]} {
             set vosk_model [vosk::load_model -path $config(model_path)]
             set vosk_recognizer [$vosk_model create_recognizer -rate $config(sample_rate)]
-
-            if {$test_mode} {
-                puts "VOSK-INIT: Model loaded from $config(model_path), recognizer created"
-            }
         } else {
             error "Vosk model not found at $config(model_path)"
         }
@@ -960,12 +802,7 @@ proc start_transcription {} {
         return
     }
 
-    # Enable transcription - audio stream is already running
     set transcribing true
-
-    if {$test_mode} {
-        puts "TRANSCRIPTION-START: Vosk ready, transcribing enabled, audio callbacks will process with Vosk"
-    }
 }
 
 proc stop_transcription {} {
@@ -998,21 +835,12 @@ load_config
 setup_switchable_panes
 refresh_devices
 start_ui_updates
-# Initialize transcription state
 set transcribing false
 
 # Start audio stream immediately for energy monitoring
 start_audio_stream
 
-if {$test_mode} {
-    puts "TEST-MODE: Application initialized with instrumentation enabled"
-    puts "Auto-starting transcription in test mode..."
-    # Auto-start transcription in test mode
-    after 1000 toggle_transcription
-    puts "Background energy monitoring active"
-}
-
-puts "✓ Talkie Tcl Edition ready - Python-like interface"
+puts "✓ Talkie Tcl Edition"
 
 after idle {
     set current_view ""
