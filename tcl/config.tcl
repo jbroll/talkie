@@ -35,7 +35,6 @@ namespace eval ::config {
             frames_per_buffer     4410
             window_x               100
             window_y               100
-            device               "pulse"
             model_path "/home/john/Downloads/vosk-model-en-us-0.22-lgraph"
             vosk_max_alternatives    0
             vosk_lattice_beam        8
