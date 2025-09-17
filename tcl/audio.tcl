@@ -10,21 +10,22 @@ namespace eval ::audio {
     proc process_buffered_audio {force_final} {
         variable audio_buffer_list
 
-        set vosk_recognizer [::vosk::get_recognizer]
-        if {$vosk_recognizer eq ""} {
-            return
-        }
-
         try {
+            # Process any buffered audio chunks
             foreach chunk $audio_buffer_list {
-                set result [$vosk_recognizer process $chunk]
+                set result [$::vosk_recognizer process $chunk]
                 if {$result ne ""} {
                     parse_and_display_result $result
                 }
             }
 
+            # Always try to get final result when force_final is true,
+            # even if there were no buffered chunks, because the recognizer
+            # might have internal partial state from previous calls
             if {$force_final} {
-                set final_result [$vosk_recognizer final-result]
+                puts "DEBUG: Calling final-result on recognizer"
+                set final_result [$::vosk_recognizer final-result]
+                puts "DEBUG: final-result returned: '$final_result'"
                 if {$final_result ne ""} {
                     parse_and_display_result $final_result
                 }
@@ -63,9 +64,13 @@ namespace eval ::audio {
                 if {$last_speech_time} {
                     set silence_duration $::config::config(silence_trailing_duration)
                     if {$last_speech_time + $silence_duration < $timestamp} {
+                        # Silence timeout reached - force final result and reset
+                        puts "DEBUG: Silence timeout reached, forcing final result"
                         process_buffered_audio true
                         set last_speech_time 0
                     } else {
+                        # During silence period, continue streaming to recognizer
+                        # (speaker might resume, Vosk might detect utterance end)
                         process_buffered_audio false
                     }
                 }
@@ -101,12 +106,11 @@ namespace eval ::audio {
         set audio_buffer_list {}
         set last_speech_time 0
 
-        if {[::vosk::initialize]} {
-            set ::transcribing true
-            return true
-        } else {
-            return false
-        }
+        # Reset recognizer state for clean start (but keep the recognizer object)
+        ::vosk::reset_recognizer
+
+        set ::transcribing true
+        return true
     }
 
     proc stop_transcription {} {
@@ -117,7 +121,7 @@ namespace eval ::audio {
         set last_speech_time 0
         set audio_buffer_list {}
 
-        ::vosk::cleanup
+        # Vosk recognizer is now persistent, don't clean it up
     }
 
     proc toggle_transcription {} {
@@ -132,6 +136,12 @@ namespace eval ::audio {
     }
 
     proc initialize {} {
+        # Initialize Vosk recognizer once at startup
+        if {![::vosk::initialize]} {
+            puts "Failed to initialize Vosk recognizer"
+            return false
+        }
+
         # Load initial transcribing state from file
         set ::transcribing [::config::load_state]
 
@@ -141,5 +151,7 @@ namespace eval ::audio {
         if {$::transcribing} {
             start_transcription
         }
+
+        return true
     }
 }
