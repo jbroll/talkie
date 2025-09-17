@@ -1,11 +1,4 @@
-# config.tcl - Configuration management for Talkie
-
-package require json
-
 namespace eval ::config {
-    # Default configuration - ui-layout.tcl expects global ::config array
-    # so we set up defaults and copy to global scope
-
     proc config_file {} {
         expr {[info exists ::env(XDG_CONFIG_HOME)] && $::env(XDG_CONFIG_HOME) ne ""
             ? [file join $::env(XDG_CONFIG_HOME) talkie.conf]
@@ -13,32 +6,16 @@ namespace eval ::config {
     }
 
     proc save {args} {
-        if {[catch {
-            echo [json::dict2json [array get ::config]] > [config_file]
-        } err]} {
-            puts "CONFIG: Error saving: $err"
-        }
+        echo [json::dict2json [array get ::config]] > [config_file]
     }
 
     proc load {} {
-        # Set defaults matching ui-layout.tcl requirements
-        array set ::config {
-            input_device          "pulse"
-            energy_threshold       20
-            confidence_threshold  175
-            lookback_seconds        1.5
-            silence_seconds         1.5
-            vosk_beam              20
-            vosk_lattice            8
-            vosk_alternatives       1
+        array set ::config [list {*}{
             sample_rate           44100
             frames_per_buffer     4410
             window_x               100
             window_y               100
-            model_path "/home/john/Downloads/vosk-model-en-us-0.22-lgraph"
-            vosk_max_alternatives    0
-            vosk_lattice_beam        8
-        }
+        } {*}[array get ::config]]
 
         set file [config_file]
         if {![file exists $file]} {
@@ -46,37 +23,17 @@ namespace eval ::config {
             return
         }
 
-        if {[catch {
-            array set ::config [json::json2dict [cat $file]]
-        } err]} {
-            puts "CONFIG: Error loading: $err"
-        }
+        array set ::config [json::json2dict [cat $file]]
     }
 
-    # Simple accessors
-    proc get {key} {
-        return $::config($key)
-    }
-
-    # Setup auto-save trace after array initialization
     proc setup_trace {} {
-        # Add trace to each config element for auto-save
-        foreach key [array names ::config] {
-            trace add variable ::config($key) write ::config::save
-        }
-
-        # Special trace for model changes to reinitialize Vosk
+        trace add variable ::config write ::config::save
         trace add variable ::config(vosk_modelfile) write ::config::handle_model_change
     }
 
     proc handle_model_change {args} {
-        # Reinitialize Vosk with new model
-        if {[info commands ::vosk::cleanup] ne ""} {
-            ::vosk::cleanup
-        }
-        if {[info commands ::vosk::initialize] ne ""} {
-            ::vosk::initialize
-        }
+        ::vosk::cleanup
+        ::vosk::initialize
     }
 
     proc state_file {} {
@@ -86,15 +43,7 @@ namespace eval ::config {
     proc load_state {} {
         if {[file exists [state_file]]} {
             set state_dict [json::json2dict [cat [state_file]]]
-            set transcribing [dict get $state_dict transcribing]
-            # Convert boolean to integer if needed
-            if {$transcribing eq "true"} {
-                return 1
-            } elseif {$transcribing eq "false"} {
-                return 0
-            } else {
-                return $transcribing
-            }
+            set transcribing [expr { !![dict get $state_dict transcribing]}]
         } else {
             return 0
         }

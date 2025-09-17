@@ -47,11 +47,19 @@ proc quit {} {
 
 source [file join $script_dir config.tcl]
 source [file join $script_dir device.tcl]
-source [file join $script_dir model.tcl]
 source [file join $script_dir vosk.tcl]
 source [file join $script_dir display.tcl]
 source [file join $script_dir audio.tcl]
 source [file join $script_dir ui-layout.tcl]
+
+proc refresh_models {} {
+    set models_dir [file join [file dirname $::script_dir] models vosk]
+    set ::model_files [lsort [lmap item [glob -nocomplain -directory $models_dir -type d *] {file tail $item}]]
+}
+
+proc get_model_path {modelfile} {
+    return [file join [file dirname $::script_dir] models vosk $modelfile]
+}
 
 proc json-get {container args} {
     set current $container
@@ -136,8 +144,9 @@ trace add variable ::transcribing write handle_transcribing_change
 ::config::setup_trace
 ::config::setup_file_watcher
 ::device::refresh_devices
-::model::refresh_models
 ::audio::initialize
+
+refresh_models
 
 puts "✓ Talkie Tcl Edition"
 

@@ -37,7 +37,7 @@ set confidence   0
 #
 array set ::config {
     input_device          pulse
-    energy_threshold       20
+    audio_threshold        20
     confidence_threshold  175
     lookback_seconds        1.5
     silence_seconds         1.5
@@ -89,8 +89,8 @@ proc config {} {
         -scale.orient horizontal
         -scale.width 20
 
-        @ "Input Device" x                               ? config(input_device) -listvariable input_devices          &
-        @ "Audio Level"  @ :config(energy_threshold)     -width 10 <--> config(energy_threshold)     -from 0 -to 200 &
+        @ "Input Device" x                                ? config(input_device) -listvariable input_devices         &
+        @ "Audio Level"  @ :config(audio_threshold)      -width 10 <--> config(audio_threshold)      -from 0 -to 200 &
         @ "Confidence"   @ :config(confidence_threshold) -width 10 <--> config(confidence_threshold) -from 0 -to 200 &
         @ "Lookback"     @ :config(lookback_seconds)     -width 10 <--> config(lookback_seconds)     -from 0 -to   3 &
         @ "Silence"      @ :config(silence_seconds)      -width 10 <--> config(silence_seconds)      -from 0 -to   3 &
@@ -119,4 +119,3 @@ after idle {
         }
     }
 }
-
