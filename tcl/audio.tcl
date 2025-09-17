@@ -112,6 +112,7 @@ namespace eval ::audio {
         ::vosk::reset_recognizer
 
         set ::transcribing 1
+        ::config::save_state $::transcribing
         return true
     }
 
@@ -120,6 +121,7 @@ namespace eval ::audio {
         variable audio_buffer_list
 
         set ::transcribing 0
+        ::config::save_state $::transcribing
         set last_speech_time 0
         set audio_buffer_list {}
 

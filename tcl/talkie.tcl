@@ -40,9 +40,6 @@ proc handle_transcribing_change {args} {
     }
 }
 
-# Set up trace
-trace add variable ::transcribing write handle_transcribing_change
-
 proc quit {} {
     try { pa::terminate } on error message {}
     exit
@@ -133,6 +130,8 @@ proc check_and_display_uinput_status {} {
 }
 
 ::config::load
+set ::transcribing [::config::load_state]
+trace add variable ::transcribing write handle_transcribing_change
 ::config::setup_trace
 ::config::setup_file_watcher
 ::device::refresh_devices
