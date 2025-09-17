@@ -3,7 +3,6 @@ package require Tk
 package require Ttk
 
 namespace eval ::gui {
-    variable current_view "text"
     variable max_lines 15
     variable current_lines 0
 
@@ -28,17 +27,6 @@ namespace eval ::gui {
             -activebackground "indianred"
         pack .toggle -in $button_frame -side left -pady 0
 
-        # View switching buttons (left-center)
-        button .controls \
-            -text "Controls" \
-            -command ::gui::show_controls_view
-        pack .controls -in $button_frame -side left -padx 5 -pady 0
-
-        button .text \
-            -text "Text" \
-            -command ::gui::show_text_view \
-            -relief sunken
-        pack .text -in $button_frame -side left -pady 0
 
         # Audio energy display (center-left) - styled like Python
         label .energy \
@@ -56,67 +44,106 @@ namespace eval ::gui {
             -font [list Arial 10]
         pack .confidence -in $button_frame -side left -expand true -padx {5 10} -pady 0
 
-        # Quit button (flush right)
+        # Config and Quit buttons (flush right)
         button .quit \
             -text "Quit" \
             -command ::gui::quit_app
         pack .quit -in $button_frame -side right -pady 0
 
+        button .config \
+            -text "Config" \
+            -command ::gui::show_config_dialog
+        pack .config -in $button_frame -side right -padx {0 5} -pady 0
+
         frame .content
         pack .content -fill both -expand true -padx 10 -pady 5
     }
 
-    proc setup_switchable_panes {} {
-        # Controls pane with scrolling
-        frame .controls_pane
-        setup_controls_pane
+    proc setup_text_pane {} {
+        # Main text frame directly in .content
+        set text_frame [frame .content.textframe]
+        pack $text_frame -pady 10 -fill both -expand true
 
-        # Text pane
-        frame .text_pane
-        setup_text_pane
+        # Final results history (top, large) - rolling buffer without scrollbar
+        text .final -wrap word -width 80 -height 12
+        pack .final -in $text_frame -fill both -expand true -pady {0 5}
 
-        # Note: Text view will be shown after all UI setup is complete
+        # Configure tags for final results
+        .final tag configure "final" -foreground "black"
+        .final tag configure "timestamp" -foreground "gray" -font [list Arial 8]
+
+        # Current partial text (bottom, smaller) - matching Python
+        set partial_frame [frame $text_frame.partial_frame]
+        pack $partial_frame -fill x -pady {5 0}
+
+        text .partial -wrap word -width 80 -height 3
+        pack .partial -in $partial_frame -fill both -expand true
+
+        # Configure tags for partial results
+        .partial tag configure "sent" -foreground "gray"
     }
 
-    proc setup_controls_pane {} {
-        # Create canvas and scrollbar for scrolling
-        canvas .controls_canvas
-        scrollbar .controls_scrollbar \
-            -orient vertical -command ".controls_canvas yview"
+    proc show_config_dialog {} {
+        # Create modal dialog
+        if {[winfo exists .config_dialog]} {
+            destroy .config_dialog
+        }
 
-        # Create scrollable frame inside canvas
-        frame .controls_frame
+        toplevel .config_dialog
+        wm title .config_dialog "Configuration"
+        wm geometry .config_dialog "500x600"
+        wm transient .config_dialog .
+        grab .config_dialog
 
-        # Configure canvas
-        .controls_canvas configure -yscrollcommand ".controls_scrollbar set"
-        .controls_canvas create window 0 0 -window .controls_frame -anchor nw
+        # Center the dialog
+        wm withdraw .config_dialog
+        update idletasks
+        set x [expr {[winfo rootx .] + [winfo width .]/2 - 250}]
+        set y [expr {[winfo rooty .] + [winfo height .]/2 - 300}]
+        wm geometry .config_dialog +$x+$y
+        wm deiconify .config_dialog
 
-        # Pack canvas and scrollbar in controls pane
-        pack .controls_canvas -in .controls_pane -side left -fill both -expand true
-        pack .controls_scrollbar -in .controls_pane -side right -fill y
+        # Create scrollable content
+        canvas .config_dialog.canvas
+        scrollbar .config_dialog.scrollbar \
+            -orient vertical -command ".config_dialog.canvas yview"
+        frame .config_dialog.content
 
-        # Bind mousewheel and configure events
-        bind .controls_frame <Configure> {
-            .controls_canvas configure -scrollregion [.controls_canvas bbox all]
+        .config_dialog.canvas configure -yscrollcommand ".config_dialog.scrollbar set"
+        .config_dialog.canvas create window 0 0 -window .config_dialog.content -anchor nw
+
+        pack .config_dialog.canvas -side left -fill both -expand true
+        pack .config_dialog.scrollbar -side right -fill y
+
+        # Setup controls content
+        setup_modal_controls_content .config_dialog.content
+
+        # Configure scrolling
+        bind .config_dialog.content <Configure> {
+            .config_dialog.canvas configure -scrollregion [.config_dialog.canvas bbox all]
         }
 
         # Mouse wheel bindings
-        bind .controls_canvas <MouseWheel> {
-            .controls_canvas yview scroll [expr {-1 * (%D / 120)}] units
-        }
-        bind .controls_canvas <Button-4> {
-            .controls_canvas yview scroll -1 units
-        }
-        bind .controls_canvas <Button-5> {
-            .controls_canvas yview scroll 1 units
+        bind .config_dialog.canvas <MouseWheel> {
+            .config_dialog.canvas yview scroll [expr {-1 * (%D / 120)}] units
         }
 
-        # Setup controls within scrollable frame
-        setup_controls_content
+        # Close button
+        frame .config_dialog.buttons
+        pack .config_dialog.buttons -side bottom -fill x -pady 10
+
+        button .config_dialog.buttons.close \
+            -text "Close" \
+            -command "grab release .config_dialog; destroy .config_dialog"
+        pack .config_dialog.buttons.close -pady 5
+
+        # Focus and key bindings
+        focus .config_dialog
+        bind .config_dialog <Escape> "grab release .config_dialog; destroy .config_dialog"
     }
 
-    proc setup_controls_content {} {
-        set controls_container [frame .controls_frame.container]
+    proc setup_modal_controls_content {parent} {
+        set controls_container [frame $parent.container]
         pack $controls_container -pady 10 -padx 20 -fill x
 
         # Device selection row - matching Python exactly
@@ -252,66 +279,7 @@ namespace eval ::gui {
         pack $lookback_control_frame.scale -fill x -expand true
     }
 
-    proc setup_text_pane {} {
-        # Main text frame
-        set text_frame [frame .text_pane.textframe]
-        pack $text_frame -in .text_pane -pady 10 -fill both -expand true
 
-        # Final results history (top, large) - rolling buffer without scrollbar
-        text .final -wrap word -width 80 -height 12
-        pack .final -in $text_frame -fill both -expand true -pady {0 5}
-
-        # Configure tags for final results
-        .final tag configure "final" -foreground "black"
-        .final tag configure "timestamp" -foreground "gray" -font [list Arial 8]
-
-        # Current partial text (bottom, smaller) - matching Python
-        set partial_frame [frame $text_frame.partial_frame]
-        pack $partial_frame -fill x -pady {5 0}
-
-        text .partial -wrap word -width 80 -height 3
-        pack .partial -in $partial_frame -fill both -expand true
-
-        # Configure tags for partial results
-        .partial tag configure "sent" -foreground "gray"
-    }
-
-    # View switching functions - matching Python exactly
-    proc show_controls_view {} {
-        variable current_view
-
-        if {$current_view eq "controls"} return
-
-        # Hide text pane, show controls pane
-        if {[winfo exists .text_pane]} {
-            pack forget .text_pane
-        }
-        pack .controls_pane -in .content -fill both -expand true
-
-        # Update button states
-        .controls config -relief sunken
-        .text config -relief raised
-
-        set current_view "controls"
-    }
-
-    proc show_text_view {} {
-        variable current_view
-
-        if {$current_view eq "text"} return
-
-        # Hide controls pane, show text pane
-        if {[winfo exists .controls_pane]} {
-            pack forget .controls_pane
-        }
-        pack .text_pane -in .content -fill both -expand true
-
-        # Update button states
-        .text config -relief sunken
-        .controls config -relief raised
-
-        set current_view "text"
-    }
 
     # Event handlers
     proc toggle_transcription {} {
@@ -350,7 +318,7 @@ namespace eval ::gui {
     proc initialize {} {
         setup_main_window
         setup_button_frame
-        setup_switchable_panes
+        setup_text_pane
 
         # Set up window close handler
         wm protocol . WM_DELETE_WINDOW ::gui::quit_app
@@ -364,11 +332,5 @@ namespace eval ::gui {
 
         # Add trace to update button when ::transcribing changes
         trace add variable ::transcribing write {::gui::update_transcription_button ;#}
-    }
-
-    proc show_default_view {} {
-        variable current_view
-        set current_view ""
-        show_text_view
     }
 }

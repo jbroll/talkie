@@ -1,6 +1,12 @@
 #!/usr/bin/env tclsh
 # talkie.tcl - Tcl version of Talkie
 
+# Redefine bgerror to show errors on stderr instead of dialog
+proc bgerror {message} {
+    puts stderr "Background error: $message"
+    puts stderr $::errorInfo
+}
+
 lappend auto_path "$::env(HOME)/.local/lib/tcllib2.0"
 
 package require Tk
@@ -131,7 +137,4 @@ proc check_and_display_uinput_status {} {
 
 puts "✓ Talkie Tcl Edition"
 
-after idle {
-    ::gui::show_default_view
-}
 
