@@ -64,9 +64,7 @@ proc parse_and_display_result {result} {
     set result_dict [json::json2dict $result]
 
     if {[dict exists $result_dict partial]} {
-        set text [dict get $result_dict partial]
-
-        partial_text $text
+        | { dict get $result_dict partial | textproc | partial_text } 
         return
     }
 
@@ -76,8 +74,8 @@ proc parse_and_display_result {result} {
     if {$text ne ""} {
         set confidence_threshold $::config(confidence_threshold)
         if {$confidence_threshold == 0 || $conf >= $confidence_threshold} {
-            set processed_text [textproc $text]
-            uinput::type $processed_text
+            set text [textproc $text]
+            uinput::type $text
             after idle [final_text $text $conf]
         } else {
             puts "VOSK-FILTERED: text='$text' confidence=$conf below threshold $confidence_threshold"
@@ -113,6 +111,7 @@ proc partial_text {text} {
     $::partial insert end $text
     $::partial config -state disabled
 }
+
 #
 # Check uinput access after GUI is ready
 #
@@ -149,7 +148,6 @@ proc check_and_display_uinput_status {} {
         after idle [list $::final insert end $error_msg]
     }
 }
-
 
 config_init
 

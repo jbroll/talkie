@@ -1,5 +1,5 @@
 # Talkie punctuation mapping - Tcl list format
-# Comments are stripped automatically
+# Comments are stripped
 
 "period"            "."
 "comma"             ","
