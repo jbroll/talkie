@@ -82,7 +82,7 @@ namespace eval ::audio {
         $::vosk_recognizer reset
 
         set ::transcribing 1
-        ::config::save_state $::transcribing
+        state_save $::transcribing
         return true
     }
 
@@ -91,7 +91,7 @@ namespace eval ::audio {
         variable audio_buffer_list
 
         set ::transcribing 0
-        ::config::save_state $::transcribing
+        state_save $::transcribing
         set last_speech_time 0
         set audio_buffer_list {}
 
@@ -100,7 +100,7 @@ namespace eval ::audio {
 
     proc toggle_transcription {} {
         set ::transcribing [expr {!$::transcribing}]
-        ::config::save_state $::transcribing
+        state_save $::transcribing
         return $::transcribing
     }
 
@@ -110,15 +110,39 @@ namespace eval ::audio {
             return false
         }
 
-        set ::transcribing [::config::load_state]
-
         start_audio_stream
 
-        # Start transcription if state file says we should be transcribing
+        set ::transcribing [state_load]
+
         if {$::transcribing} {
             start_transcription
         }
 
         return true
+    }
+
+    proc refresh_devices {} {
+            set input_device ""
+            set input_devices {}
+            set preferred $::config(input_device)
+
+                print PREFFERED $::config(input_device)
+
+            foreach device [pa::list_devices] {
+                if {[dict exists $device maxInputChannels] && [dict get $device maxInputChannels] > 0} {
+                    set name [dict get $device name]
+                    lappend input_devices $name
+                    if {$name eq $preferred || [string match "*$preferred*" $name]} {
+                        set input_device $name
+                        set found_preferred true
+                    }
+                }
+            }
+
+            if {$input_device eq "" && [llength $input_devices] > 0} {
+                set ::config(input_device) [lindex $input_devices 0]
+            }
+            set ::input_device $input_device
+            set ::input_devices $input_devices
     }
 }

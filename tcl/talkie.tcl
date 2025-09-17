@@ -31,31 +31,15 @@ set ::transcribing 0
 set ::audiolevel 0
 set ::confidence 0
 
-# Trace callback for transcription state changes
-proc handle_transcribing_change {args} {
-    if {$::transcribing} {
-        ::audio::start_transcription
-    } else {
-        ::audio::stop_transcription
-    }
-}
-
 proc quit {} {
     try { pa::terminate } on error message {}
     exit
 }
 
 source [file join $script_dir config.tcl]
-source [file join $script_dir device.tcl]
 source [file join $script_dir vosk.tcl]
-source [file join $script_dir display.tcl]
 source [file join $script_dir audio.tcl]
 source [file join $script_dir ui-layout.tcl]
-
-proc refresh_models {} {
-    set models_dir [file join [file dirname $::script_dir] models vosk]
-    set ::model_files [lsort [lmap item [glob -nocomplain -directory $models_dir -type d *] {file tail $item}]]
-}
 
 proc get_model_path {modelfile} {
     return [file join [file dirname $::script_dir] models vosk $modelfile]
@@ -81,8 +65,7 @@ proc parse_and_display_result {result} {
     if {[dict exists $result_dict partial]} {
         set text [dict get $result_dict partial]
 
-        after idle [list $::partial delete 1.0 end]
-        after idle [list $::partial insert end $text]
+        partial_text $text
         return
     }
 
@@ -93,7 +76,7 @@ proc parse_and_display_result {result} {
         set confidence_threshold $::config(confidence_threshold)
         if {$confidence_threshold == 0 || $conf >= $confidence_threshold} {
             uinput::type $text
-            after idle [list $::final insert end "$text\n"]
+            after idle [final_text $text $conf]
         } else {
             puts "VOSK-FILTERED: text='$text' confidence=$conf below threshold $confidence_threshold"
         }
@@ -102,6 +85,33 @@ proc parse_and_display_result {result} {
 }
 
 
+set ::final_text_count 0
+
+proc final_text {text confidence} {
+    set final_text_lines [$::final cget -height]
+
+    set timestamp [clock format [clock seconds] -format "%H:%M:%S"]
+
+    if {$::final_text_count >= $final_text_lines } {
+        .final delete 1.0 2.0
+    } else {
+        incr ::final_text_count
+    }
+
+    $::final config -state normal
+    $::final insert end "$timestamp " "timestamp"
+    $::final insert end "([format "%.0f" $confidence]): $text\n"
+    $::final see end
+    $::final config -state disabled
+}
+
+proc partial_text {text} {
+    $::partial config -state normal
+    $::partial delete 1.0 end
+    $::partial insert end $text
+    $::partial config -state disabled
+}
+#
 # Check uinput access after GUI is ready
 #
 proc check_uinput_access {} {
@@ -138,15 +148,8 @@ proc check_and_display_uinput_status {} {
     }
 }
 
-::config::load
-set ::transcribing [::config::load_state]
-trace add variable ::transcribing write handle_transcribing_change
-::config::setup_trace
-::config::setup_file_watcher
-::device::refresh_devices
-::audio::initialize
 
-refresh_models
+config_init
 
 puts "✓ Talkie Tcl Edition"
 
