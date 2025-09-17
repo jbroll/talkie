@@ -338,6 +338,15 @@ namespace eval ::gui {
         }
     }
 
+    proc update_window_position {} {
+        # Get current window position
+        set geom [wm geometry .]
+        if {[regexp {^\d+x\d+\+(-?\d+)\+(-?\d+)$} $geom -> x y]} {
+            set ::config::config(window_x) $x
+            set ::config::config(window_y) $y
+        }
+    }
+
     proc initialize {} {
         setup_main_window
         setup_button_frame
@@ -345,6 +354,13 @@ namespace eval ::gui {
 
         # Set up window close handler
         wm protocol . WM_DELETE_WINDOW ::gui::quit_app
+
+        # Track window position changes
+        bind . <Configure> {
+            if {"%W" eq "."} {
+                ::gui::update_window_position
+            }
+        }
 
         # Add trace to update button when ::transcribing changes
         trace add variable ::transcribing write {::gui::update_transcription_button ;#}
