@@ -4,6 +4,7 @@ package require Tk
 package require jbr::layout
 package require jbr::layoutoption
 package require jbr::layoutdialog
+package require jbr::layoutoptmenu
 
 proc bgerror { args } {
     print {*}$args
@@ -17,6 +18,10 @@ proc bgerror { args } {
 # ::final   is the variable containing name of the final result text widget
 #
 # proc quit is expected to clean up and exit the app.
+#
+# The app supplies a list of string names for the available input devices for
+# the user to select from in the global ::input_devices
+
 
 # Transcription state and user feedback.  The App should trace ::transcriptoin to
 # monitor state and set ::audiolevel and ::confidence to provide user feedback.
@@ -28,6 +33,7 @@ set confidence   0
 # The global configuration array with the defaults
 #
 array set ::config {
+    input_device          pulse
     energy_threshold       20
     confidence_threshold  175
     lookback_seconds        1.5
@@ -46,7 +52,7 @@ set TranscribingStateLabel { Idle Transcribing }
 set TranscribingStateColor { pink lightgreen }
 set TranscribingButtonLabel { Start "Stop " }
 
-set AudioRanges { { 0   10        50         75 } 
+set AudioRanges { { 0    15        50         75 } 
                   { pink lightblue lightgreen #40C040 } }
 
 proc toggle { x } {
@@ -56,21 +62,22 @@ grid [row .w -sticky news {
     # Global options
     #
     -sticky news
-    -label.pady 6
+    -label.pady 12
 
     @ Transcribing -text :transcribing@TranscribingStateLabel  -bg :transcribing@TranscribingStateColor -width 15
     ! Start        -text :transcribing@TranscribingButtonLabel -command "toggle ::transcribing"         -width 15
     @ "" -width 5
-    @ Audio: -text :audiolevel!audiolevel -bg :audiolevel&AudioRanges   -width 10
-    @ Conf:  -text :confidence!confidence                               -width 10
+    @ Audio: -text :audiolevel!audiolevel -bg :audiolevel&AudioRanges   -width 13
+    @ Conf:  -text :confidence!confidence                               -width 13
     @ "" -width 5
     ! Config -command config 
-    ! Quit -command quit                      &
-    text ::partial -width 60 -height 10 - - - - - - -   &
-    text ::final   -width 60 -height  2 - - - - - - -  
+    ! Quit -command quit                                &
+    text ::final   -width 60 -height 10 - - - - - - -   &
+    text ::partial -width 60 -height  2 - - - - - - -  
  }] -sticky news
 
 proc config {} {
+    print $::config(input_device)
     layout-dialog-show .dlg "Talkie Configuration" {
         -label.pady 6
         -scale.length 200
@@ -78,13 +85,33 @@ proc config {} {
         -scale.orient horizontal
         -scale.width 20
 
-        @ "Audio Level"  @ :config(energy_threshold)     -width 10 <--> config(energy_threshold)  -from 0 -to 200 &
+        @ "Input Device" x                               ? config(input_device) -listvariable input_devices          &
+        @ "Audio Level"  @ :config(energy_threshold)     -width 10 <--> config(energy_threshold)     -from 0 -to 200 &
         @ "Confidence"   @ :config(confidence_threshold) -width 10 <--> config(confidence_threshold) -from 0 -to 200 &
         @ "Lookback"     @ :config(lookback_seconds)     -width 10 <--> config(lookback_seconds)     -from 0 -to   3 &
         @ "Silence"      @ :config(silence_seconds)      -width 10 <--> config(silence_seconds)      -from 0 -to   3 &
         @ "Vosk Beam"    @ :config(vosk_beam)            -width 10 <--> config(vosk_beam)            -from 0 -to  50 &
         @ "Lattice Beam" @ :config(vosk_lattice)         -width 10 <--> config(vosk_lattice)         -from 0 -to  20 &
         @ "Alternatives" @ :config(vosk_alternatives)    -width 10 <--> config(vosk_alternatives)    -from 1 -to   3 
+    }
+}
+
+# Apply window positioning after UI is created
+#
+after idle {
+    if {[info exists ::config(window_x)] && [info exists ::config(window_y)]} {
+        wm geometry . "+$::config(window_x)+$::config(window_y)"
+    }
+
+    # Set up window position tracking
+    bind . <Configure> {
+        if {"%W" eq "."} {
+            set geom [wm geometry .]
+            if {[regexp {^\d+x\d+\+(-?\d+)\+(-?\d+)$} $geom -> x y]} {
+                set ::config(window_x) $x
+                set ::config(window_y) $y
+            }
+        }
     }
 }
 

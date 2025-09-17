@@ -44,17 +44,20 @@ namespace eval ::audio {
         variable audio_buffer_list
 
         # Convert seconds to frames locally (each buffer is ~0.1 seconds)
-        set lookback_frames [expr {int($::config::config(lookback_seconds) * 10 + 0.5)}]
+        set lookback_frames [expr {int($::config(lookback_seconds) * 10 + 0.5)}]
 
         incr callback_count
 
         set current_energy [audio::energy $data int16]
 
+        # Update global audio level for UI feedback
+        set ::audiolevel $current_energy
+
         if {$::transcribing} {
             lappend audio_buffer_list $data
             set audio_buffer_list [lrange $audio_buffer_list end-$lookback_frames end]
 
-            set energy_threshold $::config::config(energy_threshold)
+            set energy_threshold $::config(energy_threshold)
             set is_speech [expr {$current_energy > $energy_threshold}]
 
             if {$is_speech} {
@@ -62,7 +65,7 @@ namespace eval ::audio {
                 set last_speech_time $timestamp
             } else {
                 if {$last_speech_time} {
-                    set silence_duration $::config::config(silence_trailing_duration)
+                    set silence_duration $::config(silence_seconds)
                     if {$last_speech_time + $silence_duration < $timestamp} {
                         # Silence timeout reached - force final result and reset
                         puts "DEBUG: Silence timeout reached, forcing final result"
@@ -76,7 +79,6 @@ namespace eval ::audio {
                 }
             }
         }
-        after idle ::display::update_energy_display
     }
 
     proc start_audio_stream {} {
@@ -84,10 +86,10 @@ namespace eval ::audio {
 
         if {[catch {
             set audio_stream [pa::open_stream \
-                -device $::config::config(device) \
-                -rate $::config::config(sample_rate) \
+                -device $::config(input_device) \
+                -rate $::config(sample_rate) \
                 -channels 1 \
-                -frames $::config::config(frames_per_buffer) \
+                -frames $::config(frames_per_buffer) \
                 -format int16 \
                 -callback ::audio::audio_callback]
 
@@ -109,7 +111,7 @@ namespace eval ::audio {
         # Reset recognizer state for clean start (but keep the recognizer object)
         ::vosk::reset_recognizer
 
-        set ::transcribing true
+        set ::transcribing 1
         return true
     }
 
@@ -117,7 +119,7 @@ namespace eval ::audio {
         variable last_speech_time
         variable audio_buffer_list
 
-        set ::transcribing false
+        set ::transcribing 0
         set last_speech_time 0
         set audio_buffer_list {}
 
