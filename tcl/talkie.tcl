@@ -47,6 +47,7 @@ proc quit {} {
 
 source [file join $script_dir config.tcl]
 source [file join $script_dir device.tcl]
+source [file join $script_dir model.tcl]
 source [file join $script_dir vosk.tcl]
 source [file join $script_dir display.tcl]
 source [file join $script_dir audio.tcl]
@@ -135,6 +136,7 @@ trace add variable ::transcribing write handle_transcribing_change
 ::config::setup_trace
 ::config::setup_file_watcher
 ::device::refresh_devices
+::model::refresh_models
 ::audio::initialize
 
 puts "✓ Talkie Tcl Edition"

@@ -16,12 +16,13 @@ namespace eval ::vosk {
                 vosk::set_log_level -1
             }
 
-            set model_path $::config(model_path)
-            if {[file exists $model_path]} {
+            set model_path [::model::get_model_path $::config(vosk_modelfile)]
+            if {$model_path ne "" && [file exists $model_path]} {
                 set model [vosk::load_model -path $model_path]
                 set ::vosk_recognizer [$model create_recognizer -rate $::config(sample_rate)]
+                puts "✓ Vosk model loaded: $model_path"
             } else {
-                puts "Vosk model not found at $model_path"
+                puts "Vosk model not found: $::config(vosk_modelfile)"
                 return false
             }
         } vosk_err]} {

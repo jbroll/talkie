@@ -21,11 +21,14 @@ proc bgerror { args } {
 #
 # The app supplies a list of string names for the available input devices for
 # the user to select from in the global ::input_devices
-
-
+#
+# The app supplies a list of string root file names for the available model
+# files for the user to select from in the global ::model_files.  Model files
+# should be found in $script_dir/../models/vosk.
+#
 # Transcription state and user feedback.  The App should trace ::transcriptoin to
 # monitor state and set ::audiolevel and ::confidence to provide user feedback.
-#
+ 
 set transcribing 0
 set audiolevel   0
 set confidence   0
@@ -41,6 +44,7 @@ array set ::config {
     vosk_beam              20
     vosk_lattice            8
     vosk_alternatives       1
+    vosk_modelfile          vosk-model-en-us-0.22-lgraph 
 }
 
 # UI initializaiton and callbacks -----------------------------------
@@ -92,7 +96,8 @@ proc config {} {
         @ "Silence"      @ :config(silence_seconds)      -width 10 <--> config(silence_seconds)      -from 0 -to   3 &
         @ "Vosk Beam"    @ :config(vosk_beam)            -width 10 <--> config(vosk_beam)            -from 0 -to  50 &
         @ "Lattice Beam" @ :config(vosk_lattice)         -width 10 <--> config(vosk_lattice)         -from 0 -to  20 &
-        @ "Alternatives" @ :config(vosk_alternatives)    -width 10 <--> config(vosk_alternatives)    -from 1 -to   3 
+        @ "Alternatives" @ :config(vosk_alternatives)    -width 10 <--> config(vosk_alternatives)    -from 1 -to   3 &
+        @ "Model"        x                               ? config(vosk_modelfile) -listvariable model_files
     }
 }
 

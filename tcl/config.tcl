@@ -64,6 +64,19 @@ namespace eval ::config {
         foreach key [array names ::config] {
             trace add variable ::config($key) write ::config::save
         }
+
+        # Special trace for model changes to reinitialize Vosk
+        trace add variable ::config(vosk_modelfile) write ::config::handle_model_change
+    }
+
+    proc handle_model_change {args} {
+        # Reinitialize Vosk with new model
+        if {[info commands ::vosk::cleanup] ne ""} {
+            ::vosk::cleanup
+        }
+        if {[info commands ::vosk::initialize] ne ""} {
+            ::vosk::initialize
+        }
     }
 
     proc state_file {} {
