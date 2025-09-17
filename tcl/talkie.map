@@ -1,0 +1,14 @@
+# Talkie punctuation mapping - Tcl list format
+# Comments are stripped automatically
+
+"period"            "."
+"comma"             ","
+"question mark"     "?"
+"exclamation mark"  "!"
+"exclamation point" "!"
+"colon"             ":"
+"semicolon"         ";"
+"new line"          "\n"
+"new paragraph"     "\n\n"
+"dash"              "-"
+"hyphen"            "-"

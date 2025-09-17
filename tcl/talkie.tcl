@@ -37,6 +37,7 @@ proc quit {} {
 }
 
 source [file join $script_dir config.tcl]
+source [file join $script_dir textproc.tcl]
 source [file join $script_dir vosk.tcl]
 source [file join $script_dir audio.tcl]
 source [file join $script_dir ui-layout.tcl]
@@ -75,7 +76,8 @@ proc parse_and_display_result {result} {
     if {$text ne ""} {
         set confidence_threshold $::config(confidence_threshold)
         if {$confidence_threshold == 0 || $conf >= $confidence_threshold} {
-            uinput::type $text
+            set processed_text [textproc $text]
+            uinput::type $processed_text
             after idle [final_text $text $conf]
         } else {
             puts "VOSK-FILTERED: text='$text' confidence=$conf below threshold $confidence_threshold"

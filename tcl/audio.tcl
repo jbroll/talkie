@@ -80,6 +80,7 @@ namespace eval ::audio {
         set last_speech_time 0
 
         $::vosk_recognizer reset
+        textproc_reset
 
         set ::transcribing 1
         state_save $::transcribing
@@ -125,8 +126,6 @@ namespace eval ::audio {
             set input_device ""
             set input_devices {}
             set preferred $::config(input_device)
-
-                print PREFFERED $::config(input_device)
 
             foreach device [pa::list_devices] {
                 if {[dict exists $device maxInputChannels] && [dict get $device maxInputChannels] > 0} {
