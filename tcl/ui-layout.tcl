@@ -36,19 +36,20 @@ set confidence   0
 # The global configuration array with the defaults
 #
 array set ::config {
-    input_device          pulse
-    audio_threshold        20
-    confidence_threshold  175
-    lookback_seconds        1.5
-    silence_seconds         1.5
-    vosk_beam              20
-    vosk_lattice            8
-    vosk_alternatives       1
-    vosk_modelfile          vosk-model-en-us-0.22-lgraph
-    energy_low_threshold   0.5
-    energy_med_threshold   0.8
-    confidence_low_boost   50
-    confidence_med_boost   25
+    input_device              pulse
+    confidence_threshold      175
+    lookback_seconds          1.5
+    silence_seconds           1.5
+    vosk_beam                 20
+    vosk_lattice              8
+    vosk_alternatives         1
+    vosk_modelfile            vosk-model-en-us-0.22-lgraph
+    noise_floor_percentile    10
+    speech_floor_percentile   70
+    audio_threshold_multiplier 2.5
+    speech_min_multiplier     0.8
+    speech_max_multiplier     1.5
+    max_confidence_penalty    100
 }
 
 # UI initializaiton and callbacks -----------------------------------
@@ -102,10 +103,12 @@ proc config {} {
         @ "Alternatives" @ :config(vosk_alternatives)    -width 10 <--> config(vosk_alternatives)    -from 1 -to   3 &
         @ "Model"        x                               ? config(vosk_modelfile) -listvariable model_files              &
         @ ""             -                                                                                               &
-        @ "Energy Low Threshold"  @ :config(energy_low_threshold) -width 10 <--> config(energy_low_threshold) -from 0.1 -to 1.0 -resolution 0.1 &
-        @ "Energy Med Threshold"  @ :config(energy_med_threshold) -width 10 <--> config(energy_med_threshold) -from 0.1 -to 1.0 -resolution 0.1 &
-        @ "Confidence Low Boost"  @ :config(confidence_low_boost) -width 10 <--> config(confidence_low_boost) -from 0 -to 100 &
-        @ "Confidence Med Boost"  @ :config(confidence_med_boost) -width 10 <--> config(confidence_med_boost) -from 0 -to 100
+        @ "Noise Floor Percentile"     @ :config(noise_floor_percentile)    -width 10 <--> config(noise_floor_percentile)    -from 5 -to 25 &
+        @ "Speech Floor Percentile"    @ :config(speech_floor_percentile)   -width 10 <--> config(speech_floor_percentile)   -from 50 -to 90 &
+        @ "Audio Threshold Multiplier" @ :config(audio_threshold_multiplier) -width 10 <--> config(audio_threshold_multiplier) -from 1.5 -to 5.0 -resolution 0.1 &
+        @ "Speech Min Multiplier"      @ :config(speech_min_multiplier)     -width 10 <--> config(speech_min_multiplier)     -from 0.5 -to 1.2 -resolution 0.1 &
+        @ "Speech Max Multiplier"      @ :config(speech_max_multiplier)     -width 10 <--> config(speech_max_multiplier)     -from 1.2 -to 3.0 -resolution 0.1 &
+        @ "Max Confidence Penalty"     @ :config(max_confidence_penalty)    -width 10 <--> config(max_confidence_penalty)    -from 0 -to 200
     }
 }
 

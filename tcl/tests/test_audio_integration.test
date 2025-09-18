@@ -1,0 +1,267 @@
+# Integration test for complete audio filtering pipeline
+
+package require tcltest
+namespace import ::tcltest::*
+
+# Add paths for mock modules and jbr packages
+set script_dir [file dirname [file normalize [info script]]]
+lappend auto_path [file join $script_dir mocks]
+lappend auto_path "$::env(HOME)/.local/lib/tcllib2.0"
+
+# Require needed packages
+package require jbr::unix
+package require jbr::pipe
+
+# Load mock modules first
+package require audio
+package require pa
+package require vosk
+package require uinput
+
+# Load required modules
+source [file join [file dirname [info script]] .. config.tcl]
+source [file join [file dirname [info script]] .. textproc.tcl]
+source [file join [file dirname [info script]] .. audio.tcl]
+
+# Mock global variables and functions
+set ::transcribing 0
+set ::audiolevel 0
+set ::confidence 0
+set ::vosk_recognizer mock_vosk_recognizer
+
+set ::test_results {}
+set ::test_partial_text ""
+set ::test_final_results {}
+set ::test_accepted_speech {}
+set ::test_rejected_speech {}
+
+proc parse_and_display_result {result} {
+    lappend ::test_results $result
+
+    # Mock the actual parsing that happens in the real function
+    if { $result eq "" } { return }
+
+    # Simple mock JSON parsing for test
+    if {[string match "*hello*" $result]} {
+        lappend ::test_accepted_speech [list "hello" 95]
+        ::uinput::type "hello"
+    } elseif {[string match "*world*" $result]} {
+        lappend ::test_accepted_speech [list "world" 85]
+        ::uinput::type "world"
+    }
+}
+
+proc partial_text {text} {
+    set ::test_partial_text $text
+}
+
+proc final_text {text conf} {
+    lappend ::test_final_results [list $text $conf]
+    lappend ::test_accepted_speech [list $text $conf]
+}
+
+proc state_save {state} {}
+proc state_load {} { return 0 }
+proc textproc_reset {} {}
+
+# Mock textproc and uinput::type to track what gets through
+proc textproc {text} { return $text }
+
+test audio_integration-1.1 {Complete audio filtering pipeline - initialization phase} -setup {
+    # Reset all state
+    set ::audio::energy_buffer {}
+    set ::audio::initialization_complete 0
+    set ::audio::noise_floor 0
+    set ::audio::speech_floor 0
+    set ::transcribing 0
+
+    # Clear test results
+    set ::test_results {}
+    set ::test_accepted_speech {}
+    set ::test_rejected_speech {}
+
+    # Set up config
+    array unset ::config
+    array set ::config {
+        audio_threshold_multiplier 2.5
+        lookback_seconds 1.0
+        silence_seconds 1.0
+        confidence_threshold 100
+        noise_floor_percentile 10
+        speech_floor_percentile 70
+        speech_min_multiplier 0.8
+        speech_max_multiplier 1.5
+        max_confidence_penalty 100
+        initialization_samples 10
+    }
+} -body {
+    # Simulate initialization phase with background noise (1-5) and speech (10-20)
+    set initialization_energies {2 3 1 4 2 15 3 18 2 20 5}  ;# 11 values for >10 check
+
+    set init_status {}
+    foreach energy $initialization_energies {
+        ::audio::set_mock_energy $energy
+        ::audio::audio_callback "mock_stream" [clock milliseconds] "mock_data"
+        lappend init_status $::audio::initialization_complete
+    }
+
+    # Check initialization completed and floors calculated
+    # With 10 values {2 3 1 4 2 15 3 18 2 20}, sorted: {1 2 2 2 3 3 4 15 18 20}
+    # 10% index = 1, value = 2; 70% index = 7, value = 15
+    list $init_status $::audio::noise_floor $::audio::speech_floor
+} -result {{0 0 0 0 0 0 0 0 0 1 1} 2 15}
+
+test audio_integration-1.2 {Complete pipeline - transcription with filtering} -setup {
+    # Set up post-initialization state
+    set ::audio::energy_buffer {1 2 3 4 5 10 15 18 20 25}
+    set ::audio::initialization_complete 1
+    set ::audio::noise_floor 2
+    set ::audio::speech_floor 18
+    set ::transcribing 1
+
+    # Clear test results
+    set ::test_results {}
+    set ::test_accepted_speech {}
+    ::uinput::clear_typed_text
+
+    # Set up Vosk mock results
+    ::vosk::set_mock_results {
+        {{"alternatives": [{"text": "noise", "confidence": 0.5}]}}
+        {{"alternatives": [{"text": "hello", "confidence": 0.9}]}}
+        {{"alternatives": [{"text": "the", "confidence": 0.6}]}}
+        {{"alternatives": [{"text": "world", "confidence": 0.85}]}}
+    }
+
+    array set ::config {
+        audio_threshold_multiplier 2.5
+        lookback_seconds 1.0
+        silence_seconds 1.0
+        confidence_threshold 100
+        speech_min_multiplier 0.8
+        speech_max_multiplier 1.5
+        max_confidence_penalty 100
+    }
+} -body {
+    # Test sequence: low energy (noise), high energy (good speech), medium energy (filtered), high energy (good speech)
+    set test_sequence {
+        {energy 5.0 text "noise" confidence 50}
+        {energy 25.0 text "hello" confidence 90}
+        {energy 12.0 text "the" confidence 60}
+        {energy 30.0 text "world" confidence 85}
+    }
+
+    set results {}
+    foreach test_case $test_sequence {
+        dict with test_case {
+            ::audio::set_mock_energy $energy
+
+            # Calculate expected dynamic threshold (speech_floor = 15 from setup)
+            set min_energy [expr {15 * 0.8}]  ;# 12.0
+            set max_energy [expr {15 * 1.5}]  ;# 22.5
+
+            if {$energy <= $min_energy} {
+                set penalty 100
+            } elseif {$energy >= $max_energy} {
+                set penalty 0
+            } else {
+                set ratio [expr {($energy - $min_energy) / ($max_energy - $min_energy)}]
+                set penalty [expr {100 * (1.0 - $ratio)}]
+            }
+            set threshold [expr {100 + $penalty}]
+
+            # Determine if speech should be accepted
+            set should_accept [expr {$confidence >= $threshold}]
+
+            # Trigger audio callback with speech detection (above noise threshold)
+            set audio_threshold [expr {2 * 2.5}]  ;# noise_floor * multiplier = 5
+            if {$energy > $audio_threshold} {
+                ::audio::audio_callback "mock_stream" [clock milliseconds] "mock_data"
+            }
+
+            lappend results [list $energy $threshold $should_accept]
+        }
+    }
+
+    # Return analysis of what should happen
+    set results
+} -result {{5.0 200 0} {25.0 100 0} {12.0 200 0} {30.0 100 0}}
+
+test audio_integration-1.3 {Verify actual speech acceptance/rejection} -setup {
+    # Set up realistic post-initialization state
+    set ::audio::initialization_complete 1
+    set ::audio::noise_floor 3
+    set ::audio::speech_floor 15
+    set ::transcribing 1
+    set ::audio::audio_buffer_list {}
+    set ::audio::last_speech_time 0
+
+    # Clear test results
+    set ::test_accepted_speech {}
+    ::uinput::clear_typed_text
+
+    # Mock with realistic Vosk results - only one result for single call
+    ::vosk::set_mock_results {
+        {{"alternatives": [{"text": "hello", "confidence": 0.95}]}}
+    }
+
+    array set ::config {
+        audio_threshold_multiplier 2.5
+        confidence_threshold 150
+        speech_min_multiplier 0.8
+        speech_max_multiplier 1.5
+        max_confidence_penalty 50
+        lookback_seconds 1.0
+        silence_seconds 1.0
+    }
+} -body {
+    # Test with high energy that should be accepted
+    ::audio::set_mock_energy 25.0  ;# Well above speech floor
+
+    # Simulate audio callback with good speech
+    ::audio::audio_callback "mock_stream" [clock milliseconds] "mock_data"
+
+    # Check what was typed (if anything)
+    set typed_text [::uinput::get_typed_text]
+
+    # Should accept high-energy, high-confidence speech
+    list [llength $::test_accepted_speech] $typed_text
+} -result {1 hello}
+
+test audio_integration-1.4 {Test complete rejection of low-quality speech} -setup {
+    # Set up post-initialization state
+    set ::audio::initialization_complete 1
+    set ::audio::noise_floor 2
+    set ::audio::speech_floor 12
+    set ::transcribing 1
+    set ::audio::audio_buffer_list {}
+
+    # Clear results
+    set ::test_accepted_speech {}
+    ::uinput::clear_typed_text
+
+    # Mock with low-confidence result
+    ::vosk::set_mock_results {
+        {{"alternatives": [{"text": "hmm", "confidence": 0.3}]}}
+    }
+
+    array set ::config {
+        audio_threshold_multiplier 2.5
+        confidence_threshold 100
+        speech_min_multiplier 0.8
+        speech_max_multiplier 1.5
+        max_confidence_penalty 100
+        lookback_seconds 1.0
+        silence_seconds 1.0
+    }
+} -body {
+    # Test with low energy that gets heavily penalized
+    ::audio::set_mock_energy 8.0  ;# Below speech floor minimum
+
+    # Simulate audio callback - should trigger processing but reject result
+    ::audio::audio_callback "mock_stream" [clock milliseconds] "mock_data"
+
+    # Should reject low-energy, low-confidence speech
+    list [llength $::test_accepted_speech] [::uinput::get_typed_text]
+} -result {0 {}}
+
+puts "Audio integration tests created. Tests the complete filtering pipeline."

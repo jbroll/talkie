@@ -5,6 +5,10 @@ namespace eval ::audio {
     variable speech_energy_sum 0
     variable speech_energy_count 0
     variable average_speech_energy 0
+    variable energy_buffer {}
+    variable noise_floor 0
+    variable speech_floor 0
+    variable initialization_complete 0
 
 set ::debug_audio_count 0
 
@@ -20,27 +24,34 @@ set ::debug_audio_count 0
     proc audio_callback {stream_name timestamp data} {
         variable last_speech_time
         variable audio_buffer_list
-        variable speech_energy_sum
-        variable speech_energy_count
-        variable average_speech_energy
+        variable initialization_complete
+        variable noise_floor
 
         try {
-            set lookback_frames [expr {int($::config(lookback_seconds) * 10 + 0.5)}]
-
             set audiolevel [audio::energy $data int16]
-
             set ::audiolevel $audiolevel
 
-            # Debug audio levels every 50 callbacks
-            if {[incr ::debug_audio_count] % 50 == 0} {
-                puts "DEBUG: Audio level: $audiolevel, Threshold: $::config(audio_threshold), Transcribing: $::transcribing"
+            # Always update energy statistics
+            update_energy_stats $audiolevel
+
+            # Show calibration progress during initialization
+            if {!$initialization_complete} {
+                set progress [expr {[llength $::audio::energy_buffer] * 100 / $::config(initialization_samples)}]
+                if {$progress % 10 == 0} {
+                    after idle [list partial_text "Calibrating audio environment... ${progress}%"]
+                }
+                return
             }
 
+            # Use dynamic audio threshold based on noise floor
+            set dynamic_threshold [expr {$noise_floor * $::config(audio_threshold_multiplier)}]
+
             if {$::transcribing} {
+                set lookback_frames [expr {int($::config(lookback_seconds) * 10 + 0.5)}]
                 lappend audio_buffer_list $data
                 set audio_buffer_list [lrange $audio_buffer_list end-$lookback_frames end]
 
-                if { $audiolevel > $::config(audio_threshold) } {
+                if {$audiolevel > $dynamic_threshold} {
                     process_buffered_audio
                     set last_speech_time $timestamp
                 } else {
@@ -86,6 +97,12 @@ set ::debug_audio_count 0
         variable speech_energy_sum
         variable speech_energy_count
         variable average_speech_energy
+        variable initialization_complete
+
+        # Don't allow transcription until initialized
+        if {!$initialization_complete} {
+            return false
+        }
 
         set audio_buffer_list {}
         set last_speech_time 0
@@ -136,6 +153,66 @@ set ::debug_audio_count 0
         return true
     }
 
+    proc update_energy_stats {energy} {
+        variable energy_buffer
+        variable noise_floor
+        variable speech_floor
+        variable initialization_complete
+
+        # Add to rolling buffer (600 samples = 60 seconds at 10Hz)
+        lappend energy_buffer $energy
+        if {[llength $energy_buffer] > 600} {
+            set energy_buffer [lrange $energy_buffer 1 end]
+        }
+
+        # Check for initialization completion
+        if {!$initialization_complete && [llength $energy_buffer] >= $::config(initialization_samples)} {
+            complete_initialization
+        }
+
+        # Recalculate percentiles periodically (every 50 samples)
+        if {[llength $energy_buffer] % 50 == 0 && [llength $energy_buffer] >= 50} {
+            calculate_percentiles
+        }
+    }
+
+    proc calculate_percentiles {} {
+        variable energy_buffer
+        variable noise_floor
+        variable speech_floor
+
+        set sorted [lsort -real $energy_buffer]
+        set count [llength $sorted]
+
+        if {$count >= 10} {
+            set noise_floor [lindex $sorted [expr {int($count * $::config(noise_floor_percentile) / 100.0)}]]
+            set new_speech_floor [lindex $sorted [expr {int($count * $::config(speech_floor_percentile) / 100.0)}]]
+
+            # Only update speech_floor if we have a reasonable value
+            if {$new_speech_floor > $noise_floor * 1.2} {
+                set speech_floor $new_speech_floor
+            }
+        }
+    }
+
+    proc complete_initialization {} {
+        variable initialization_complete
+        variable noise_floor
+        variable speech_floor
+
+        calculate_percentiles
+
+        # Initialize speech_floor if not set by actual speech data
+        if {$speech_floor < $noise_floor * 1.5} {
+            set speech_floor [expr {$noise_floor * 1.5}]
+        }
+
+        set initialization_complete 1
+        after idle {partial_text "✓ Audio calibration complete - Ready for transcription"}
+
+        puts "DEBUG: Initialization complete - Noise floor: $noise_floor, Speech floor: $speech_floor"
+    }
+
     proc update_speech_energy {energy} {
         variable speech_energy_sum
         variable speech_energy_count
@@ -151,35 +228,39 @@ set ::debug_audio_count 0
     }
 
     proc get_dynamic_confidence_threshold {} {
-        variable average_speech_energy
+        variable speech_floor
+        variable initialization_complete
 
         # Base threshold from config
         set base_threshold $::config(confidence_threshold)
 
-        # If we don't have speech energy data yet, use base threshold
-        if {$average_speech_energy == 0} {
-            puts "DEBUG: No speech energy data yet, using base threshold $base_threshold"
+        # If not initialized yet, use base threshold
+        if {!$initialization_complete || $speech_floor == 0} {
             return $base_threshold
         }
 
-        # Current audio energy ratio compared to average speech energy
-        set energy_ratio [expr {$::audiolevel / $average_speech_energy}]
+        # Define energy range based on speech floor and config
+        set min_energy [expr {$speech_floor * $::config(speech_min_multiplier)}]
+        set max_energy [expr {$speech_floor * $::config(speech_max_multiplier)}]
+        set max_penalty $::config(max_confidence_penalty)
 
-        puts "DEBUG: Current energy: $::audiolevel, Average: $average_speech_energy, Ratio: $energy_ratio"
+        set current_energy $::audiolevel
 
-        # Adjust threshold based on configurable energy ratios and boosts
-        if {$energy_ratio < $::config(energy_low_threshold)} {
-            set threshold [expr {$base_threshold + $::config(confidence_low_boost)}]
-            puts "DEBUG: Low energy ratio ($energy_ratio < $::config(energy_low_threshold)), threshold: $threshold"
-            return $threshold
-        } elseif {$energy_ratio < $::config(energy_med_threshold)} {
-            set threshold [expr {$base_threshold + $::config(confidence_med_boost)}]
-            puts "DEBUG: Med energy ratio ($energy_ratio < $::config(energy_med_threshold)), threshold: $threshold"
-            return $threshold
+        if {$current_energy <= $min_energy} {
+            set penalty $max_penalty
+        } elseif {$current_energy >= $max_energy} {
+            set penalty 0
         } else {
-            puts "DEBUG: Good energy ratio ($energy_ratio >= $::config(energy_med_threshold)), threshold: $base_threshold"
-            return $base_threshold
+            # Linear interpolation
+            set ratio [expr {($current_energy - $min_energy) / ($max_energy - $min_energy)}]
+            set penalty [expr {$max_penalty * (1.0 - $ratio)}]
         }
+
+        set final_threshold [expr {$base_threshold + $penalty}]
+
+        puts "DEBUG: Energy: $current_energy, Speech floor: $speech_floor, Range: $min_energy-$max_energy, Penalty: $penalty, Threshold: $final_threshold"
+
+        return $final_threshold
     }
 
     proc refresh_devices {} {

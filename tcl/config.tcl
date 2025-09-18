@@ -27,6 +27,7 @@ proc config_load {} {
         frames_per_buffer     4410
         window_x               100
         window_y               100
+        initialization_samples 200
     } {*}[array get ::config]]
 
     set file [config_file]
