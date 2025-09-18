@@ -44,7 +44,11 @@ array set ::config {
     vosk_beam              20
     vosk_lattice            8
     vosk_alternatives       1
-    vosk_modelfile          vosk-model-en-us-0.22-lgraph 
+    vosk_modelfile          vosk-model-en-us-0.22-lgraph
+    energy_low_threshold   0.5
+    energy_med_threshold   0.8
+    confidence_low_boost   50
+    confidence_med_boost   25
 }
 
 # UI initializaiton and callbacks -----------------------------------
@@ -81,7 +85,6 @@ grid [row .w -sticky news {
  }] -sticky news
 
 proc config {} {
-    print $::config(input_device)
     layout-dialog-show .dlg "Talkie Configuration" {
         -label.pady 6
         -scale.length 200
@@ -97,7 +100,12 @@ proc config {} {
         @ "Vosk Beam"    @ :config(vosk_beam)            -width 10 <--> config(vosk_beam)            -from 0 -to  50 &
         @ "Lattice Beam" @ :config(vosk_lattice)         -width 10 <--> config(vosk_lattice)         -from 0 -to  20 &
         @ "Alternatives" @ :config(vosk_alternatives)    -width 10 <--> config(vosk_alternatives)    -from 1 -to   3 &
-        @ "Model"        x                               ? config(vosk_modelfile) -listvariable model_files
+        @ "Model"        x                               ? config(vosk_modelfile) -listvariable model_files              &
+        @ ""             -                                                                                               &
+        @ "Energy Low Threshold"  @ :config(energy_low_threshold) -width 10 <--> config(energy_low_threshold) -from 0.1 -to 1.0 -resolution 0.1 &
+        @ "Energy Med Threshold"  @ :config(energy_med_threshold) -width 10 <--> config(energy_med_threshold) -from 0.1 -to 1.0 -resolution 0.1 &
+        @ "Confidence Low Boost"  @ :config(confidence_low_boost) -width 10 <--> config(confidence_low_boost) -from 0 -to 100 &
+        @ "Confidence Med Boost"  @ :config(confidence_med_boost) -width 10 <--> config(confidence_med_boost) -from 0 -to 100
     }
 }
 

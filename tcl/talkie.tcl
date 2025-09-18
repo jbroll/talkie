@@ -72,16 +72,19 @@ proc parse_and_display_result {result} {
     set conf [json-get $result_dict alternatives 0 confidence]
 
     if {$text ne ""} {
-        set confidence_threshold $::config(confidence_threshold)
+        set confidence_threshold [::audio::get_dynamic_confidence_threshold]
         if {$confidence_threshold == 0 || $conf >= $confidence_threshold} {
+            # Update speech energy average only for accepted speech
+            ::audio::update_speech_energy $::audiolevel
             set text [textproc $text]
             uinput::type $text
             after idle [final_text $text $conf]
         } else {
-            puts "VOSK-FILTERED: text='$text' confidence=$conf below threshold $confidence_threshold"
+            puts "VOSK-FILTERED: text='$text' confidence=$conf below dynamic threshold $confidence_threshold (energy: $::audiolevel)"
         }
         set ::confidence $conf
     }
+    after idle [partial_text ""]
 }
 
 
