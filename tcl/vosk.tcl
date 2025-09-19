@@ -14,7 +14,7 @@ namespace eval ::vosk {
             set model_path [get_model_path $::config(vosk_modelfile)]
             if {$model_path ne "" && [file exists $model_path]} {
                 set model [vosk::load_model -path $model_path]
-                set ::vosk_recognizer [$model create_recognizer -rate $::config(sample_rate)]
+                set ::vosk_recognizer [$model create_recognizer -rate $::device_sample_rate]
                 puts "✓ Vosk model loaded: $model_path"
             } else {
                 # puts "Vosk model not found: $::config(vosk_modelfile)"

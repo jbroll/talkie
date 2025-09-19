@@ -105,9 +105,9 @@ namespace eval ::audio {
         try {
             set audio_stream [pa::open_stream \
                 -device $::config(input_device) \
-                -rate $::config(sample_rate) \
+                -rate $::device_sample_rate \
                 -channels 1 \
-                -frames $::config(frames_per_buffer) \
+                -frames $::device_frames_per_buffer \
                 -format int16 \
                 -callback ::audio::audio_callback]
 
@@ -175,23 +175,40 @@ namespace eval ::audio {
     proc refresh_devices {} {
             set input_device ""
             set input_devices {}
+            set device_info_map {}
+            set device_sample_rate 16000
             set preferred $::config(input_device)
 
+            # Build lookup table of device name -> info in single pass
             foreach device [pa::list_devices] {
                 if {[dict exists $device maxInputChannels] && [dict get $device maxInputChannels] > 0} {
                     set name [dict get $device name]
+                    set sample_rate [dict get $device defaultSampleRate]
+
                     lappend input_devices $name
+                    dict set device_info_map $name $sample_rate
+
                     if {$name eq $preferred || [string match "*$preferred*" $name]} {
                         set input_device $name
+                        set device_sample_rate $sample_rate
                         set found_preferred true
                     }
                 }
             }
 
+            # Use first available device if preferred not found
             if {$input_device eq "" && [llength $input_devices] > 0} {
                 set ::config(input_device) [lindex $input_devices 0]
+                set input_device $::config(input_device)
+                set device_sample_rate [dict get $device_info_map $input_device]
             }
+
             set ::input_device $input_device
             set ::input_devices $input_devices
+            set ::device_info_map $device_info_map
+            set ::device_sample_rate $device_sample_rate
+
+            # Calculate frames_per_buffer as ~100ms worth of frames
+            set ::device_frames_per_buffer [expr {int($device_sample_rate * 0.1)}]
     }
 }

@@ -23,8 +23,6 @@ proc config_save {args} {
 
 proc config_load {} {
     array set ::config [list {*}{
-        sample_rate           44100
-        frames_per_buffer     4410
         window_x               100
         window_y               100
         initialization_samples 200
@@ -32,7 +30,7 @@ proc config_load {} {
 
     set file [config_file]
     if {![file exists $file]} {
-        save
+        config_save
         return
     }
 
