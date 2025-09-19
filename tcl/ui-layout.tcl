@@ -38,8 +38,8 @@ set confidence   0
 array set ::config {
     input_device              pulse
     confidence_threshold      175
-    lookback_seconds          1.5
-    silence_seconds           1.5
+    lookback_seconds          1.0
+    silence_seconds            .5
     vosk_beam                 20
     vosk_lattice              8
     vosk_alternatives         1
@@ -95,8 +95,8 @@ proc config {} {
 
         @ "Input Device" x                                ? config(input_device) -listvariable input_devices         &
         @ "Confidence"   @ :config(confidence_threshold) -width 10 <--> config(confidence_threshold) -from 0 -to 200 &
-        @ "Lookback"     @ :config(lookback_seconds)     -width 10 <--> config(lookback_seconds)     -from 0 -to   3 &
-        @ "Silence"      @ :config(silence_seconds)      -width 10 <--> config(silence_seconds)      -from 0 -to   3 &
+        @ "Lookback"     @ :config(lookback_seconds)     -width 10 <--> config(lookback_seconds)     -from 0 -to   3 -resolution 0.1 &
+        @ "Silence"      @ :config(silence_seconds)      -width 10 <--> config(silence_seconds)      -from 0 -to   3 -resolution 0.1 &
         @ "Vosk Beam"    @ :config(vosk_beam)            -width 10 <--> config(vosk_beam)            -from 0 -to  50 &
         @ "Lattice Beam" @ :config(vosk_lattice)         -width 10 <--> config(vosk_lattice)         -from 0 -to  20 &
         @ "Alternatives" @ :config(vosk_alternatives)    -width 10 <--> config(vosk_alternatives)    -from 1 -to   3 &
