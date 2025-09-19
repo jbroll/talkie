@@ -10,6 +10,7 @@ namespace eval ::threshold {
 
     variable energy_buffer {}
     variable noise_floor 0
+    variable noise_threshold 0
 
     proc ready {} {
         variable initialization_complete
@@ -42,6 +43,8 @@ namespace eval ::threshold {
         variable energy_buffer
         variable segment_sum
         variable segment_count
+        variable noise_floor
+        variable noise_threshold 
             
         update_energy_stats $audiolevel
 
@@ -52,8 +55,6 @@ namespace eval ::threshold {
             }
             return false
         }
-
-        variable noise_floor
 
         if { $in_segment } {
             set segment_sum [expr { $segment_sum + $audiolevel }]
@@ -71,6 +72,7 @@ namespace eval ::threshold {
         variable segment_count
         variable speechlevel
         variable initialization_complete
+        variable noise_threshold
 
         set base_threshold $::config(confidence_threshold)
 
@@ -91,7 +93,7 @@ namespace eval ::threshold {
         set ratio [expr {($current_energy - $speech_min) / ($speech_max - $speech_min)}]
         set penalty [expr { clip(0, $max_penalty * (1.0 - $ratio), $max_penalty) }]
 
-        print THRS-CONFID level $current_energy min $speech_min max $speech_max penalty $penalty : $speechlevel
+        print THRS-CONFID level $current_energy min $speech_min max $speech_max penalty $penalty : $speechlevel/$noise_threshold
 
         return [expr {$base_threshold + $penalty}]
     }
@@ -134,7 +136,7 @@ namespace eval ::threshold {
         calculate_percentiles
 
         if {$speechlevel < $noise_floor * 1.5} {
-            set speechlevel [expr {$noise_floor * 2.0}]
+            set speechlevel [expr {$noise_floor * 3.0}]
         }
 
         set initialization_complete 1
