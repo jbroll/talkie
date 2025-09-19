@@ -40,51 +40,11 @@ source [file join $script_dir config.tcl]
 source [file join $script_dir textproc.tcl]
 source [file join $script_dir vosk.tcl]
 source [file join $script_dir audio.tcl]
+source [file join $script_dir threshold.tcl]
 source [file join $script_dir ui-layout.tcl]
 
 proc get_model_path {modelfile} {
     return [file join [file dirname $::script_dir] models vosk $modelfile]
-}
-
-proc json-get {container args} {
-    set current $container
-    foreach step $args {
-        if {[string is integer -strict $step]} {
-            set current [lindex $current $step]
-        } else {
-            set current [dict get $current $step]
-        }
-    }
-    return $current
-}
-
-proc parse_and_display_result {result} {
-    if { $result eq "" } { return }
-
-    set result_dict [json::json2dict $result]
-
-    if {[dict exists $result_dict partial]} {
-        | { dict get $result_dict partial | textproc | partial_text } 
-        return
-    }
-
-    set text [json-get $result_dict alternatives 0 text]
-    set conf [json-get $result_dict alternatives 0 confidence]
-
-    if {$text ne ""} {
-        set confidence_threshold [::audio::get_dynamic_confidence_threshold]
-        if {$confidence_threshold == 0 || $conf >= $confidence_threshold} {
-            # Update speech energy average only for accepted speech
-            ::audio::update_speech_energy $::audiolevel
-            set text [textproc $text]
-            uinput::type $text
-            after idle [final_text $text $conf]
-        } else {
-            puts "VOSK-FILTERED: text='$text' confidence=$conf below dynamic threshold $confidence_threshold (energy: $::audiolevel)"
-        }
-        set ::confidence $conf
-    }
-    after idle [partial_text ""]
 }
 
 

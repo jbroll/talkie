@@ -94,7 +94,6 @@ proc config {} {
         -scale.width 20
 
         @ "Input Device" x                                ? config(input_device) -listvariable input_devices         &
-        @ "Audio Level"  @ :config(audio_threshold)      -width 10 <--> config(audio_threshold)      -from 0 -to 200 &
         @ "Confidence"   @ :config(confidence_threshold) -width 10 <--> config(confidence_threshold) -from 0 -to 200 &
         @ "Lookback"     @ :config(lookback_seconds)     -width 10 <--> config(lookback_seconds)     -from 0 -to   3 &
         @ "Silence"      @ :config(silence_seconds)      -width 10 <--> config(silence_seconds)      -from 0 -to   3 &
@@ -104,10 +103,9 @@ proc config {} {
         @ "Model"        x                               ? config(vosk_modelfile) -listvariable model_files              &
         @ ""             -                                                                                               &
         @ "Noise Floor Percentile"     @ :config(noise_floor_percentile)    -width 10 <--> config(noise_floor_percentile)    -from 5 -to 25 &
-        @ "Speech Floor Percentile"    @ :config(speech_floor_percentile)   -width 10 <--> config(speech_floor_percentile)   -from 50 -to 90 &
         @ "Audio Threshold Multiplier" @ :config(audio_threshold_multiplier) -width 10 <--> config(audio_threshold_multiplier) -from 1.5 -to 5.0 -resolution 0.1 &
-        @ "Speech Min Multiplier"      @ :config(speech_min_multiplier)     -width 10 <--> config(speech_min_multiplier)     -from 0.5 -to 1.2 -resolution 0.1 &
-        @ "Speech Max Multiplier"      @ :config(speech_max_multiplier)     -width 10 <--> config(speech_max_multiplier)     -from 1.2 -to 3.0 -resolution 0.1 &
+        @ "Speech Min Multiplier"      @ :config(speech_min_multiplier)     -width 10 <--> config(speech_min_multiplier)     -from 0.0 -to 1.0 -resolution 0.1 &
+        @ "Speech Max Multiplier"      @ :config(speech_max_multiplier)     -width 10 <--> config(speech_max_multiplier)     -from 1.0 -to 2.0 -resolution 0.1 &
         @ "Max Confidence Penalty"     @ :config(max_confidence_penalty)    -width 10 <--> config(max_confidence_penalty)    -from 0 -to 200
     }
 }
