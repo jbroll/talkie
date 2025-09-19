@@ -96,7 +96,7 @@ proc final_text {text confidence} {
     set timestamp [clock format [clock seconds] -format "%H:%M:%S"]
 
     if {$::final_text_count >= $final_text_lines } {
-        .final delete 1.0 2.0
+        $::final delete 1.0 2.0
     } else {
         incr ::final_text_count
     }
