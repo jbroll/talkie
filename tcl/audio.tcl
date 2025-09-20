@@ -75,6 +75,8 @@ namespace eval ::audio {
         return $current
     }
 
+    set ::killwords { "" "the" }
+
     proc parse_and_display_result { result } {
         if { $result eq "" } { return }
 
@@ -88,7 +90,7 @@ namespace eval ::audio {
         set text [json-get $result_dict alternatives 0 text]
         set conf [json-get $result_dict alternatives 0 confidence]
 
-        if {$text ne ""} {
+        if { [lsearch -exact $::killwords $text] < 0 } {
             if { [threshold::accept $conf] } {
                 set text [textproc $text]
                 uinput::type $text
