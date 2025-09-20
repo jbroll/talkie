@@ -38,30 +38,24 @@ critcl::ccode {
         write(device.fd, &ie, sizeof(ie));
     }
 
-    static void emit_sync() {
+    static void emit_sync(int pause) {
         emit_event(EV_SYN, SYN_REPORT, 0);
+        usleep(pause);
     }
 
     static void emit_key_click(int key) {
         emit_event(EV_KEY, key, 1);  // key down
-        emit_sync();
-        usleep(10000);  // 10ms delay
         emit_event(EV_KEY, key, 0);  // key up
-        emit_sync();
+        emit_sync(7500);
     }
 
     static void emit_key_combo(int modifier, int key) {
         emit_event(EV_KEY, modifier, 1);  // modifier down
-        emit_sync();
-        usleep(5000);
         emit_event(EV_KEY, key, 1);       // key down
-        emit_sync();
-        usleep(5000);
+        emit_sync(7500);
         emit_event(EV_KEY, key, 0);       // key up
-        emit_sync();
-        usleep(5000);
         emit_event(EV_KEY, modifier, 0);  // modifier up
-        emit_sync();
+        emit_sync(7500);
     }
 
     static int setup_key_events() {

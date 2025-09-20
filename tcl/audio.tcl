@@ -47,7 +47,7 @@ namespace eval ::audio {
 
                         set speech_duration [expr { $last_speech_time - $this_speech_time }]
 
-                        if { $speech_duration > .3 } {
+                        if { $speech_duration > $::config(min_duration) } {
                             parse_and_display_result $result
                         } else {
                             partial_text ""

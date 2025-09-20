@@ -1,6 +1,8 @@
 # Extracting Vosk Library from Python Wheel
 
-This guide documents the process of obtaining the Vosk C library and headers without requiring Python dependencies, by extracting them from the official Python wheel package.
+This guide documents the process of obtaining the Vosk C library and headers
+without requiring Python dependencies, by extracting them from the official
+Python wheel package.
 
 ## Why This Approach?
 
@@ -221,4 +223,6 @@ source ~/.bashrc
 chmod +x ~/.local/lib/libvosk.so
 ```
 
-This extraction method provides a clean, dependency-free way to obtain the Vosk library for use with CRITCL bindings, avoiding the complexity of building from source while using official, tested binaries.
+This extraction method provides a clean, dependency-free way to obtain the Vosk
+library for use with CRITCL bindings, avoiding the complexity of building from
+source while using official, tested binaries.
