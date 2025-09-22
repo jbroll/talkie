@@ -16,12 +16,18 @@ else
         toggle)
             STATE=`cat ~/.talkie | jq .transcribing`
             case $STATE in
-                false) $0 start ;;
-                true) $0 stop ;;
+                false|no|0) $0 start ;;
+                true|yes|1) $0 stop ;;
             esac
             ;;
-        start) echo '{"transcribing": true}' > $HOME/.talkie ;;
-        stop) echo '{"transcribing": false}' > $HOME/.talkie ;;
+        start) 
+            echo '{"transcribing": 1}' > $HOME/.talkie
+            slim mute on
+            ;;
+        stop) 
+            echo '{"transcribing": 0}' > $HOME/.talkie
+            slim mute off
+            ;;
         
         *)
             $HOME/src/talkie/tcl/talkie.tcl
