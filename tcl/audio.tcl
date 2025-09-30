@@ -75,7 +75,7 @@ namespace eval ::audio {
         return $current
     }
 
-    set ::killwords { "" "the" }
+    set ::killwords { "" "the" "hm" }
 
     proc parse_and_display_result { result } {
         if { $result eq "" } { return }
