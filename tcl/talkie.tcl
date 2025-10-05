@@ -7,6 +7,33 @@ proc bgerror {message} {
     puts stderr $::errorInfo
 }
 
+# Single instance enforcement
+proc check_single_instance {} {
+    set port 47823  ;# Unique port for talkie
+
+    # Try to connect to existing instance
+    if {![catch {socket localhost $port} sock]} {
+        puts $sock "raise"
+        flush $sock
+        close $sock
+        exit 0
+    }
+
+    # No existing instance - become the server
+    socket -server handle_instance_request $port
+}
+
+proc handle_instance_request {sock addr port} {
+    if {[gets $sock line] >= 0 && $line eq "raise"} {
+        wm deiconify .
+        raise .
+        focus -force .
+    }
+    close $sock
+}
+
+check_single_instance
+
 lappend auto_path "$::env(HOME)/.local/lib/tcllib2.0"
 
 package require Tk
@@ -14,6 +41,9 @@ package require json
 package require Ttk
 package require jbr::unix
 package require jbr::filewatch
+
+tk appname Talkie
+wm title . Talkie
 
 set script_dir [file dirname [file normalize [info script]]]
 lappend auto_path [file join $script_dir pa lib pa]
