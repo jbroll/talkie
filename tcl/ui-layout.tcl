@@ -93,6 +93,9 @@ grid [row .w -sticky news {
  }] -sticky news
 
 proc config {} {
+    # Capture current engine before opening dialog
+    set ::initial_engine $::config(speech_engine)
+
     # Build dynamic config based on selected engine
     set config_spec [list \
         -label.pady 6 \

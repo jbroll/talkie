@@ -67,22 +67,21 @@ proc config_engine_change {args} {
         return
     }
 
-    # Only prompt if we're changing from initial value
+    # Only prompt if initial_engine is set (i.e., config dialog is open)
     if {![info exists ::initial_engine]} {
-        set ::initial_engine $::config(speech_engine)
         return
     }
 
+    # Only prompt if changing from initial value
     if {$::config(speech_engine) ne $::initial_engine} {
         set answer [tk_messageBox -type okcancel -icon warning \
             -title "Restart Required" \
             -message "Speech engine change requires restart.\n\nClick OK to restart now, or Cancel to revert."]
 
         if {$answer eq "ok"} {
-            # Save config and restart
+            # Save config and exit with code 4 to signal restart
             config_save
-            exec [info nameofexecutable] [info script] &
-            exit
+            exit 4
         } else {
             # Revert change (with recursion protection)
             set ::reverting_engine 1
