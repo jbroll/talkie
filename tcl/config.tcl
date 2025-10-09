@@ -25,7 +25,7 @@ proc config_load {} {
     array set ::config [list {*}{
         window_x               100
         window_y               100
-        initialization_samples 200
+        initialization_samples 100
     } {*}[array get ::config]]
 
     set file [config_file]

@@ -1,0 +1,10 @@
+| Command                                         | Description                                                                                                                                           |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pactl get-source-mute @DEFAULT_SOURCE@`        | Shows whether the default microphone (source) is currently muted.<br>Output example: `Mute: yes` or `Mute: no`.                                       |
+| `pactl set-source-mute @DEFAULT_SOURCE@ 1`      | Mutes the default microphone (sets mute = true).                                                                                                      |
+| `pactl set-source-mute @DEFAULT_SOURCE@ 0`      | Unmutes the default microphone (sets mute = false).                                                                                                   |
+| `pactl set-source-mute @DEFAULT_SOURCE@ toggle` | Toggles the current mute state — if it’s muted, it becomes unmuted, and vice versa. *(Supported on most modern PulseAudio and PipeWire systems.)*     |
+| `pactl list short sources`                      | Lists all input sources (microphones) recognized by PulseAudio, showing their internal names (useful if you have multiple devices).                   |
+| `pactl list sources`                            | Displays detailed information about all input devices, including name, mute state, and volume.                                                        |
+| `pactl subscribe`                               | Subscribes to live PulseAudio event notifications (e.g. when a device’s mute or volume changes). Outputs lines such as `Event 'change' on source #1`. |
+| `pactl get-source-mute <source_name>`           | Queries mute state for a specific microphone by name (instead of using `@DEFAULT_SOURCE@`).                                                           |
