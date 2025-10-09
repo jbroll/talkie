@@ -33,9 +33,13 @@ set transcribing 0
 set audiolevel   0
 set confidence   0
 
+# Available speech engines (global list for config dialog)
+set ::speech_engines {vosk sherpa}
+
 # The global configuration array with the defaults
 #
 array set ::config {
+    speech_engine             vosk
     input_device              pulse
     confidence_threshold      175
     lookback_seconds          1.0
@@ -51,6 +55,8 @@ array set ::config {
     vosk_lattice              8
     vosk_alternatives         1
     vosk_modelfile            vosk-model-en-us-0.22-lgraph
+    sherpa_max_active_paths   4
+    sherpa_modelfile          sherpa-onnx-streaming-zipformer-en-2023-06-26
 }
 
 # UI initializaiton and callbacks -----------------------------------
@@ -87,29 +93,48 @@ grid [row .w -sticky news {
  }] -sticky news
 
 proc config {} {
-    layout-dialog-show .dlg "Talkie Configuration" {
-        -label.pady 6
-        -scale.length 200
-        -scale.showvalue false
-        -scale.orient horizontal
-        -scale.width 20
+    # Build dynamic config based on selected engine
+    set config_spec [list \
+        -label.pady 6 \
+        -scale.length 200 \
+        -scale.showvalue false \
+        -scale.orient horizontal \
+        -scale.width 20 \
+    ]
 
-        @ "Input Device" x                                ? config(input_device) -listvariable input_devices         &
-        @ "Confidence"   @ :config(confidence_threshold) -width 10 <--> config(confidence_threshold) -from 0 -to 200 &
-        @ "Lookback"     @ :config(lookback_seconds)     -width 10 <--> config(lookback_seconds)     -from 0 -to   3 -resolution 0.1 &
-        @ "Silence"      @ :config(silence_seconds)      -width 10 <--> config(silence_seconds)      -from 0 -to   3 -resolution 0.1 &
-        @ "Min Duration" @ :config(min_duration)         -width 10 <--> config(min_duration)         -from 0 -to   1 -resolution 0.01 &
-        @ "Vosk Beam"    @ :config(vosk_beam)            -width 10 <--> config(vosk_beam)            -from 0 -to  50 &
-        @ "Lattice Beam" @ :config(vosk_lattice)         -width 10 <--> config(vosk_lattice)         -from 0 -to  20 &
-        @ "Alternatives" @ :config(vosk_alternatives)    -width 10 <--> config(vosk_alternatives)    -from 1 -to   3 &
-        @ "Model"        x                               ? config(vosk_modelfile) -listvariable model_files              &
-        @ ""             -                                                                                               &
-        @ "Noise Floor Percentile"     @ :config(noise_floor_percentile)    -width 10 <--> config(noise_floor_percentile)    -from 5 -to 25 &
-        @ "Audio Threshold Multiplier" @ :config(audio_threshold_multiplier) -width 10 <--> config(audio_threshold_multiplier) -from 1.5 -to 5.0 -resolution 0.1 &
-        @ "Speech Min Multiplier"      @ :config(speech_min_multiplier)     -width 10 <--> config(speech_min_multiplier)     -from 0.0 -to 1.0 -resolution 0.1 &
-        @ "Speech Max Multiplier"      @ :config(speech_max_multiplier)     -width 10 <--> config(speech_max_multiplier)     -from 1.0 -to 2.0 -resolution 0.1 &
-        @ "Max Confidence Penalty"     @ :config(max_confidence_penalty)    -width 10 <--> config(max_confidence_penalty)    -from 0 -to 200
+    # Engine selection (triggers restart prompt)
+    lappend config_spec @ "Speech Engine" x ? config(speech_engine) -listvariable speech_engines &
+    lappend config_spec @ "" - &
+
+    # Common options
+    lappend config_spec @ "Input Device" x ? config(input_device) -listvariable input_devices &
+    lappend config_spec @ "Confidence" @ :config(confidence_threshold) -width 10 <--> config(confidence_threshold) -from 0 -to 200 &
+    lappend config_spec @ "Lookback" @ :config(lookback_seconds) -width 10 <--> config(lookback_seconds) -from 0 -to 3 -resolution 0.1 &
+    lappend config_spec @ "Silence" @ :config(silence_seconds) -width 10 <--> config(silence_seconds) -from 0 -to 3 -resolution 0.1 &
+    lappend config_spec @ "Min Duration" @ :config(min_duration) -width 10 <--> config(min_duration) -from 0 -to 1 -resolution 0.01 &
+    lappend config_spec @ "" - &
+
+    # Engine-specific options
+    if {$::config(speech_engine) eq "vosk"} {
+        lappend config_spec @ "Vosk Beam" @ :config(vosk_beam) -width 10 <--> config(vosk_beam) -from 0 -to 50 &
+        lappend config_spec @ "Lattice Beam" @ :config(vosk_lattice) -width 10 <--> config(vosk_lattice) -from 0 -to 20 &
+        lappend config_spec @ "Alternatives" @ :config(vosk_alternatives) -width 10 <--> config(vosk_alternatives) -from 1 -to 3 &
+        lappend config_spec @ "Model" x ? config(vosk_modelfile) -listvariable vosk_model_files &
+    } elseif {$::config(speech_engine) eq "sherpa"} {
+        lappend config_spec @ "Max Active Paths" @ :config(sherpa_max_active_paths) -width 10 <--> config(sherpa_max_active_paths) -from 1 -to 10 &
+        lappend config_spec @ "Model" x ? config(sherpa_modelfile) -listvariable sherpa_model_files &
     }
+
+    lappend config_spec @ "" - &
+
+    # Threshold options
+    lappend config_spec @ "Noise Floor Percentile" @ :config(noise_floor_percentile) -width 10 <--> config(noise_floor_percentile) -from 5 -to 25 &
+    lappend config_spec @ "Audio Threshold Multiplier" @ :config(audio_threshold_multiplier) -width 10 <--> config(audio_threshold_multiplier) -from 1.5 -to 5.0 -resolution 0.1 &
+    lappend config_spec @ "Speech Min Multiplier" @ :config(speech_min_multiplier) -width 10 <--> config(speech_min_multiplier) -from 0.0 -to 1.0 -resolution 0.1 &
+    lappend config_spec @ "Speech Max Multiplier" @ :config(speech_max_multiplier) -width 10 <--> config(speech_max_multiplier) -from 1.0 -to 2.0 -resolution 0.1 &
+    lappend config_spec @ "Max Confidence Penalty" @ :config(max_confidence_penalty) -width 10 <--> config(max_confidence_penalty) -from 0 -to 200
+
+    layout-dialog-show .dlg "Talkie Configuration" $config_spec
 }
 
 # Apply window positioning after UI is created

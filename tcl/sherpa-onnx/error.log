@@ -1,0 +1,123 @@
+critcl -pkg sherpa-onnx.tcl
+Config:   linux-x86_64-gcc
+Build:    linux-x86_64-gcc
+Target:   linux-x86_64
+Source:   sherpa-onnx.tcl
+  (provide sherpa 1.0)
+  (libraries:   -L/home/john/.local/lib)
+  (libraries:   -lsherpa-onnx-c-api)
+  (libraries:   -lsherpa-onnx-core)
+  (libraries:   -lsherpa-onnx-cxx-api)
+  (libraries:   -lsherpa-onnx-fst)
+  (libraries:   -lsherpa-onnx-fstfar)
+  (libraries:   -lsherpa-onnx-kaldifst-core)
+  (libraries:   -lssentencepiece_core)
+  (libraries:   -lkaldi-native-fbank-core)
+  (libraries:   -lkaldi-decoder-core)
+  (libraries:   -lonnxruntime)
+  (libraries:   -lcppinyin_core)
+  (libraries:   -lespeak-ng)
+  (libraries:   -lucd)
+  (libraries:   -lkissfft-float)
+  (libraries:   -lpiper_phonemize)
+  (libraries:   -lcargs)
+  (libraries:   -lm)
+  (libraries:   -lstdc++)
+File "sherpa-onnx.tcl", line 48: [34mreturn Tcl_GetIntFromObj(interp, obj, value);[0m
+File "sherpa-onnx.tcl", line 48: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_GetIntFromObj, check if replacement Tcl_GetSizeIntFromObj is needed[0m
+File "sherpa-onnx.tcl", line 96: [34mTcl_WrongNumArgs(interp, 1, objv, "subcommand ?args?");[0m
+File "sherpa-onnx.tcl", line 96: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_WrongNumArgs (InParam)[0m
+File "sherpa-onnx.tcl", line 104: [34mTcl_DictObjPut(interp, dict, Tcl_NewStringObj("path", -1),[0m
+File "sherpa-onnx.tcl", line 104: Tcl 9 compatibility warning : [35m(TIP 494): Use TCL_AUTO_LENGTH for string length.[0m
+File "sherpa-onnx.tcl", line 104: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewStringObj (InParam)[0m
+File "sherpa-onnx.tcl", line 105: [34mTcl_NewStringObj(ctx->model_path, -1));[0m
+File "sherpa-onnx.tcl", line 105: Tcl 9 compatibility warning : [35m(TIP 494): Use TCL_AUTO_LENGTH for string length.[0m
+File "sherpa-onnx.tcl", line 105: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewStringObj (InParam)[0m
+File "sherpa-onnx.tcl", line 106: [34mTcl_DictObjPut(interp, dict, Tcl_NewStringObj("loaded", -1),[0m
+File "sherpa-onnx.tcl", line 106: Tcl 9 compatibility warning : [35m(TIP 494): Use TCL_AUTO_LENGTH for string length.[0m
+File "sherpa-onnx.tcl", line 106: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewStringObj (InParam)[0m
+File "sherpa-onnx.tcl", line 165: [34mTcl_Obj *nameObj = Tcl_NewStringObj(namebuf, -1);[0m
+File "sherpa-onnx.tcl", line 165: Tcl 9 compatibility warning : [35m(TIP 494): Use TCL_AUTO_LENGTH for string length.[0m
+File "sherpa-onnx.tcl", line 165: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewStringObj (InParam)[0m
+File "sherpa-onnx.tcl", line 170: [34mTcl_CreateObjCommand(interp, namebuf, StreamObjCmd,[0m
+File "sherpa-onnx.tcl", line 170: Tcl 9 compatibility warning : [35m(Tcl_Size): Use `Tcl_CreateObjCommand2` for command creation[0m
+File "sherpa-onnx.tcl", line 179: [34mTcl_SetObjResult(interp, Tcl_NewStringObj("ok", -1));[0m
+File "sherpa-onnx.tcl", line 179: Tcl 9 compatibility warning : [35m(TIP 494): Use TCL_AUTO_LENGTH for string length.[0m
+File "sherpa-onnx.tcl", line 179: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewStringObj (InParam)[0m
+File "sherpa-onnx.tcl", line 198: [34mTcl_WrongNumArgs(interp, 1, objv, "subcommand ?args?");[0m
+File "sherpa-onnx.tcl", line 198: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_WrongNumArgs (InParam)[0m
+File "sherpa-onnx.tcl", line 217: [34mTcl_WrongNumArgs(interp, 2, objv, "audio_data");[0m
+File "sherpa-onnx.tcl", line 217: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_WrongNumArgs (InParam)[0m
+File "sherpa-onnx.tcl", line 223: [34munsigned char *data = Tcl_GetByteArrayFromObj(objv[2], &length);[0m
+File "sherpa-onnx.tcl", line 223: Tcl 9 compatibility warning : [35m(TIP 568): Use `Tcl_GetBytesFromObj` and handle NULL results.[0m
+File "sherpa-onnx.tcl", line 223: Tcl 9 compatibility warning : [35m(TIP 568): Read the referenced TIP for the sordid details.[0m
+File "sherpa-onnx.tcl", line 223: Tcl 9 compatibility warning : [35m(TIP 568): Document the obligations of the script level.[0m
+File "sherpa-onnx.tcl", line 223: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_GetByteArrayFromObj (OutParam)[0m
+File "sherpa-onnx.tcl", line 259: [34mTcl_SetObjResult(interp, Tcl_NewStringObj(json_result ? json_result : "{}", -1));[0m
+File "sherpa-onnx.tcl", line 259: Tcl 9 compatibility warning : [35m(TIP 494): Use TCL_AUTO_LENGTH for string length.[0m
+File "sherpa-onnx.tcl", line 259: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewStringObj (InParam)[0m
+File "sherpa-onnx.tcl", line 266: [34mTcl_SetObjResult(interp, Tcl_NewStringObj(json_result ? json_result : "{}", -1));[0m
+File "sherpa-onnx.tcl", line 266: Tcl 9 compatibility warning : [35m(TIP 494): Use TCL_AUTO_LENGTH for string length.[0m
+File "sherpa-onnx.tcl", line 266: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewStringObj (InParam)[0m
+File "sherpa-onnx.tcl", line 272: [34mTcl_SetObjResult(interp, Tcl_NewStringObj("ok", -1));[0m
+File "sherpa-onnx.tcl", line 272: Tcl 9 compatibility warning : [35m(TIP 494): Use TCL_AUTO_LENGTH for string length.[0m
+File "sherpa-onnx.tcl", line 272: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewStringObj (InParam)[0m
+File "sherpa-onnx.tcl", line 294: [34mTcl_SetObjResult(interp, Tcl_NewStringObj("ok", -1));[0m
+File "sherpa-onnx.tcl", line 294: Tcl 9 compatibility warning : [35m(TIP 494): Use TCL_AUTO_LENGTH for string length.[0m
+File "sherpa-onnx.tcl", line 294: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewStringObj (InParam)[0m
+File "sherpa-onnx.tcl", line 299: [34mTcl_DictObjPut(interp, dict, Tcl_NewStringObj("sample_rate", -1),[0m
+File "sherpa-onnx.tcl", line 299: Tcl 9 compatibility warning : [35m(TIP 494): Use TCL_AUTO_LENGTH for string length.[0m
+File "sherpa-onnx.tcl", line 299: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewStringObj (InParam)[0m
+File "sherpa-onnx.tcl", line 301: [34mTcl_DictObjPut(interp, dict, Tcl_NewStringObj("max_active_paths", -1),[0m
+File "sherpa-onnx.tcl", line 301: Tcl 9 compatibility warning : [35m(TIP 494): Use TCL_AUTO_LENGTH for string length.[0m
+File "sherpa-onnx.tcl", line 301: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewStringObj (InParam)[0m
+File "sherpa-onnx.tcl", line 302: [34mTcl_NewIntObj(ctx->max_active_paths));[0m
+File "sherpa-onnx.tcl", line 302: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewIntObj, check if replacement Tcl_NewSizeIntObj is needed[0m
+File "sherpa-onnx.tcl", line 303: [34mTcl_DictObjPut(interp, dict, Tcl_NewStringObj("confidence_threshold", -1),[0m
+File "sherpa-onnx.tcl", line 303: Tcl 9 compatibility warning : [35m(TIP 494): Use TCL_AUTO_LENGTH for string length.[0m
+File "sherpa-onnx.tcl", line 303: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewStringObj (InParam)[0m
+File "sherpa-onnx.tcl", line 310: [34mTcl_SetObjResult(interp, Tcl_NewStringObj("ok", -1));[0m
+File "sherpa-onnx.tcl", line 310: Tcl 9 compatibility warning : [35m(TIP 494): Use TCL_AUTO_LENGTH for string length.[0m
+File "sherpa-onnx.tcl", line 310: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewStringObj (InParam)[0m
+File "sherpa-onnx.tcl", line 410: [34mTcl_Obj *nameObj = Tcl_NewStringObj(namebuf, -1);[0m
+File "sherpa-onnx.tcl", line 410: Tcl 9 compatibility warning : [35m(TIP 494): Use TCL_AUTO_LENGTH for string length.[0m
+File "sherpa-onnx.tcl", line 410: Tcl 9 compatibility warning : [35m(Tcl_Size): Tcl_NewStringObj (InParam)[0m
+File "sherpa-onnx.tcl", line 415: [34mTcl_CreateObjCommand(interp, namebuf, ModelObjCmd, (ClientData)ctx, model_delete);[0m
+File "sherpa-onnx.tcl", line 415: Tcl 9 compatibility warning : [35m(Tcl_Size): Use `Tcl_CreateObjCommand2` for command creation[0m
+File "critcl.tcl", line 1601: [34mTcl_CreateObjCommand(interp, "sherpa::load_model", SherpaLoadModelCmd, NULL, NULL);[0m
+File "critcl.tcl", line 1601: Tcl 9 compatibility warning : [35m(Tcl_Size): Use `Tcl_CreateObjCommand2` for command creation[0m
+
+
+Warning  sherpa-onnx.tcl:154:28: warning: assignment discards ‘const’ qualifier from pointer target type [-Wdiscarded-qualifiers]
+Warning  sherpa-onnx.tcl:397:21: warning: assignment discards ‘const’ qualifier from pointer target type [-Wdiscarded-qualifiers]
+
+Library:  sherpa-onnx.so
+  (tcl 8.6)
+  (libraries:   -L/home/john/.local/lib)
+  (libraries:   -lsherpa-onnx-c-api)
+  (libraries:   -lsherpa-onnx-core)
+  (libraries:   -lsherpa-onnx-cxx-api)
+  (libraries:   -lsherpa-onnx-fst)
+  (libraries:   -lsherpa-onnx-fstfar)
+  (libraries:   -lsherpa-onnx-kaldifst-core)
+  (libraries:   -lssentencepiece_core)
+  (libraries:   -lkaldi-native-fbank-core)
+  (libraries:   -lkaldi-decoder-core)
+  (libraries:   -lonnxruntime)
+  (libraries:   -lcppinyin_core)
+  (libraries:   -lespeak-ng)
+  (libraries:   -lucd)
+  (libraries:   -lkissfft-float)
+  (libraries:   -lpiper_phonemize)
+  (libraries:   -lcargs)
+  (libraries:   -lm)
+  (libraries:   -lstdc++)
+  Stubs:
+    critcl-3.3.1/critcl_c/tcl8.6/tclDecls.h:
+      (tclStubsPtr     =>  const TclStubs *tclStubsPtr;)
+    critcl-3.3.1/critcl_c/tcl8.6/tclPlatDecls.h:
+      (tclPlatStubsPtr =>  const TclPlatStubs *tclPlatStubsPtr;)
+
+Package Placed Into: lib/sherpa-onnx
+Done
+

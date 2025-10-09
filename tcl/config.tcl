@@ -38,19 +38,63 @@ proc config_load {} {
 }
 
 proc config_refresh_models {} {
-    set models_dir [file join [file dirname $::script_dir] models vosk]
-    set ::model_files [lsort [lmap item [glob -nocomplain -directory $models_dir -type d *] {file tail $item}]]
+    # Refresh model lists for both engines
+    set vosk_dir [file join [file dirname $::script_dir] models vosk]
+    set sherpa_dir [file join [file dirname $::script_dir] models sherpa-onnx]
+
+    set ::vosk_model_files [lsort [lmap item [glob -nocomplain -directory $vosk_dir -type d *] {file tail $item}]]
+    set ::sherpa_model_files [lsort [lmap item [glob -nocomplain -directory $sherpa_dir -type d *] {file tail $item}]]
+
+    # Legacy: keep ::model_files for backwards compatibility
+    if {$::config(speech_engine) eq "vosk"} {
+        set ::model_files $::vosk_model_files
+    } else {
+        set ::model_files $::sherpa_model_files
+    }
 }
 
 proc config_trace {} {
     trace add variable ::config write config_save
+    trace add variable ::config(speech_engine) write config_engine_change
     trace add variable ::config(vosk_modelfile) write config_model_change
+    trace add variable ::config(sherpa_modelfile) write config_model_change
     trace add variable ::transcribing write state_transcribing_change
 }
 
+proc config_engine_change {args} {
+    # Prevent recursion during revert
+    if {[info exists ::reverting_engine] && $::reverting_engine} {
+        return
+    }
+
+    # Only prompt if we're changing from initial value
+    if {![info exists ::initial_engine]} {
+        set ::initial_engine $::config(speech_engine)
+        return
+    }
+
+    if {$::config(speech_engine) ne $::initial_engine} {
+        set answer [tk_messageBox -type okcancel -icon warning \
+            -title "Restart Required" \
+            -message "Speech engine change requires restart.\n\nClick OK to restart now, or Cancel to revert."]
+
+        if {$answer eq "ok"} {
+            # Save config and restart
+            config_save
+            exec [info nameofexecutable] [info script] &
+            exit
+        } else {
+            # Revert change (with recursion protection)
+            set ::reverting_engine 1
+            set ::config(speech_engine) $::initial_engine
+            set ::reverting_engine 0
+        }
+    }
+}
+
 proc config_model_change {args} {
-    ::vosk::cleanup
-    ::vosk::initialize
+    ::engine::cleanup
+    ::engine::initialize
 }
 
 proc state_transcribing_change {args} {

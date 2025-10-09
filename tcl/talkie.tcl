@@ -47,12 +47,10 @@ wm title . Talkie
 
 set script_dir [file dirname [file normalize [info script]]]
 lappend auto_path [file join $script_dir pa lib pa]
-lappend auto_path [file join $script_dir vosk lib vosk]
 lappend auto_path [file join $script_dir audio lib audio]
 lappend auto_path [file join $script_dir uinput lib uinput]
 
 package require pa
-package require vosk
 package require audio
 package require uinput
 
@@ -66,15 +64,46 @@ proc quit {} {
     exit
 }
 
+# Load config first to know which engine to use
 source [file join $script_dir config.tcl]
 source [file join $script_dir textproc.tcl]
-source [file join $script_dir vosk.tcl]
-source [file join $script_dir audio.tcl]
 source [file join $script_dir threshold.tcl]
 source [file join $script_dir ui-layout.tcl]
 
+# Early load to get speech_engine setting
+config_load
+
+# Load the configured speech engine dynamically
+if {![info exists ::config(speech_engine)]} {
+    set ::config(speech_engine) "vosk"
+}
+
+if {$::config(speech_engine) eq "vosk"} {
+    lappend auto_path [file join $script_dir vosk lib vosk]
+    package require vosk
+    source [file join $script_dir vosk.tcl]
+} elseif {$::config(speech_engine) eq "sherpa"} {
+    lappend auto_path [file join $script_dir sherpa-onnx lib sherpa-onnx]
+    package require sherpa
+    source [file join $script_dir sherpa.tcl]
+} else {
+    puts "ERROR: Unknown speech engine: $::config(speech_engine)"
+    exit 1
+}
+
+# Load engine abstraction layer
+source [file join $script_dir engine.tcl]
+source [file join $script_dir audio.tcl]
+
 proc get_model_path {modelfile} {
-    return [file join [file dirname $::script_dir] models vosk $modelfile]
+    # Return path based on current speech engine
+    if {$::config(speech_engine) eq "vosk"} {
+        return [file join [file dirname $::script_dir] models vosk $modelfile]
+    } elseif {$::config(speech_engine) eq "sherpa"} {
+        return [file join [file dirname $::script_dir] models sherpa-onnx $modelfile]
+    } else {
+        return ""
+    }
 }
 
 

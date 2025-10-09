@@ -12,7 +12,7 @@ namespace eval ::audio {
         variable audio_buffer_list
 
         foreach chunk $audio_buffer_list {
-            parse_and_display_result [$::vosk_recognizer process $chunk]
+            parse_and_display_result [[::engine::recognizer] process $chunk]
         }
         set audio_buffer_list {}
     }
@@ -43,7 +43,7 @@ namespace eval ::audio {
                     process_buffered_audio
 
                     if {$last_speech_time + $::config(silence_seconds) < $timestamp} {
-                        set result [$::vosk_recognizer final-result]
+                        set result [[::engine::recognizer] final-result]
 
                         set speech_duration [expr { $last_speech_time - $this_speech_time }]
 
@@ -53,9 +53,10 @@ namespace eval ::audio {
                             partial_text ""
                             print THRS-SHORTS $speech_duration
                         }
-                      
+
                         set last_speech_time 0
-                    } 
+                        set audio_buffer_list {}
+                    }
                 }
             }
         } on error message {
@@ -83,7 +84,7 @@ namespace eval ::audio {
         set result_dict [json::json2dict $result]
 
         if {[dict exists $result_dict partial]} {
-            | { dict get $result_dict partial | textproc | partial_text } 
+            | { dict get $result_dict partial | textproc | partial_text }
             return
         }
 
@@ -132,7 +133,7 @@ namespace eval ::audio {
         set audio_buffer_list {}
         set last_speech_time 0
 
-        $::vosk_recognizer reset
+        [::engine::recognizer] reset
         textproc_reset
         threshold::reset
 
@@ -158,8 +159,8 @@ namespace eval ::audio {
     }
 
     proc initialize {} {
-        if {![::vosk::initialize]} {
-            puts "Failed to initialize Vosk recognizer"
+        if {![::engine::initialize]} {
+            puts "Failed to initialize speech engine"
             return false
         }
 
