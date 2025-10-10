@@ -1,42 +1,68 @@
 #!/bin/bash
-#
 
-# Check if first argument is a flag (starts with --) or a command
-if [[ "$1" == --* ]]; then
-    # First argument is a flag, pass all arguments to talkie.py
-    cd "$HOME/src/talkie"
-    . bin/activate
-    python src/talkie.py "$@"
-else
-    # First argument is a command
-    CMD=$1; shift
-    
-    case $CMD in
-        state) cat $HOME/.talkie ;;
+cd "$(dirname "$(realpath "$0")")"
+
+# Command-line interface
+if [ $# -gt 0 ]; then
+    case "$1" in
+        state)
+            # Show current transcription state
+            cat "$HOME/.talkie" 2>/dev/null || echo '{"transcribing": false}'
+            exit 0
+            ;;
         toggle)
-            STATE=`cat ~/.talkie | jq .transcribing`
-            case $STATE in
-                false|no|0) $0 start ;;
-                true|yes|1) $0 stop ;;
+            # Toggle transcription on/off
+            STATE=$(cat "$HOME/.talkie" 2>/dev/null | grep -o '"transcribing":[^,}]*' | grep -o '[^:]*$' | tr -d ' ')
+            case "$STATE" in
+                true|1) "$0" stop ;;
+                *) "$0" start ;;
             esac
+            exit 0
             ;;
-        start) 
-            echo '{"transcribing": 1}' > $HOME/.talkie
-            slim mute on
+        start)
+            # Start transcription
+            echo '{"transcribing": true}' > "$HOME/.talkie"
+            command -v slim >/dev/null 2>&1 && slim mute on
+            exit 0
             ;;
-        stop) 
-            echo '{"transcribing": 0}' > $HOME/.talkie
-            slim mute off
+        stop)
+            # Stop transcription
+            echo '{"transcribing": false}' > "$HOME/.talkie"
+            command -v slim >/dev/null 2>&1 && slim mute off
+            exit 0
             ;;
-        
+        --help|-h)
+            cat <<EOF
+Usage: $0 [COMMAND]
+
+Commands:
+  state      Show current transcription state
+  toggle     Toggle transcription on/off
+  start      Start transcription (and mute audio if slim available)
+  stop       Stop transcription (and unmute audio if slim available)
+  --help     Show this help message
+
+If no command is given, launches the Talkie GUI with auto-restart on engine change.
+
+Exit code 4 indicates restart requested (engine change).
+EOF
+            exit 0
+            ;;
         *)
-            $HOME/src/talkie/tcl/talkie.tcl
-            # Default: run talkie.py with all original arguments
-            # Environment setup is now handled in talkie.py based on selected engine
-            # cd "$HOME/src/talkie"
-            # . bin/activate
-            # python src/talkie.py "$@"
+            # Unknown command, pass to talkie.tcl
+            ;;
     esac
 fi
 
-exit 0
+while true; do
+    ./talkie.tcl "$@"
+    EXIT_CODE=$?
+
+    if [ $EXIT_CODE -eq 4 ]; then
+        echo "Restarting talkie (engine change)..."
+        sleep 0.5
+        continue
+    else
+        exit $EXIT_CODE
+    fi
+done

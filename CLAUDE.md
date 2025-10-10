@@ -11,12 +11,8 @@ multiple speech recognition engines.
 
 ## Architecture
 
-### Tcl Implementation (Primary - September 2025)
-
-The main development focus is now on the Tcl version located in the `tcl/` directory:
-
 ```
-talkie/tcl/
+talkie/src/
 ├── talkie.tcl                   # Main application orchestrator
 ├── config.tcl                   # Configuration and state management
 ├── audio.tcl                    # Audio processing and transcription control

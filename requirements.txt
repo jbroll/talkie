@@ -1,6 +1,0 @@
-vosk
-sherpa-onnx
-sounddevice
-numpy
-pyinput
-word2number

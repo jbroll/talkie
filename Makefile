@@ -2,7 +2,7 @@
 all: build
 
 build: 
-	$(MAKE) -C tcl build
+	$(MAKE) -C src build
 
 clean: 
-	$(MAKE) -C tcl clean
+	$(MAKE) -C src clean
