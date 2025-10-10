@@ -52,5 +52,4 @@ EOF
     esac
 fi
 
-# No restart loop needed - engine changes are hot-swapped
 ./talkie.tcl "$@"
