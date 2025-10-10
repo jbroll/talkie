@@ -93,8 +93,8 @@ grid [row .w -sticky news {
     text ::partial -width 60 -height  2 - - - - - - -  
  }] -sticky news
 
-proc config {} {
-    # Build dynamic config based on selected engine
+# Build config dialog spec based on current engine
+proc build_config_spec {} {
     set config_spec [list \
         -label.pady 6 \
         -scale.length 200 \
@@ -124,6 +124,8 @@ proc config {} {
     } elseif {$::config(speech_engine) eq "sherpa"} {
         lappend config_spec @ "Max Active Paths" @ :config(sherpa_max_active_paths) -width 10 <--> config(sherpa_max_active_paths) -from 1 -to 10 &
         lappend config_spec @ "Model" x ? config(sherpa_modelfile) -listvariable sherpa_model_files &
+    } elseif {$::config(speech_engine) eq "faster-whisper"} {
+        lappend config_spec @ "Model" @ :config(faster_whisper_modelfile) -width 20 &
     }
 
     lappend config_spec @ "" - &
@@ -135,6 +137,31 @@ proc config {} {
     lappend config_spec @ "Speech Max Multiplier" @ :config(speech_max_multiplier) -width 10 <--> config(speech_max_multiplier) -from 1.0 -to 2.0 -resolution 0.1 &
     lappend config_spec @ "Max Confidence Penalty" @ :config(max_confidence_penalty) -width 10 <--> config(max_confidence_penalty) -from 0 -to 200
 
+    return $config_spec
+}
+
+# Rebuild config dialog when engine changes (if dialog is open)
+proc config_dialog_refresh {args} {
+    if {[winfo exists .dlg]} {
+        # Dialog is open, rebuild it with engine-specific controls
+        # Wait for engine swap to complete (100ms for audio stop + engine init)
+        after 200 {
+            if {[winfo exists .dlg]} {
+                destroy .dlg
+                config
+            }
+        }
+    }
+}
+
+proc config {} {
+    # Set up trace to rebuild dialog when engine changes
+    if {![info exists ::config_dialog_trace_set]} {
+        trace add variable ::config(speech_engine) write config_dialog_refresh
+        set ::config_dialog_trace_set 1
+    }
+
+    set config_spec [build_config_spec]
     layout-dialog-show .dlg "Talkie Configuration" $config_spec
 }
 
