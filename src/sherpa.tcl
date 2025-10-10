@@ -2,6 +2,7 @@ set ::sherpa_recognizer ""
 
 namespace eval ::sherpa {
     variable model ""
+    variable wrapper_count 0
 
     proc initialize {} {
         variable model
@@ -52,8 +53,21 @@ namespace eval ::sherpa {
     proc cleanup {} {
         variable model
 
+        # Destroy recognizer command if it exists
+        if {$::sherpa_recognizer ne "" && [info commands $::sherpa_recognizer] ne ""} {
+            # Clean up the real recognizer reference
+            if {[info exists ::sherpa::real_recognizer($::sherpa_recognizer)]} {
+                catch {rename $::sherpa::real_recognizer($::sherpa_recognizer) ""}
+                unset ::sherpa::real_recognizer($::sherpa_recognizer)
+            }
+            catch {rename $::sherpa_recognizer ""}
+        }
         set ::sherpa_recognizer ""
+
+        # Clear model reference (Tcl will handle cleanup)
         set model ""
+
+        puts "Sherpa-ONNX engine cleaned up"
     }
 
     # Convert Sherpa-ONNX result to Vosk-compatible format

@@ -78,32 +78,29 @@ if {![info exists ::config(speech_engine)]} {
     set ::config(speech_engine) "vosk"
 }
 
-if {$::config(speech_engine) eq "vosk"} {
-    lappend auto_path [file join $script_dir vosk lib vosk]
-    package require vosk
-    source [file join $script_dir vosk.tcl]
-} elseif {$::config(speech_engine) eq "sherpa"} {
-    lappend auto_path [file join $script_dir sherpa-onnx lib sherpa-onnx]
-    package require sherpa
-    source [file join $script_dir sherpa.tcl]
-} else {
-    puts "ERROR: Unknown speech engine: $::config(speech_engine)"
-    exit 1
-}
+# Load critcl engines at startup (only Vosk now)
+# Vosk - in-process critcl bindings
+lappend auto_path [file join $script_dir vosk lib vosk]
+package require vosk
+source [file join $script_dir vosk.tcl]
+
+# All other engines (Sherpa, Faster-Whisper) are coprocess - no loading needed
 
 # Load engine abstraction layer
 source [file join $script_dir engine.tcl]
 source [file join $script_dir audio.tcl]
 
 proc get_model_path {modelfile} {
-    # Return path based on current speech engine
-    if {$::config(speech_engine) eq "vosk"} {
-        return [file join [file dirname $::script_dir] models vosk $modelfile]
-    } elseif {$::config(speech_engine) eq "sherpa"} {
-        return [file join [file dirname $::script_dir] models sherpa-onnx $modelfile]
-    } else {
+    # Generic model path lookup - delegates to engine.tcl
+    # This is kept for backward compatibility with vosk.tcl and sherpa.tcl
+    # New coprocess engines use engine::get_property directly
+
+    set model_dir [::engine::get_property $::config(speech_engine) model_dir]
+    if {$model_dir eq ""} {
         return ""
     }
+
+    return [file join [file dirname $::script_dir] models $model_dir $modelfile]
 }
 
 

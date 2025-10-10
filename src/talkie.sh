@@ -42,9 +42,7 @@ Commands:
   stop       Stop transcription (and unmute audio if slim available)
   --help     Show this help message
 
-If no command is given, launches the Talkie GUI with auto-restart on engine change.
-
-Exit code 4 indicates restart requested (engine change).
+If no command is given, launches the Talkie GUI.
 EOF
             exit 0
             ;;
@@ -54,15 +52,5 @@ EOF
     esac
 fi
 
-while true; do
-    ./talkie.tcl "$@"
-    EXIT_CODE=$?
-
-    if [ $EXIT_CODE -eq 4 ]; then
-        echo "Restarting talkie (engine change)..."
-        sleep 0.5
-        continue
-    else
-        exit $EXIT_CODE
-    fi
-done
+# No restart loop needed - engine changes are hot-swapped
+./talkie.tcl "$@"

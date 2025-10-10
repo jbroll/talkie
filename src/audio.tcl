@@ -11,8 +11,15 @@ namespace eval ::audio {
     proc process_buffered_audio { } {
         variable audio_buffer_list
 
+        # Safety check - ensure recognizer is available
+        set recognizer [::engine::recognizer]
+        if {$recognizer eq ""} {
+            set audio_buffer_list {}
+            return
+        }
+
         foreach chunk $audio_buffer_list {
-            parse_and_display_result [[::engine::recognizer] process $chunk]
+            parse_and_display_result [$recognizer process $chunk]
         }
         set audio_buffer_list {}
     }
@@ -43,15 +50,19 @@ namespace eval ::audio {
                     process_buffered_audio
 
                     if {$last_speech_time + $::config(silence_seconds) < $timestamp} {
-                        set result [[::engine::recognizer] final-result]
+                        # Safety check - ensure recognizer is available
+                        set recognizer [::engine::recognizer]
+                        if {$recognizer ne ""} {
+                            set result [$recognizer final-result]
 
-                        set speech_duration [expr { $last_speech_time - $this_speech_time }]
+                            set speech_duration [expr { $last_speech_time - $this_speech_time }]
 
-                        if { $speech_duration > $::config(min_duration) } {
-                            parse_and_display_result $result
-                        } else {
-                            partial_text ""
-                            print THRS-SHORTS $speech_duration
+                            if { $speech_duration > $::config(min_duration) } {
+                                parse_and_display_result $result
+                            } else {
+                                partial_text ""
+                                print THRS-SHORTS $speech_duration
+                            }
                         }
 
                         set last_speech_time 0

@@ -34,7 +34,7 @@ set audiolevel   0
 set confidence   0
 
 # Available speech engines (global list for config dialog)
-set ::speech_engines {vosk sherpa}
+set ::speech_engines {vosk sherpa faster-whisper}
 
 # The global configuration array with the defaults
 #
@@ -57,6 +57,7 @@ array set ::config {
     vosk_modelfile            vosk-model-en-us-0.22-lgraph
     sherpa_max_active_paths   4
     sherpa_modelfile          sherpa-onnx-streaming-zipformer-en-2023-06-26
+    faster_whisper_modelfile  ""
 }
 
 # UI initializaiton and callbacks -----------------------------------
@@ -93,9 +94,6 @@ grid [row .w -sticky news {
  }] -sticky news
 
 proc config {} {
-    # Capture current engine before opening dialog
-    set ::initial_engine $::config(speech_engine)
-
     # Build dynamic config based on selected engine
     set config_spec [list \
         -label.pady 6 \
@@ -105,7 +103,7 @@ proc config {} {
         -scale.width 20 \
     ]
 
-    # Engine selection (triggers restart prompt)
+    # Engine selection (hot-swap)
     lappend config_spec @ "Speech Engine" x ? config(speech_engine) -listvariable speech_engines &
     lappend config_spec @ "" - &
 

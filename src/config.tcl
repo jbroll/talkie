@@ -25,7 +25,7 @@ proc config_load {} {
     array set ::config [list {*}{
         window_x               100
         window_y               100
-        initialization_samples 100
+        initialization_samples 50
     } {*}[array get ::config]]
 
     set file [config_file]
@@ -62,45 +62,51 @@ proc config_trace {} {
 }
 
 proc config_engine_change {args} {
-    # Prevent recursion during revert
-    if {[info exists ::reverting_engine] && $::reverting_engine} {
-        return
+    # Hot-swap engine without restart
+    # Stop transcription first to avoid race conditions
+    set was_transcribing $::transcribing
+    if {$was_transcribing} {
+        set ::transcribing false
+        after 100  ;# Give audio callback time to finish
     }
 
-    # Only prompt if initial_engine is set (i.e., config dialog is open)
-    if {![info exists ::initial_engine]} {
-        return
-    }
+    ::engine::cleanup
+    ::engine::initialize
 
-    # Only prompt if changing from initial value
-    if {$::config(speech_engine) ne $::initial_engine} {
-        set answer [tk_messageBox -type okcancel -icon warning \
-            -title "Restart Required" \
-            -message "Speech engine change requires restart.\n\nClick OK to restart now, or Cancel to revert."]
-
-        if {$answer eq "ok"} {
-            # Save config and exit with code 4 to signal restart
-            config_save
-            exit 4
-        } else {
-            # Revert change (with recursion protection)
-            set ::reverting_engine 1
-            set ::config(speech_engine) $::initial_engine
-            set ::reverting_engine 0
-        }
+    # Restore transcription state if it was active
+    if {$was_transcribing} {
+        set ::transcribing true
     }
 }
 
 proc config_model_change {args} {
+    # Stop transcription during model change
+    set was_transcribing $::transcribing
+    if {$was_transcribing} {
+        set ::transcribing false
+        after 100  ;# Give audio callback time to finish
+    }
+
     ::engine::cleanup
     ::engine::initialize
+
+    # Restore transcription state
+    if {$was_transcribing} {
+        set ::transcribing true
+    }
 }
 
 proc state_transcribing_change {args} {
-    if {$::transcribing} {
-        ::audio::start_transcription
-    } else {
-        ::audio::stop_transcription
+    # Protect against errors during engine switching
+    if {[catch {
+        if {$::transcribing} {
+            ::audio::start_transcription
+        } else {
+            ::audio::stop_transcription
+        }
+    } err]} {
+        # Silently ignore errors during engine switch
+        # This happens when recognizer is empty during cleanup
     }
 }
 

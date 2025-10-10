@@ -12,6 +12,7 @@
 " new paragraph"     "\n\n"
 
 " comma "             ","
-" colon "             ":"
-" semicolon "         ";"
+" colon"              ":"
+" semicolon"          ";"
+" semi-colon"         ";"
 " hyphen "            "-"
