@@ -1,12 +1,13 @@
-# Talkie
-
+<h1 style="display: flex; align-items: center;"><img src="icon.svg" alt="Talkie Icon" width="64" height="64" style="margin-right: 15px;"/> Talkie - Chat with your Linux desktop</h1>
 Real-time speech-to-text transcription with keyboard simulation for Linux.
 
 ## Description
+<img src="screenshot.png" alt="Talkie Desktop UI" align="right" width="40%"/>
 
 Talkie is a speech recognition application that transcribes audio input and simulates keyboard events to inject text into the active window. It runs continuously in the background with a Tk-based control interface.
 
 The application monitors microphone input, performs voice activity detection, transcribes speech using configurable recognition engines, and types the results via the Linux uinput subsystem.
+<br clear="right"/>
 
 ## Features
 
