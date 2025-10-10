@@ -239,10 +239,3 @@ cd tcl
 - Configurable device selection via GUI
 - PulseAudio and ALSA support
 
-## Legacy Python Version (Deprecated)
-
-The Python version in the python/ directory is deprecated in favor of the Tcl
-implementation. The Python code remains for reference but is no longer actively
-developed. The Tcl version provides equivalent functionality with better
-performance and simpler architecture.
-
