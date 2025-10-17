@@ -133,6 +133,26 @@ namespace eval ::audio {
         }
     }
 
+    proc stop_audio_stream {} {
+        variable audio_stream
+
+        if {$audio_stream ne ""} {
+            try {
+                $audio_stream stop
+                $audio_stream close
+            } on error message {
+                puts "stop audio stream: $message"
+            }
+            set audio_stream ""
+        }
+    }
+
+    proc restart_audio_stream {} {
+        stop_audio_stream
+        ::audio::refresh_devices
+        start_audio_stream
+    }
+
     proc start_transcription {} {
         variable audio_buffer_list
         variable last_speech_time

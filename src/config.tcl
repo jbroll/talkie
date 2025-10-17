@@ -64,6 +64,7 @@ proc config_trace {} {
     trace add variable ::config(vosk_modelfile) write config_model_change
     trace add variable ::config(sherpa_modelfile) write config_model_change
     trace add variable ::config(typing_delay_ms) write config_typing_delay_change
+    trace add variable ::config(input_device) write config_input_device_change
     trace add variable ::transcribing write state_transcribing_change
 }
 
@@ -105,6 +106,22 @@ proc config_model_change {args} {
 proc config_typing_delay_change {args} {
     if {[info exists ::config(typing_delay_ms)]} {
         uinput::set_typing_delay $::config(typing_delay_ms)
+    }
+}
+
+proc config_input_device_change {args} {
+    # Hot-swap audio input device without restart
+    set was_transcribing $::transcribing
+    if {$was_transcribing} {
+        set ::transcribing false
+        after 100  ;# Give audio callback time to finish
+    }
+
+    ::audio::restart_audio_stream
+
+    # Restore transcription state
+    if {$was_transcribing} {
+        set ::transcribing true
     }
 }
 
