@@ -51,6 +51,7 @@ array set ::config {
     speech_min_multiplier     0.8
     speech_max_multiplier     1.5
     max_confidence_penalty    100
+    typing_delay_ms           10
     vosk_beam                 20
     vosk_lattice              8
     vosk_alternatives         1
@@ -113,6 +114,7 @@ proc build_config_spec {} {
     lappend config_spec @ "Lookback" @ :config(lookback_seconds) -width 10 <--> config(lookback_seconds) -from 0 -to 3 -resolution 0.1 &
     lappend config_spec @ "Silence" @ :config(silence_seconds) -width 10 <--> config(silence_seconds) -from 0 -to 3 -resolution 0.1 &
     lappend config_spec @ "Min Duration" @ :config(min_duration) -width 10 <--> config(min_duration) -from 0 -to 1 -resolution 0.01 &
+    lappend config_spec @ "Typing Delay (ms)" @ :config(typing_delay_ms) -width 10 <--> config(typing_delay_ms) -from 0 -to 100 &
     lappend config_spec @ "" - &
 
     # Engine-specific options

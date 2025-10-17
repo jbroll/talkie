@@ -27,6 +27,7 @@ critcl::ccode {
     } UInputDevice;
 
     static UInputDevice device = {-1, 0};
+    static int typing_delay_us = 10000;  // Default 10ms in microseconds
 
     static void emit_event(int type, int code, int value) {
         struct input_event ie;
@@ -46,16 +47,16 @@ critcl::ccode {
     static void emit_key_click(int key) {
         emit_event(EV_KEY, key, 1);  // key down
         emit_event(EV_KEY, key, 0);  // key up
-        emit_sync(7500);
+        emit_sync(typing_delay_us);
     }
 
     static void emit_key_combo(int modifier, int key) {
         emit_event(EV_KEY, modifier, 1);  // modifier down
         emit_event(EV_KEY, key, 1);       // key down
-        emit_sync(7500);
+        emit_sync(typing_delay_us);
         emit_event(EV_KEY, key, 0);       // key up
         emit_event(EV_KEY, modifier, 0);  // modifier up
-        emit_sync(7500);
+        emit_sync(typing_delay_us);
     }
 
     static int setup_key_events() {
@@ -184,7 +185,7 @@ critcl::ccode {
             }
         }
 
-        usleep(10000);  // Small delay between characters
+        usleep(typing_delay_us);  // Configurable delay between characters
     }
 
     // Type a string
@@ -213,6 +214,10 @@ critcl::cinit {
 
 critcl::cproc uinput::type {char* text} void {
     uinput_type_string(text);
+}
+
+critcl::cproc uinput::set_typing_delay {int delay_ms} void {
+    typing_delay_us = delay_ms * 1000;  // Convert ms to microseconds
 }
 
 critcl::cproc uinput::cleanup {} void {

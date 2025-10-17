@@ -9,6 +9,11 @@ proc config_init {} {
     ::audio::initialize
 
     config_refresh_models
+
+    # Set initial typing delay
+    if {[info exists ::config(typing_delay_ms)]} {
+        uinput::set_typing_delay $::config(typing_delay_ms)
+    }
 }
 
 proc config_file {} {
@@ -58,6 +63,7 @@ proc config_trace {} {
     trace add variable ::config(speech_engine) write config_engine_change
     trace add variable ::config(vosk_modelfile) write config_model_change
     trace add variable ::config(sherpa_modelfile) write config_model_change
+    trace add variable ::config(typing_delay_ms) write config_typing_delay_change
     trace add variable ::transcribing write state_transcribing_change
 }
 
@@ -93,6 +99,12 @@ proc config_model_change {args} {
     # Restore transcription state
     if {$was_transcribing} {
         set ::transcribing true
+    }
+}
+
+proc config_typing_delay_change {args} {
+    if {[info exists ::config(typing_delay_ms)]} {
+        uinput::set_typing_delay $::config(typing_delay_ms)
     }
 }
 
