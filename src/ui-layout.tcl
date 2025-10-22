@@ -109,15 +109,14 @@ grid [row .w -sticky news {
 
     @ Transcribing -text :transcribing@TranscribingStateLabel  -bg :transcribing@TranscribingStateColor -width 15
     ! Start        -text :transcribing@TranscribingButtonLabel -command "toggle ::transcribing"         -width 15
-    @ "" -width 5
     @ "" -bg :is_speech@SpeechStatusColor -width 6
     @ Audio: -text :audiolevel!audiolevel -bg :audiolevel&AudioRanges   -width 13
     @ Conf:  -text :confidence!confidence                               -width 13
     @ "" -width 5
     ! Config -command config 
-    ! Quit -command quit                                &
-    text ::final   -width 60 -height 10 - - - - - - - - &
-    text ::partial -width 60 -height  2 - - - - - - - - 
+    ! Quit -command quit                              &
+    text ::final   -width 60 -height 10 - - - - - - - &
+    text ::partial -width 60 -height  2 - - - - - - - 
  }] -sticky news
 
 # Build config dialog spec based on current engine
