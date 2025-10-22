@@ -34,6 +34,7 @@ namespace eval ::audio {
             set ::audiolevel $audiolevel
 
             set is_speech [threshold::is_speech $audiolevel $last_speech_time]
+            set ::is_speech $is_speech
 
             if {$::transcribing} {
                 set lookback_frames [expr {int($::config(lookback_seconds) * 10 + 0.5)}]
