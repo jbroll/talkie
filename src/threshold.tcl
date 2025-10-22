@@ -175,6 +175,7 @@ namespace eval ::threshold {
     proc calculate_percentiles {} {
         variable energy_buffer
         variable noise_floor
+        variable noise_threshold
 
         set sorted [lsort -real $energy_buffer]
         set count [llength $sorted]
@@ -190,6 +191,10 @@ namespace eval ::threshold {
             set median_val [lindex $sorted [expr {$count / 2}]]
 
             puts "PERCENTILE-CALC: old_floor=$old_floor new_floor=$noise_floor (percentile=${::config(noise_floor_percentile)}% at index $percentile_index of $count) min=$min_val median=$median_val max=$max_val"
+
+            # Export threshold values for UI
+            set noise_threshold [expr {$noise_floor * $::config(audio_threshold_multiplier)}]
+            update_ui_ranges
         }
     }
 
@@ -197,6 +202,7 @@ namespace eval ::threshold {
         variable initialization_complete
         variable noise_floor
         variable speechlevel
+        variable noise_threshold
 
         calculate_percentiles
 
@@ -204,10 +210,14 @@ namespace eval ::threshold {
             set speechlevel [expr {$noise_floor * 3.0}]
         }
 
+        set noise_threshold [expr {$noise_floor * $::config(audio_threshold_multiplier)}]
+
         set initialization_complete 1
         after idle {partial_text "✓ Audio calibration complete - Ready for transcription"}
 
         puts "DEBUG: Initialization complete - Noise floor: $noise_floor, Speech level: $speechlevel"
+
+        update_ui_ranges
     }
 
     proc update_speech_energy {} {
@@ -229,5 +239,23 @@ namespace eval ::threshold {
         set sorted [lsort -real $speech_energy_buffer]
         set count [llength $sorted]
         set speechlevel [lindex $sorted [expr {int($count/2)}]]
+
+        update_ui_ranges
+    }
+
+    proc update_ui_ranges {} {
+        variable noise_floor
+        variable noise_threshold
+        variable speechlevel
+
+        # Export values to globals for UI
+        set ::threshold_noise_floor $noise_floor
+        set ::threshold_noise_threshold $noise_threshold
+        set ::threshold_speechlevel $speechlevel
+
+        # Call UI update if it exists
+        if {[info commands ::update_audio_ranges] ne ""} {
+            ::update_audio_ranges
+        }
     }
 }

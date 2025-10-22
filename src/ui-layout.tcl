@@ -70,8 +70,29 @@ set TranscribingStateLabel { Idle Transcribing }
 set TranscribingStateColor { pink lightgreen }
 set TranscribingButtonLabel { Start "Stop " }
 
-set AudioRanges { { 0    15        50         75 } 
+# Initialize threshold globals with safe defaults
+set ::threshold_noise_floor 5.0
+set ::threshold_noise_threshold 12.5
+set ::threshold_speechlevel 15.0
+
+# AudioRanges will be dynamically updated based on actual threshold values
+set AudioRanges { { 0    12.5      15.0       30.0 }
                   { pink lightblue lightgreen #40C040 } }
+
+proc update_audio_ranges {} {
+    global AudioRanges threshold_noise_floor threshold_noise_threshold threshold_speechlevel
+
+    # Build dynamic ranges based on actual thresholds
+    # Range 1: 0 to noise_floor (pink - very quiet)
+    # Range 2: noise_floor to noise_threshold (lightblue - background noise, not speech)
+    # Range 3: noise_threshold to speechlevel (lightgreen - speech detected)
+    # Range 4: speechlevel+ (bright green - strong speech)
+
+    set ranges [list $threshold_noise_floor $threshold_noise_threshold $threshold_speechlevel [expr {$threshold_speechlevel * 2}]]
+    set colors {pink lightblue lightgreen #40C040}
+
+    set AudioRanges [list $ranges $colors]
+}
 
 proc toggle { x } {
     set $x [expr { ![set $x] }]
