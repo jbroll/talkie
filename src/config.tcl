@@ -28,9 +28,10 @@ proc config_save {args} {
 
 proc config_load {} {
     array set ::config [list {*}{
-        window_x               100
-        window_y               100
-        initialization_samples 50
+        window_x                   100
+        window_y                   100
+        initialization_samples     50
+        spike_suppression_seconds  0.3
     } {*}[array get ::config]]
 
     set file [config_file]
