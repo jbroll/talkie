@@ -1,3 +1,4 @@
+# Existing ignores
 bin
 lib
 lib64
@@ -8,3 +9,13 @@ __pycache__
 models
 
 .*.swp
+
+# Additional ignores for cleanliness
+*.backup
+error.log
+*.tar.gz
+*.log
+*.so
+*.o
+build/
+.claude/settings.local.json
