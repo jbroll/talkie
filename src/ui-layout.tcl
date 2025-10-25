@@ -98,6 +98,9 @@ proc update_audio_ranges {} {
     set AudioRanges [list $ranges $colors]
 }
 
+# Initialize AudioRanges with default values
+set ::AudioRanges [list {0.5 1.0 3.0 6.0} {pink lightblue lightgreen #40C040}]
+
 proc toggle { x } {
     set $x [expr { ![set $x] }]
 }
