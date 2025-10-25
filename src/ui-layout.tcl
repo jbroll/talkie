@@ -111,7 +111,7 @@ grid [row .w -sticky news {
     -label.pady 12
 
     @ Transcribing -text :transcribing@TranscribingStateLabel  -bg :transcribing@TranscribingStateColor -width 15
-    ! Start        -text :transcribing@TranscribingButtonLabel -command "toggle ::transcribing"         -width 15
+    ! Start        -text :transcribing@TranscribingButtonLabel -command "if {\$::transcribing} { audio::stop_transcription } else { audio::start_transcription }"         -width 15
     @ "" -bg :is_speech@SpeechStatusColor -width 6
     @ Audio: -text :audiolevel!audiolevel -bg :audiolevel&AudioRanges   -width 13
     @ Conf:  -text :confidence!confidence                               -width 13
