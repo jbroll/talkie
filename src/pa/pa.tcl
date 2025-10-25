@@ -213,7 +213,7 @@ static void tcl_notify_proc(ClientData cd, int mask) {
         Tcl_ListObjAppendElement(interp, cmd, Tcl_NewDoubleObj(ts));
 
         /* Append binary data object */
-        Tcl_Obj *dataObj = Tcl_NewByteArrayObj(buf, got);
+        Tcl_Obj *dataObj = Tcl_NewByteArrayObj((unsigned char*)buf, (Tcl_Size)got);
         Tcl_ListObjAppendElement(interp, cmd, dataObj);
 
         /* Evaluate callback safely */
@@ -288,14 +288,14 @@ static int PaListDevicesCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj
         Tcl_AppendResult(interp, "Pa_GetDeviceCount failed", NULL);
         return TCL_ERROR;
     }
-    Tcl_Obj *res = Tcl_NewListObj(0, NULL);
+    Tcl_Obj *res = Tcl_NewListObj((Tcl_Size)0, NULL);
     for (int i=0;i<cnt;i++) {
         const PaDeviceInfo *info = Pa_GetDeviceInfo(i);
         Tcl_Obj *dict = Tcl_NewDictObj();
-        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("index",-1), Tcl_NewIntObj(i));
-        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("name",-1), Tcl_NewStringObj(info->name, -1));
-        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("maxInputChannels",-1), Tcl_NewIntObj(info->maxInputChannels));
-        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("defaultSampleRate",-1), Tcl_NewDoubleObj(info->defaultSampleRate));
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("index", TCL_AUTO_LENGTH), Tcl_NewIntObj(i));
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("name", TCL_AUTO_LENGTH), Tcl_NewStringObj(info->name, TCL_AUTO_LENGTH));
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("maxInputChannels", TCL_AUTO_LENGTH), Tcl_NewIntObj(info->maxInputChannels));
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("defaultSampleRate", TCL_AUTO_LENGTH), Tcl_NewDoubleObj(info->defaultSampleRate));
         Tcl_ListObjAppendElement(interp, res, dict);
     }
     Tcl_SetObjResult(interp, res);
@@ -321,7 +321,7 @@ static int StreamObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *co
             return TCL_ERROR;
         }
         ctx->start_time = Pa_GetStreamTime(ctx->stream);
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok",-1));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", TCL_AUTO_LENGTH));
         return TCL_OK;
     } else if (strcmp(sub,"stop")==0) {
         if (!ctx->stream) return TCL_OK;
@@ -331,20 +331,20 @@ static int StreamObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *co
             return TCL_ERROR;
         }
         ctx->start_time = 0.0;
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok",-1));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", TCL_AUTO_LENGTH));
         return TCL_OK;
     } else if (strcmp(sub,"info")==0) {
         Tcl_Obj *d = Tcl_NewDictObj();
-        Tcl_DictObjPut(interp, d, Tcl_NewStringObj("rate",-1), Tcl_NewDoubleObj(ctx->sampleRate));
-        Tcl_DictObjPut(interp, d, Tcl_NewStringObj("channels",-1), Tcl_NewIntObj(ctx->channels));
-        Tcl_DictObjPut(interp, d, Tcl_NewStringObj("framesPerBuffer",-1), Tcl_NewIntObj(ctx->framesPerBuffer));
-        Tcl_DictObjPut(interp, d, Tcl_NewStringObj("overflows",-1), Tcl_NewIntObj((int)ctx->overflows));
-        Tcl_DictObjPut(interp, d, Tcl_NewStringObj("underruns",-1), Tcl_NewIntObj((int)ctx->underruns));
+        Tcl_DictObjPut(interp, d, Tcl_NewStringObj("rate", TCL_AUTO_LENGTH), Tcl_NewDoubleObj(ctx->sampleRate));
+        Tcl_DictObjPut(interp, d, Tcl_NewStringObj("channels", TCL_AUTO_LENGTH), Tcl_NewIntObj(ctx->channels));
+        Tcl_DictObjPut(interp, d, Tcl_NewStringObj("framesPerBuffer", TCL_AUTO_LENGTH), Tcl_NewIntObj(ctx->framesPerBuffer));
+        Tcl_DictObjPut(interp, d, Tcl_NewStringObj("overflows", TCL_AUTO_LENGTH), Tcl_NewIntObj((int)ctx->overflows));
+        Tcl_DictObjPut(interp, d, Tcl_NewStringObj("underruns", TCL_AUTO_LENGTH), Tcl_NewIntObj((int)ctx->underruns));
         Tcl_SetObjResult(interp, d);
         return TCL_OK;
     } else if (strcmp(sub,"close")==0) {
         Tcl_DeleteCommand(interp, Tcl_GetString(objv[0]));
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok",-1));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", TCL_AUTO_LENGTH));
         return TCL_OK;
     } else if (strcmp(sub,"setcallback")==0) {
         if (objc != 3) {
@@ -355,12 +355,12 @@ static int StreamObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *co
         if (ctx->callback) Tcl_DecrRefCount(ctx->callback);
         ctx->callback = objv[2];
         Tcl_IncrRefCount(ctx->callback);
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok",-1));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", TCL_AUTO_LENGTH));
         return TCL_OK;
     } else if (strcmp(sub,"stats")==0) {
         Tcl_Obj *d = Tcl_NewDictObj();
-        Tcl_DictObjPut(interp, d, Tcl_NewStringObj("overflows",-1), Tcl_NewIntObj((int)ctx->overflows));
-        Tcl_DictObjPut(interp, d, Tcl_NewStringObj("underruns",-1), Tcl_NewIntObj((int)ctx->underruns));
+        Tcl_DictObjPut(interp, d, Tcl_NewStringObj("overflows", TCL_AUTO_LENGTH), Tcl_NewIntObj((int)ctx->overflows));
+        Tcl_DictObjPut(interp, d, Tcl_NewStringObj("underruns", TCL_AUTO_LENGTH), Tcl_NewIntObj((int)ctx->underruns));
         Tcl_SetObjResult(interp, d);
         return TCL_OK;
     }
@@ -375,8 +375,8 @@ static int PaOpenStreamCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj 
     /* Default params */
     const char *device_arg = "default";
     double rate = 44100.0;
-    int channels = 1;
-    int framesPerBuffer = 256;
+    Tcl_Size channels = 1;
+    Tcl_Size framesPerBuffer = 256;
     const char *fmt = "float32";
     Tcl_Obj *callback = NULL;
 
@@ -490,7 +490,7 @@ static int PaOpenStreamCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj 
     static int counter = 0;
     char namebuf[64];
     sprintf(namebuf, "pa%d", ++counter);
-    Tcl_Obj *nameObj = Tcl_NewStringObj(namebuf, -1);
+    Tcl_Obj *nameObj = Tcl_NewStringObj(namebuf, TCL_AUTO_LENGTH);
     Tcl_IncrRefCount(nameObj);
     ctx->cmdname = nameObj;
 

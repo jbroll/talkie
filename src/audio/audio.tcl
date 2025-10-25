@@ -44,7 +44,7 @@ static double calculate_rms_energy_float32(const float *samples, unsigned int nu
 
 critcl::cproc audio::energy {Tcl_Interp* interp Tcl_Obj* data_obj Tcl_Obj* format_obj} double {
     /* Get binary data */
-    int data_len;
+    Tcl_Size data_len;
     unsigned char *data = Tcl_GetByteArrayFromObj(data_obj, &data_len);
     if (!data || data_len < 2) return 0.0;
 

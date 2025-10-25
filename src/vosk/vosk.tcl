@@ -3,8 +3,8 @@
 package require critcl 3.1
 
 # Ensure Vosk headers & library available at compile time
-critcl::cheaders ~/.local/include/vosk_api.h
-critcl::clibraries -L~/.local/lib -lvosk -lm -lstdc++
+critcl::cheaders $::env(HOME)/.local/include/vosk_api.h
+critcl::clibraries -L$::env(HOME)/.local/lib -lvosk -lm -lstdc++
 
 # Namespace
 namespace eval vosk {}
@@ -46,7 +46,10 @@ static void recognizer_delete(ClientData cd);
 
 /* Utility functions */
 static int GetIntParam(Tcl_Interp *interp, Tcl_Obj *obj, int *value) {
-    return Tcl_GetIntFromObj(interp, obj, value);
+    Tcl_Size temp;
+    int result = Tcl_GetSizeIntFromObj(interp, obj, &temp);
+    if (result == TCL_OK) *value = (int)temp;
+    return result;
 }
 
 static int GetDoubleParam(Tcl_Interp *interp, Tcl_Obj *obj, double *value) {
@@ -104,9 +107,9 @@ static int ModelObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *con
 
     if (strcmp(sub, "info") == 0) {
         Tcl_Obj *dict = Tcl_NewDictObj();
-        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("path", -1),
-                       Tcl_NewStringObj(ctx->model_path, -1));
-        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("loaded", -1),
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("path", TCL_AUTO_LENGTH),
+                       Tcl_NewStringObj(ctx->model_path, TCL_AUTO_LENGTH));
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("loaded", TCL_AUTO_LENGTH),
                        Tcl_NewBooleanObj(ctx->model != NULL));
         Tcl_SetObjResult(interp, dict);
         return TCL_OK;
@@ -174,7 +177,7 @@ static int ModelObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *con
         static int recognizer_counter = 0;
         char namebuf[64];
         sprintf(namebuf, "vosk_recognizer%d", ++recognizer_counter);
-        Tcl_Obj *nameObj = Tcl_NewStringObj(namebuf, -1);
+        Tcl_Obj *nameObj = Tcl_NewStringObj(namebuf, TCL_AUTO_LENGTH);
         Tcl_IncrRefCount(nameObj);
         rec_ctx->cmdname = nameObj;
 
@@ -188,7 +191,7 @@ static int ModelObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *con
 
     } else if (strcmp(sub, "close") == 0) {
         Tcl_DeleteCommand(interp, Tcl_GetString(objv[0]));
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", -1));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", TCL_AUTO_LENGTH));
         return TCL_OK;
     }
 
@@ -231,7 +234,7 @@ static int RecognizerObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj
         }
 
         /* Get binary audio data */
-        int length;
+        Tcl_Size length;
         unsigned char *data = Tcl_GetByteArrayFromObj(objv[2], &length);
 
         /* Validate audio data */
@@ -257,16 +260,16 @@ static int RecognizerObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj
             json_result = vosk_recognizer_partial_result(ctx->recognizer);
         }
 
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(json_result ? json_result : "", -1));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(json_result ? json_result : "", TCL_AUTO_LENGTH));
         return TCL_OK;
 
     } else if (strcmp(sub, "final-result") == 0) {
         const char *json_result = vosk_recognizer_final_result(ctx->recognizer);
-        Tcl_SetObjResult(interp, Tcl_NewStringObj(json_result ? json_result : "", -1));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj(json_result ? json_result : "", TCL_AUTO_LENGTH));
         return TCL_OK;
     } else if (strcmp(sub, "reset") == 0) {
         vosk_recognizer_reset(ctx->recognizer);
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", -1));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", TCL_AUTO_LENGTH));
         return TCL_OK;
 
     } else if (strcmp(sub, "configure") == 0) {
@@ -294,25 +297,25 @@ static int RecognizerObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj
             }
             i++;
         }
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", -1));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", TCL_AUTO_LENGTH));
         return TCL_OK;
 
     } else if (strcmp(sub, "info") == 0) {
         Tcl_Obj *dict = Tcl_NewDictObj();
-        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("sample_rate", -1),
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("sample_rate", TCL_AUTO_LENGTH),
                        Tcl_NewDoubleObj(ctx->sample_rate));
-        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("beam", -1),
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("beam", TCL_AUTO_LENGTH),
                        Tcl_NewIntObj(ctx->beam));
-        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("confidence_threshold", -1),
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("confidence_threshold", TCL_AUTO_LENGTH),
                        Tcl_NewDoubleObj(ctx->confidence_threshold));
-        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("max_alternatives", -1),
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("max_alternatives", TCL_AUTO_LENGTH),
                        Tcl_NewIntObj(ctx->max_alternatives));
         Tcl_SetObjResult(interp, dict);
         return TCL_OK;
 
     } else if (strcmp(sub, "close") == 0) {
         Tcl_DeleteCommand(interp, Tcl_GetString(objv[0]));
-        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", -1));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", TCL_AUTO_LENGTH));
         return TCL_OK;
     }
 
@@ -367,7 +370,7 @@ static int VoskLoadModelCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj
     static int model_counter = 0;
     char namebuf[64];
     sprintf(namebuf, "vosk_model%d", ++model_counter);
-    Tcl_Obj *nameObj = Tcl_NewStringObj(namebuf, -1);
+    Tcl_Obj *nameObj = Tcl_NewStringObj(namebuf, TCL_AUTO_LENGTH);
     Tcl_IncrRefCount(nameObj);
     ctx->cmdname = nameObj;
 

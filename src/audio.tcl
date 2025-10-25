@@ -8,22 +8,6 @@ namespace eval ::audio {
     variable this_speech_time 0
     variable last_speech_time 0
 
-    proc process_buffered_audio { } {
-        variable audio_buffer_list
-
-        # Safety check - ensure recognizer is available
-        set recognizer [::engine::recognizer]
-        if {$recognizer eq ""} {
-            set audio_buffer_list {}
-            return
-        }
-
-        foreach chunk $audio_buffer_list {
-            parse_and_display_result [$recognizer process $chunk]
-        }
-        set audio_buffer_list {}
-    }
-
     proc audio_callback {stream_name timestamp data} {
         variable this_speech_time
         variable last_speech_time
@@ -41,29 +25,32 @@ namespace eval ::audio {
                 lappend audio_buffer_list $data
                 set audio_buffer_list [lrange $audio_buffer_list end-$lookback_frames end]
 
-                if { $is_speech } {
-                    if { !$last_speech_time } {
-                        set this_speech_time $timestamp
+                set recognizer [::engine::recognizer]
+                if {$recognizer eq ""} {
+                    set audio_buffer_list {}
+                    return
+                }
+
+                # Rising edge of speech - send lookback buffer
+                if {$is_speech && !$last_speech_time} {
+                    set this_speech_time $timestamp
+                    foreach chunk $audio_buffer_list {
+                        $recognizer process-async $chunk
                     }
                     set last_speech_time $timestamp
-                }
-                if { $last_speech_time } {
-                    process_buffered_audio
+                } elseif {$last_speech_time} {
+                    # Ongoing speech - send only current chunk
+                    $recognizer process-async $data
+                    set last_speech_time $timestamp
 
+                    # Check for silence timeout
                     if {$last_speech_time + $::config(silence_seconds) < $timestamp} {
-                        # Safety check - ensure recognizer is available
-                        set recognizer [::engine::recognizer]
-                        if {$recognizer ne ""} {
-                            set result [$recognizer final-result]
+                        $recognizer final-async
 
-                            set speech_duration [expr { $last_speech_time - $this_speech_time }]
-
-                            if { $speech_duration > $::config(min_duration) } {
-                                parse_and_display_result $result
-                            } else {
-                                partial_text ""
-                                print THRS-SHORTS $speech_duration
-                            }
+                        set speech_duration [expr {$last_speech_time - $this_speech_time}]
+                        if {$speech_duration <= $::config(min_duration)} {
+                            after idle [partial_text ""]
+                            # print THRS-SHORTS $speech_duration
                         }
 
                         set last_speech_time 0
@@ -180,6 +167,13 @@ namespace eval ::audio {
 
         set ::transcribing 0
         state_save $::transcribing
+        
+        # Reset worker thread recognizer
+        set recognizer [::engine::recognizer]
+        if {$recognizer ne ""} {
+            catch {$recognizer reset}
+        }
+        
         set last_speech_time 0
         set audio_buffer_list {}
     }

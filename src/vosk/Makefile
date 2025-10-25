@@ -2,8 +2,10 @@
 
 .PHONY: all clean
 
+CRITCL = ../../critcl9
+
 all:
-	critcl -pkg vosk.tcl
+	$(CRITCL) -pkg vosk.tcl
 
 clean:
 	rm -rf lib 

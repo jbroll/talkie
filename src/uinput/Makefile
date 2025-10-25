@@ -2,8 +2,10 @@
 
 .PHONY: all clean
 
+CRITCL = ../../critcl9
+
 all:
-	critcl -pkg uinput.tcl
+	$(CRITCL) -pkg uinput.tcl
 
 clean:
 	rm -rf lib 

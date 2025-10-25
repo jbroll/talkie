@@ -91,7 +91,7 @@ namespace eval ::threshold {
 
             if {$time_since_last_speech > $::config(spike_suppression_seconds)} {
                 set is_speech 0
-                puts "SPIKE-IN-SEG: Ignoring noise spike ${time_since_last_speech}s after speech in segment (audio=$audiolevel)"
+                # puts "SPIKE-IN-SEG: Ignoring noise spike ${time_since_last_speech}s after speech in segment (audio=$audiolevel)"
             }
         }
 
@@ -101,7 +101,7 @@ namespace eval ::threshold {
 
             if {$time_since_segment_end < $::config(spike_suppression_seconds)} {
                 set is_speech 0
-                puts "SPIKE-NEW-SEG: Preventing new segment ${time_since_segment_end}s after previous ended (audio=$audiolevel)"
+                # puts "SPIKE-NEW-SEG: Preventing new segment ${time_since_segment_end}s after previous ended (audio=$audiolevel)"
             }
         }
 
@@ -111,14 +111,14 @@ namespace eval ::threshold {
         }
 
         # Debug: Show every sample when in or near a segment
-        if {$in_segment || $is_speech || $raw_is_speech} {
-            puts "SPEECH-DEBUG: audio=$audiolevel threshold=$noise_threshold floor=$noise_floor raw=$raw_is_speech final=$is_speech in_seg=$in_segment"
-        }
+        # if {$in_segment || $is_speech || $raw_is_speech} {
+        #     puts "SPEECH-DEBUG: audio=$audiolevel threshold=$noise_threshold floor=$noise_floor raw=$raw_is_speech final=$is_speech in_seg=$in_segment"
+        # }
 
         # Debug output every 50 samples to see adaptation
-        if {[llength $energy_buffer] % 50 == 0} {
-            puts "NOISE-FLOOR: floor=$noise_floor threshold=$noise_threshold current=$audiolevel is_speech=$is_speech in_segment=$in_segment buf_size=[llength $energy_buffer]"
-        }
+        # if {[llength $energy_buffer] % 50 == 0} {
+        #     puts "NOISE-FLOOR: floor=$noise_floor threshold=$noise_threshold current=$audiolevel is_speech=$is_speech in_segment=$in_segment buf_size=[llength $energy_buffer]"
+        # }
 
         return $is_speech
     }
@@ -149,7 +149,7 @@ namespace eval ::threshold {
         set ratio [expr {($current_energy - $speech_min) / ($speech_max - $speech_min)}]
         set penalty [expr { clip(0, $max_penalty * (1.0 - $ratio), $max_penalty) }]
 
-        print THRS-CONFID level $current_energy min $speech_min max $speech_max penalty $penalty : $speechlevel/$noise_threshold
+        # print THRS-CONFID level $current_energy min $speech_min max $speech_max penalty $penalty : $speechlevel/$noise_threshold
 
         return [expr {$base_threshold + $penalty}]
     }

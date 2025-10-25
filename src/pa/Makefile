@@ -2,8 +2,10 @@
 
 .PHONY: all clean
 
+CRITCL = ../../critcl9
+
 all:
-	critcl -pkg pa.tcl
+	$(CRITCL) -pkg pa.tcl
 
 clean:
 	rm -rf lib 

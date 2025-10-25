@@ -8,7 +8,7 @@ set ::textproc_map {}             ;# Punctuation mapping loaded from file
 proc textproc_load_map {} {
     set map_file [file join [file dirname [info script]] .. talkie.map]
     set ::textproc_map [| { cat $map_file | regsub -all -line {#.*$} ~ "" }]
-    puts $::textproc_map
+    # puts $::textproc_map
 }
 
 proc textproc {text} {

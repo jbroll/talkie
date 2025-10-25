@@ -1,4 +1,4 @@
-#!/usr/bin/env tclsh
+#!/usr/bin/env tclsh9.0
 # talkie.tcl - Tcl version of Talkie
 
 # Redefine bgerror to show errors on stderr instead of dialog
@@ -35,6 +35,7 @@ proc handle_instance_request {sock addr port} {
 check_single_instance
 
 lappend auto_path "$::env(HOME)/.local/lib/tcllib2.0"
+::tcl::tm::path add "$::env(HOME)/lib/tcl8/site-tcl"
 
 package require Tk
 package require json
