@@ -33,28 +33,31 @@ namespace eval ::audio {
 
                 # Rising edge of speech - send lookback buffer
                 if {$is_speech && !$last_speech_time} {
-                    set this_speech_time $timestamp
-                    foreach chunk $audio_buffer_list {
-                        $recognizer process-async $chunk
-                    }
-                    set last_speech_time $timestamp
+                set this_speech_time $timestamp
+                foreach chunk $audio_buffer_list {
+                $recognizer process-async $chunk
+                }
+                set last_speech_time $timestamp
                 } elseif {$last_speech_time} {
-                    # Ongoing speech - send only current chunk
-                    $recognizer process-async $data
+                # Ongoing speech - send current chunk
+                $recognizer process-async $data
+
+                    if {$is_speech} {
                     set last_speech_time $timestamp
+                } else {
+                # Check for silence timeout
+                        if {$last_speech_time + $::config(silence_seconds) < $timestamp} {
+                    $recognizer final-async
 
-                    # Check for silence timeout
-                    if {$last_speech_time + $::config(silence_seconds) < $timestamp} {
-                        $recognizer final-async
-
-                        set speech_duration [expr {$last_speech_time - $this_speech_time}]
-                        if {$speech_duration <= $::config(min_duration)} {
-                            after idle [partial_text ""]
-                            # print THRS-SHORTS $speech_duration
-                        }
+                set speech_duration [expr {$last_speech_time - $this_speech_time}]
+                if {$speech_duration <= $::config(min_duration)} {
+                        after idle [partial_text ""]
+                                # print THRS-SHORTS $speech_duration
+                    }
 
                         set last_speech_time 0
-                        set audio_buffer_list {}
+                            set audio_buffer_list {}
+                        }
                     }
                 }
             }
