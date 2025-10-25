@@ -62,7 +62,7 @@ namespace eval ::threshold {
             if {$progress % 10 == 0} {
                 after idle [list partial_text "Calibrating audio environment... ${progress}%"]
             }
-            return false
+            return 0
         }
 
         set in_segment [expr {$in_segment_timestamp != 0}]
