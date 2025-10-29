@@ -61,6 +61,8 @@ set ::audiolevel 0
 set ::confidence 0
 
 proc quit {} {
+    try { ::output::cleanup } on error message {}
+    try { ::engine::cleanup } on error message {}
     try { pa::terminate } on error message {}
     exit
 }
@@ -89,6 +91,7 @@ source [file join $script_dir vosk.tcl]
 
 # Load engine abstraction layer
 source [file join $script_dir engine.tcl]
+source [file join $script_dir output.tcl]
 source [file join $script_dir audio.tcl]
 
 proc get_model_path {modelfile} {

@@ -6,14 +6,13 @@ proc config_init {} {
     state_file_watcher
 
     ::audio::refresh_devices
+    ::output::initialize
     ::audio::initialize
 
     config_refresh_models
 
-    # Set initial typing delay
-    if {[info exists ::config(typing_delay_ms)]} {
-        uinput::set_typing_delay $::config(typing_delay_ms)
-    }
+    # Initial typing delay is set during output thread initialization
+    # No need to set it again here
 }
 
 proc config_file {} {
@@ -106,7 +105,7 @@ proc config_model_change {args} {
 
 proc config_typing_delay_change {args} {
     if {[info exists ::config(typing_delay_ms)]} {
-        uinput::set_typing_delay $::config(typing_delay_ms)
+        ::output::set_typing_delay $::config(typing_delay_ms)
     }
 }
 

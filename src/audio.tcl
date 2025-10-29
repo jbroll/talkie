@@ -96,7 +96,7 @@ namespace eval ::audio {
         if { [lsearch -exact $::killwords $text] < 0 } {
             if { [threshold::accept $conf] } {
                 set text [textproc $text]
-                uinput::type $text
+                ::output::type_async $text
                 after idle [final_text $text $conf]
             }
             set ::confidence $conf
