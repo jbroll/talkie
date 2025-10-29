@@ -80,7 +80,7 @@ set ::threshold_noise_threshold 12.5
 set ::threshold_speechlevel 15.0
 
 # AudioRanges will be dynamically updated based on actual threshold values
-set AudioRanges { { 0    12.5      15.0       30.0 }
+set AudioRanges { { 0    1.0       2.0        4.0 }
                   { pink lightblue lightgreen #40C040 } }
 
 proc update_audio_ranges {} {
@@ -92,14 +92,11 @@ proc update_audio_ranges {} {
     # Range 3: noise_threshold to speechlevel (lightgreen - speech detected)
     # Range 4: speechlevel+ (bright green - strong speech)
 
-    set ranges [list $threshold_noise_floor $threshold_noise_threshold $threshold_speechlevel [expr {$threshold_speechlevel * 2}]]
+    set ranges [list 0 $threshold_noise_threshold $threshold_speechlevel [expr {$threshold_speechlevel * 2}]]
     set colors {pink lightblue lightgreen #40C040}
 
     set AudioRanges [list $ranges $colors]
 }
-
-# Initialize AudioRanges with default values
-set ::AudioRanges [list {0.5 1.0 3.0 6.0} {pink lightblue lightgreen #40C040}]
 
 proc toggle { x } {
     set $x [expr { ![set $x] }]

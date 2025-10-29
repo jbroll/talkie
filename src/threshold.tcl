@@ -190,8 +190,6 @@ namespace eval ::threshold {
             set max_val [lindex $sorted end]
             set median_val [lindex $sorted [expr {$count / 2}]]
 
-            puts "PERCENTILE-CALC: old_floor=$old_floor new_floor=$noise_floor (percentile=${::config(noise_floor_percentile)}% at index $percentile_index of $count) min=$min_val median=$median_val max=$max_val"
-
             # Export threshold values for UI
             set noise_threshold [expr {$noise_floor * $::config(audio_threshold_multiplier)}]
             update_ui_ranges
@@ -214,8 +212,6 @@ namespace eval ::threshold {
 
         set initialization_complete 1
         after idle {partial_text "✓ Audio calibration complete - Ready for transcription"}
-
-        puts "DEBUG: Initialization complete - Noise floor: $noise_floor, Speech level: $speechlevel"
 
         update_ui_ranges
     }
