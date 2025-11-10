@@ -8,14 +8,32 @@ namespace eval ::audio {
     variable this_speech_time 0
     variable last_speech_time 0
 
+    # Health monitoring variables
+    variable last_callback_time 0
+    variable last_audiolevel 0
+    variable level_change_count 0
+    variable health_timer ""
+
     proc audio_callback {stream_name timestamp data} {
         variable this_speech_time
         variable last_speech_time
         variable audio_buffer_list
+        variable last_callback_time
+        variable last_audiolevel
+        variable level_change_count
 
         try {
+            # Update health monitoring
+            set last_callback_time [clock seconds]
+
             set audiolevel [audio::energy $data int16]
             set ::audiolevel $audiolevel
+
+            # Track significant level changes (variance > 1.0)
+            if {abs($audiolevel - $last_audiolevel) > 1.0} {
+                incr level_change_count
+            }
+            set last_audiolevel $audiolevel
 
             set is_speech [threshold::is_speech $audiolevel $last_speech_time]
             set ::is_speech $is_speech
@@ -104,6 +122,61 @@ namespace eval ::audio {
         after idle [partial_text ""]
     }
 
+    proc check_stream_health {} {
+        variable last_callback_time
+        variable level_change_count
+        variable health_timer
+        variable audio_stream
+
+        set now [clock seconds]
+        set time_since_data [expr {$now - $last_callback_time}]
+
+        # Only check health if stream exists
+        if {$audio_stream ne ""} {
+            # Detect frozen stream: no data for 30s AND almost no level changes
+            # This indicates device stopped streaming (e.g., after suspend/resume)
+            if {$time_since_data > 30 && $level_change_count < 3} {
+                puts "⚠️  Audio stream frozen (no data for ${time_since_data}s, ${level_change_count} level changes)"
+                puts "🔄 Re-enumerating devices and restarting stream..."
+                restart_audio_stream
+                set last_callback_time $now
+                set level_change_count 0
+            }
+        }
+
+        # Reset level change counter for next interval
+        set level_change_count 0
+
+        # Schedule next health check in 10 seconds
+        set health_timer [after 10000 ::audio::check_stream_health]
+    }
+
+    proc start_health_monitoring {} {
+        variable health_timer
+        variable last_callback_time
+        variable level_change_count
+
+        set last_callback_time [clock seconds]
+        set level_change_count 0
+
+        # Cancel any existing timer
+        if {$health_timer ne ""} {
+            after cancel $health_timer
+        }
+
+        # Start periodic health checks every 10 seconds
+        set health_timer [after 10000 ::audio::check_stream_health]
+    }
+
+    proc stop_health_monitoring {} {
+        variable health_timer
+
+        if {$health_timer ne ""} {
+            after cancel $health_timer
+            set health_timer ""
+        }
+    }
+
     proc start_audio_stream {} {
         variable audio_stream
 
@@ -118,6 +191,9 @@ namespace eval ::audio {
 
             $audio_stream start
 
+            # Start health monitoring after successful stream start
+            start_health_monitoring
+
         } on error message {
             puts "start audio stream: $message"
             set audio_stream ""
@@ -126,6 +202,9 @@ namespace eval ::audio {
 
     proc stop_audio_stream {} {
         variable audio_stream
+
+        # Stop health monitoring first
+        stop_health_monitoring
 
         if {$audio_stream ne ""} {
             try {
