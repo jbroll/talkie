@@ -1,0 +1,347 @@
+#!/usr/bin/env tclsh
+# Test audio device health monitoring and auto-recovery
+
+package require tcltest
+namespace import ::tcltest::*
+
+# Add paths for mock modules and jbr packages
+set script_dir [file dirname [file normalize [info script]]]
+lappend auto_path [file join $script_dir mocks]
+lappend auto_path "$::env(HOME)/.local/lib/tcllib2.0"
+
+# Require needed packages
+package require jbr::unix
+package require jbr::pipe
+
+# Load mock modules first
+package require audio
+package require pa
+package require vosk
+package require uinput
+
+# Load required modules
+source [file join [file dirname [info script]] .. config.tcl]
+source [file join [file dirname [info script]] .. textproc.tcl]
+source [file join [file dirname [info script]] .. threshold.tcl]
+
+# Mock engine module functions
+namespace eval ::engine {
+    variable mock_recognizer "mock_recognizer"
+
+    proc recognizer {} {
+        variable mock_recognizer
+        return $mock_recognizer
+    }
+
+    proc initialize {} {
+        return true
+    }
+}
+
+# Mock recognizer object
+namespace eval ::mock_recognizer {
+    proc process-async {data} {}
+    proc final-async {} {}
+    proc reset {} {}
+}
+
+# Load audio module after mocks and dependencies are set up
+source [file join [file dirname [info script]] .. audio.tcl]
+
+# Mock global variables that would normally be set by the main app
+set ::transcribing 0
+set ::audiolevel 0
+set ::confidence 0
+set ::is_speech 0
+
+# Mock config values
+array set ::config {
+    input_device "mock_device"
+    lookback_seconds 1.0
+    silence_seconds 0.5
+    min_duration 0.3
+    initialization_samples 10
+    noise_floor_percentile 10
+    speech_floor_percentile 70
+    confidence_threshold 100
+    speech_min_multiplier 0.8
+    speech_max_multiplier 1.5
+    max_confidence_penalty 50
+    audio_threshold_multiplier 2.5
+    spike_suppression_seconds 0.5
+}
+
+# Mock functions that would normally be provided by main app
+proc parse_and_display_result {result} {
+    lappend ::test_results $result
+}
+
+proc partial_text {text} {
+    set ::test_partial_text $text
+    return ""
+}
+
+proc final_text {text conf} {
+    lappend ::test_final_results [list $text $conf]
+    return ""
+}
+
+proc state_save {state} {
+    # Mock state persistence
+}
+
+proc state_load {} {
+    return 0
+}
+
+proc textproc_reset {} {
+    # Mock textproc reset
+}
+
+proc textproc {text} {
+    return $text
+}
+
+# Initialize test variables
+set ::test_results {}
+set ::test_partial_text ""
+set ::test_final_results {}
+
+# Mock output module
+namespace eval ::output {
+    proc type_async {text} {
+        lappend ::test_typed_text $text
+    }
+}
+set ::test_typed_text {}
+
+# Helper to reset health monitoring state
+proc reset_health_state {} {
+    set ::audio::last_callback_time [clock seconds]
+    set ::audio::last_audiolevel 0.0
+    set ::audio::level_change_count 0
+    ::audio::stop_health_monitoring
+}
+
+# Helper to simulate audio callbacks with specific energy levels
+proc simulate_audio_callbacks {energy_levels} {
+    set timestamp [clock milliseconds]
+    foreach energy $energy_levels {
+        ::audio::set_mock_energy $energy
+        ::audio::audio_callback "mock_stream" $timestamp "mock_data"
+        incr timestamp 100
+    }
+}
+
+test health-monitoring-1.1 {Test level change detection with varying audio} -setup {
+    reset_health_state
+    set ::audio::last_audiolevel 5.0
+} -body {
+    # Simulate audio with significant changes (> 1.0 variance)
+    simulate_audio_callbacks {5.0 7.5 10.2 8.0 12.5}
+
+    # Should have detected 4 changes (first 5.0 doesn't count as it matches initial)
+    set ::audio::level_change_count
+} -result {4}
+
+test health-monitoring-1.2 {Test frozen device detection - no level changes} -setup {
+    reset_health_state
+    set ::audio::last_audiolevel 5.0
+    # Simulate old timestamp (35 seconds ago)
+    set ::audio::last_callback_time [expr {[clock seconds] - 35}]
+    set ::audio::level_change_count 0
+} -body {
+    # Simulate frozen device returning same buffer repeatedly
+    simulate_audio_callbacks {5.0 5.0 5.0 5.0}
+
+    # Time should still be old (> 30s) and level changes should be 0
+    set time_since_data [expr {[clock seconds] - $::audio::last_callback_time}]
+    list [expr {$time_since_data > 30}] [expr {$::audio::level_change_count < 3}]
+} -result {1 1}
+
+test health-monitoring-1.3 {Test quiet room - small variations below threshold} -setup {
+    reset_health_state
+    set ::audio::last_audiolevel 3.0
+} -body {
+    # Simulate quiet room with variations < 1.0
+    simulate_audio_callbacks {3.0 3.1 3.2 2.9 3.15}
+
+    # Should detect only first significant change (3.0 -> 3.1 is 0.1, but 0 -> 3.0 is 3.0)
+    # Actually, let me recalculate:
+    # Start: last_audiolevel = 3.0
+    # 3.0: abs(3.0 - 3.0) = 0 -> no change
+    # 3.1: abs(3.1 - 3.0) = 0.1 -> no change
+    # 3.2: abs(3.2 - 3.1) = 0.1 -> no change
+    # 2.9: abs(2.9 - 3.2) = 0.3 -> no change
+    # 3.15: abs(3.15 - 2.9) = 0.25 -> no change
+    set ::audio::level_change_count
+} -result {0}
+
+test health-monitoring-1.4 {Test callback timestamp updates only on changes} -setup {
+    reset_health_state
+    set ::audio::last_audiolevel 5.0
+    set initial_time $::audio::last_callback_time
+} -body {
+    # First: no change
+    simulate_audio_callbacks {5.0}
+    set time_after_no_change $::audio::last_callback_time
+
+    # Wait to ensure clock advances to next second
+    after 1100
+
+    # Second: significant change (8.0 - 5.0 = 3.0 > 1.0)
+    simulate_audio_callbacks {8.0}
+    set time_after_change $::audio::last_callback_time
+
+    # Time should only update after significant change
+    list \
+        [expr {$time_after_no_change == $initial_time}] \
+        [expr {$time_after_change > $initial_time}]
+} -result {1 1}
+
+test health-monitoring-2.1 {Test check_stream_health detects frozen stream} -setup {
+    reset_health_state
+    set ::audio::audio_stream "mock_stream"
+    # Simulate old timestamp and low change count
+    set ::audio::last_callback_time [expr {[clock seconds] - 35}]
+    set ::audio::level_change_count 2
+
+    # Track if restart was called
+    set ::restart_called 0
+    rename ::audio::restart_audio_stream ::audio::restart_audio_stream_orig
+    proc ::audio::restart_audio_stream {} {
+        set ::restart_called 1
+    }
+} -body {
+    ::audio::check_stream_health
+    set ::restart_called
+} -cleanup {
+    rename ::audio::restart_audio_stream ""
+    rename ::audio::restart_audio_stream_orig ::audio::restart_audio_stream
+} -result {1}
+
+test health-monitoring-2.2 {Test check_stream_health - healthy stream} -setup {
+    reset_health_state
+    set ::audio::audio_stream "mock_stream"
+    # Recent timestamp and healthy change count
+    set ::audio::last_callback_time [clock seconds]
+    set ::audio::level_change_count 5
+
+    # Track if restart was called
+    set ::restart_called 0
+    rename ::audio::restart_audio_stream ::audio::restart_audio_stream_orig
+    proc ::audio::restart_audio_stream {} {
+        set ::restart_called 1
+    }
+} -body {
+    ::audio::check_stream_health
+    set ::restart_called
+} -cleanup {
+    rename ::audio::restart_audio_stream ""
+    rename ::audio::restart_audio_stream_orig ::audio::restart_audio_stream
+} -result {0}
+
+test health-monitoring-2.3 {Test check_stream_health - no stream exists} -setup {
+    reset_health_state
+    set ::audio::audio_stream ""
+
+    # Track if restart was called
+    set ::restart_called 0
+    rename ::audio::restart_audio_stream ::audio::restart_audio_stream_orig
+    proc ::audio::restart_audio_stream {} {
+        set ::restart_called 1
+    }
+} -body {
+    ::audio::check_stream_health
+    set ::restart_called
+} -cleanup {
+    rename ::audio::restart_audio_stream ""
+    rename ::audio::restart_audio_stream_orig ::audio::restart_audio_stream
+} -result {0}
+
+test health-monitoring-3.1 {Test level change counter reset} -setup {
+    reset_health_state
+    set ::audio::level_change_count 10
+} -body {
+    ::audio::check_stream_health
+    # Counter should be reset to 0 after health check
+    set ::audio::level_change_count
+} -result {0}
+
+test health-monitoring-3.2 {Test real-world suspend/resume scenario} -setup {
+    reset_health_state
+    set ::audio::last_audiolevel 5.0
+    set ::audio::audio_stream "mock_stream"
+
+    set ::restart_called 0
+    rename ::audio::restart_audio_stream ::audio::restart_audio_stream_orig
+    proc ::audio::restart_audio_stream {} {
+        set ::restart_called 1
+        set ::audio::last_callback_time [clock seconds]
+        set ::audio::level_change_count 0
+    }
+} -body {
+    # Simulate normal operation
+    simulate_audio_callbacks {5.0 7.0 9.0 6.0}
+
+    # Simulate suspend (set old timestamp)
+    set ::audio::last_callback_time [expr {[clock seconds] - 35}]
+    set ::audio::level_change_count 0
+
+    # Device frozen - returns same buffer
+    simulate_audio_callbacks {5.0 5.0 5.0}
+
+    # Health check should detect frozen stream
+    ::audio::check_stream_health
+
+    set ::restart_called
+} -cleanup {
+    rename ::audio::restart_audio_stream ""
+    rename ::audio::restart_audio_stream_orig ::audio::restart_audio_stream
+} -result {1}
+
+test health-monitoring-4.1 {Test monitoring lifecycle - start} -setup {
+    reset_health_state
+} -body {
+    ::audio::start_health_monitoring
+
+    # Timer should be set
+    expr {$::audio::health_timer ne ""}
+} -cleanup {
+    ::audio::stop_health_monitoring
+} -result {1}
+
+test health-monitoring-4.2 {Test monitoring lifecycle - stop} -setup {
+    reset_health_state
+    ::audio::start_health_monitoring
+} -body {
+    set had_timer [expr {$::audio::health_timer ne ""}]
+    ::audio::stop_health_monitoring
+    set no_timer [expr {$::audio::health_timer eq ""}]
+
+    list $had_timer $no_timer
+} -result {1 1}
+
+test health-monitoring-4.3 {Test monitoring double start cancels previous timer} -setup {
+    reset_health_state
+    ::audio::start_health_monitoring
+    set first_timer $::audio::health_timer
+} -body {
+    ::audio::start_health_monitoring
+    set second_timer $::audio::health_timer
+
+    # Second timer should be different (old one cancelled)
+    expr {$first_timer ne $second_timer}
+} -cleanup {
+    ::audio::stop_health_monitoring
+} -result {1}
+
+puts "\nAudio health monitoring tests created successfully!"
+puts "These tests verify:"
+puts "  - Level change detection and counting"
+puts "  - Frozen device detection after suspend/resume"
+puts "  - Quiet room handling (small variations)"
+puts "  - Timestamp updates only on actual data changes"
+puts "  - Health check logic and restart triggering"
+puts "  - Monitoring lifecycle management"
+puts "\nRun all tests with: cd tests && ./all_tests.tcl"

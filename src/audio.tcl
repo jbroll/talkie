@@ -23,15 +23,14 @@ namespace eval ::audio {
         variable level_change_count
 
         try {
-            # Update health monitoring
-            set last_callback_time [clock seconds]
-
             set audiolevel [audio::energy $data int16]
             set ::audiolevel $audiolevel
 
             # Track significant level changes (variance > 1.0)
             if {abs($audiolevel - $last_audiolevel) > 1.0} {
                 incr level_change_count
+                # Update health monitoring timestamp only when we see data changes
+                set last_callback_time [clock seconds]
             }
             set last_audiolevel $audiolevel
 
