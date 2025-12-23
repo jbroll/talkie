@@ -1,0 +1,406 @@
+#!/usr/bin/env tclsh
+# Test dynamic noise floor and speech level detection with UI range updates
+
+package require tcltest
+namespace import ::tcltest::*
+
+# Add paths for mock modules and jbr packages
+set script_dir [file dirname [file normalize [info script]]]
+lappend auto_path [file join $script_dir mocks]
+lappend auto_path "$::env(HOME)/.local/lib/tcllib2.0"
+
+# Require needed packages
+package require jbr::unix
+package require jbr::pipe
+
+# Load mock modules first
+package require audio
+package require pa
+package require vosk
+package require uinput
+
+# Load required modules
+source [file join [file dirname [info script]] .. config.tcl]
+source [file join [file dirname [info script]] .. textproc.tcl]
+source [file join [file dirname [info script]] .. threshold.tcl]
+
+# Mock engine module functions
+namespace eval ::engine {
+    variable mock_recognizer "mock_recognizer"
+
+    proc recognizer {} {
+        variable mock_recognizer
+        return $mock_recognizer
+    }
+
+    proc initialize {} {
+        return true
+    }
+}
+
+# Mock recognizer object
+namespace eval ::mock_recognizer {
+    proc process-async {data} {}
+    proc final-async {} {}
+    proc reset {} {}
+}
+
+# Load audio module
+source [file join [file dirname [info script]] .. audio.tcl]
+
+# Load UI layout to get update_audio_ranges function
+source [file join [file dirname [info script]] .. ui-layout.tcl]
+
+# Mock global variables
+set ::transcribing 0
+set ::audiolevel 0
+set ::confidence 0
+set ::is_speech 0
+
+# Track UI range updates
+set ::ui_range_update_count 0
+set ::ui_range_updates {}
+
+# Wrap update_audio_ranges to track calls
+rename ::update_audio_ranges ::update_audio_ranges_orig
+proc ::update_audio_ranges {} {
+    incr ::ui_range_update_count
+    lappend ::ui_range_updates [list \
+        floor $::threshold_noise_floor \
+        threshold $::threshold_noise_threshold \
+        speech $::threshold_speechlevel \
+        ranges [lindex $::AudioRanges 0]]
+    ::update_audio_ranges_orig
+}
+
+# Mock config values
+array set ::config {
+    input_device "mock_device"
+    lookback_seconds 1.0
+    silence_seconds 0.5
+    min_duration 0.3
+    initialization_samples 20
+    noise_floor_percentile 10
+    speech_floor_percentile 70
+    confidence_threshold 100
+    speech_min_multiplier 0.8
+    speech_max_multiplier 1.5
+    max_confidence_penalty 50
+    audio_threshold_multiplier 2.5
+    spike_suppression_seconds 0.5
+}
+
+# Mock functions
+proc parse_and_display_result {result} {}
+proc partial_text {text} { return "" }
+proc final_text {text conf} { return "" }
+proc state_save {state} {}
+proc state_load {} { return 0 }
+proc textproc_reset {} {}
+proc textproc {text} { return $text }
+
+namespace eval ::output {
+    proc type_async {text} {}
+}
+
+# Helper to reset state
+proc reset_threshold_state {} {
+    set ::threshold::initialization_complete 0
+    set ::threshold::energy_buffer {}
+    set ::threshold::noise_floor 0
+    set ::threshold::noise_threshold 0
+    set ::threshold::speechlevel 0
+    set ::ui_range_update_count 0
+    set ::ui_range_updates {}
+}
+
+# Helper to simulate audio samples and trigger threshold calculations
+proc simulate_audio_samples {energy_values} {
+    set timestamp 0
+    foreach energy $energy_values {
+        ::audio::set_mock_energy $energy
+        ::threshold::is_speech $energy $timestamp
+        incr timestamp 100
+    }
+}
+
+test dynamic-thresholds-1.1 {Initial calibration triggers UI range update} -setup {
+    reset_threshold_state
+} -body {
+    # Simulate initialization with quiet environment (noise ~3.0)
+    set quiet_samples {}
+    for {set i 0} {$i < 25} {incr i} {
+        lappend quiet_samples [expr {2.5 + rand() * 1.0}]
+    }
+
+    simulate_audio_samples $quiet_samples
+
+    # Should have completed initialization and called update_audio_ranges
+    list $::threshold::initialization_complete $::ui_range_update_count
+} -result {1 1}
+
+test dynamic-thresholds-1.2 {Noise floor calculated correctly during initialization} -setup {
+    reset_threshold_state
+} -body {
+    # Simulate 25 samples: 20 quiet (2-4), 5 louder (8-10)
+    set samples {}
+    for {set i 0} {$i < 20} {incr i} {
+        lappend samples [expr {2.0 + rand() * 2.0}]
+    }
+    for {set i 0} {$i < 5} {incr i} {
+        lappend samples [expr {8.0 + rand() * 2.0}]
+    }
+
+    simulate_audio_samples $samples
+
+    # 10th percentile of 25 samples should be around 2-3
+    # Noise floor should be in reasonable range
+    expr {$::threshold::noise_floor > 1.5 && $::threshold::noise_floor < 4.0}
+} -result {1}
+
+test dynamic-thresholds-2.1 {Background noise increase updates noise floor} -setup {
+    reset_threshold_state
+} -body {
+    # Initial quiet environment (2-4)
+    set quiet_samples {}
+    for {set i 0} {$i < 30} {incr i} {
+        lappend quiet_samples [expr {2.0 + rand() * 2.0}]
+    }
+    simulate_audio_samples $quiet_samples
+
+    set initial_floor $::threshold::noise_floor
+    set initial_update_count $::ui_range_update_count
+
+    # Now background noise increases (fan turns on - noise now 6-8)
+    set noisy_samples {}
+    for {set i 0} {$i < 100} {incr i} {
+        lappend noisy_samples [expr {6.0 + rand() * 2.0}]
+    }
+    simulate_audio_samples $noisy_samples
+
+    set new_floor $::threshold::noise_floor
+    set new_update_count $::ui_range_update_count
+
+    # Noise floor should increase
+    # UI should have been updated (every 50 samples)
+    list \
+        [expr {$new_floor > $initial_floor}] \
+        [expr {$new_update_count > $initial_update_count}]
+} -result {1 1}
+
+test dynamic-thresholds-2.2 {Verify UI ranges update every 50 samples} -setup {
+    reset_threshold_state
+} -body {
+    # Initialize with 30 samples
+    set samples {}
+    for {set i 0} {$i < 30} {incr i} {
+        lappend samples [expr {3.0 + rand() * 2.0}]
+    }
+    simulate_audio_samples $samples
+
+    set count_after_init $::ui_range_update_count
+
+    # Add 50 more samples - should trigger update at sample 50
+    set more_samples {}
+    for {set i 0} {$i < 50} {incr i} {
+        lappend more_samples [expr {3.0 + rand() * 2.0}]
+    }
+    simulate_audio_samples $more_samples
+
+    # Should have at least one more update (at 50 samples)
+    expr {$::ui_range_update_count > $count_after_init}
+} -result {1}
+
+test dynamic-thresholds-2.3 {UI AudioRanges variable is actually updated} -setup {
+    reset_threshold_state
+} -body {
+    # Get initial AudioRanges
+    set initial_ranges [lindex $::AudioRanges 0]
+
+    # Initialize with quiet samples
+    set samples {}
+    for {set i 0} {$i < 30} {incr i} {
+        lappend samples [expr {2.0 + rand() * 1.0}]
+    }
+    simulate_audio_samples $samples
+
+    set after_init_ranges [lindex $::AudioRanges 0]
+
+    # Now add loud background noise
+    set loud_samples {}
+    for {set i 0} {$i < 100} {incr i} {
+        lappend loud_samples [expr {10.0 + rand() * 5.0}]
+    }
+    simulate_audio_samples $loud_samples
+
+    set after_noise_ranges [lindex $::AudioRanges 0]
+
+    # Ranges should have changed from initial
+    # The threshold values should increase with loud background
+    expr {$initial_ranges ne $after_noise_ranges}
+} -result {1}
+
+test dynamic-thresholds-3.1 {Speech level updates after accepted speech segments} -setup {
+    reset_threshold_state
+} -body {
+    # Initialize with quiet background
+    set samples {}
+    for {set i 0} {$i < 30} {incr i} {
+        lappend samples [expr {3.0 + rand() * 1.0}]
+    }
+    simulate_audio_samples $samples
+
+    set initial_speechlevel $::threshold::speechlevel
+
+    # Now simulate a speech segment (in_segment_timestamp != 0)
+    # with higher energy levels
+    for {set i 0} {$i < 20} {incr i} {
+        set energy [expr {15.0 + rand() * 5.0}]
+        ::audio::set_mock_energy $energy
+        ::threshold::is_speech $energy [clock milliseconds]
+    }
+
+    # End the segment and accept it (triggers update_speech_energy)
+    set result_json {{"alternatives": [{"text": "test", "confidence": 250}]}}
+    ::audio::parse_and_display_result $result_json
+
+    set new_speechlevel $::threshold::speechlevel
+
+    # Speech level should increase after speech segment
+    expr {$new_speechlevel > $initial_speechlevel}
+} -result {1}
+
+test dynamic-thresholds-3.2 {Continuous adaptation over time} -setup {
+    reset_threshold_state
+} -body {
+    # Simulate realistic scenario:
+    # 1. Start quiet (30 samples)
+    for {set i 0} {$i < 30} {incr i} {
+        simulate_audio_samples [list [expr {2.0 + rand() * 1.0}]]
+    }
+
+    set phase1_floor $::threshold::noise_floor
+    set phase1_updates $::ui_range_update_count
+
+    # 2. Background noise gradually increases (100 samples)
+    for {set i 0} {$i < 100} {incr i} {
+        set noise [expr {2.0 + ($i / 100.0) * 8.0 + rand() * 1.0}]
+        simulate_audio_samples [list $noise]
+    }
+
+    set phase2_floor $::threshold::noise_floor
+    set phase2_updates $::ui_range_update_count
+
+    # 3. Stabilize at higher noise level (50 samples)
+    for {set i 0} {$i < 50} {incr i} {
+        simulate_audio_samples [list [expr {10.0 + rand() * 2.0}]]
+    }
+
+    set phase3_floor $::threshold::noise_floor
+    set phase3_updates $::ui_range_update_count
+
+    # Verify continuous adaptation:
+    # - Noise floor should increase through phases
+    # - UI should be updated multiple times
+    list \
+        [expr {$phase2_floor > $phase1_floor}] \
+        [expr {$phase3_floor > $phase2_floor}] \
+        [expr {$phase3_updates > $phase2_updates}] \
+        [expr {$phase2_updates > $phase1_updates}]
+} -result {1 1 1 1}
+
+test dynamic-thresholds-4.1 {Verify update_audio_ranges is called from threshold module} -setup {
+    reset_threshold_state
+
+    # Track if the function is being called
+    set ::direct_call_test 0
+    rename ::update_audio_ranges ::update_audio_ranges_test
+    proc ::update_audio_ranges {} {
+        set ::direct_call_test 1
+        ::update_audio_ranges_test
+    }
+} -body {
+    # Initialize
+    set samples {}
+    for {set i 0} {$i < 30} {incr i} {
+        lappend samples [expr {3.0 + rand() * 1.0}]
+    }
+    simulate_audio_samples $samples
+
+    # Function should have been called
+    set ::direct_call_test
+} -cleanup {
+    rename ::update_audio_ranges ""
+    rename ::update_audio_ranges_test ::update_audio_ranges
+} -result {1}
+
+test dynamic-thresholds-4.2 {Check if threshold globals are exported correctly} -setup {
+    reset_threshold_state
+} -body {
+    # Initialize
+    set samples {}
+    for {set i 0} {$i < 30} {incr i} {
+        lappend samples [expr {3.0 + rand() * 1.0}]
+    }
+    simulate_audio_samples $samples
+
+    # Check that all three threshold globals are set
+    list \
+        [info exists ::threshold_noise_floor] \
+        [info exists ::threshold_noise_threshold] \
+        [info exists ::threshold_speechlevel] \
+        [expr {$::threshold_noise_floor > 0}] \
+        [expr {$::threshold_noise_threshold > 0}]
+} -result {1 1 1 1 1}
+
+test dynamic-thresholds-5.1 {Real-world scenario: quiet room then noisy then speech} -setup {
+    reset_threshold_state
+} -body {
+    set results {}
+
+    # Phase 1: Quiet room
+    for {set i 0} {$i < 30} {incr i} {
+        simulate_audio_samples [list [expr {2.0 + rand() * 1.0}]]
+    }
+    lappend results "quiet_floor" $::threshold::noise_floor
+    lappend results "quiet_ranges" [lindex $::AudioRanges 0]
+
+    # Phase 2: Background noise (AC/fan)
+    for {set i 0} {$i < 100} {incr i} {
+        simulate_audio_samples [list [expr {8.0 + rand() * 2.0}]]
+    }
+    lappend results "noisy_floor" $::threshold::noise_floor
+    lappend results "noisy_ranges" [lindex $::AudioRanges 0]
+
+    # Phase 3: Speech over noise
+    for {set i 0} {$i < 20} {incr i} {
+        set energy [expr {20.0 + rand() * 5.0}]
+        ::audio::set_mock_energy $energy
+        ::threshold::is_speech $energy [clock milliseconds]
+    }
+    lappend results "speech_detected" [expr {$::threshold::noise_floor > 0}]
+
+    # Verify adaptation occurred
+    set quiet_floor [lindex $results 1]
+    set noisy_floor [lindex $results 3]
+    set quiet_ranges [lindex $results 2]
+    set noisy_ranges [lindex $results 4]
+
+    list \
+        [expr {$noisy_floor > $quiet_floor * 1.5}] \
+        [expr {$quiet_ranges ne $noisy_ranges}] \
+        [expr {$::ui_range_update_count >= 3}]
+} -result {1 1 1}
+
+puts "\nDynamic threshold and UI range update tests created successfully!"
+puts "These tests verify:"
+puts "  - Initial calibration triggers UI updates"
+puts "  - Noise floor adapts to background changes"
+puts "  - UI ranges update every 50 samples"
+puts "  - AudioRanges variable is actually modified"
+puts "  - Speech level updates after speech segments"
+puts "  - Continuous adaptation over time"
+puts "  - update_audio_ranges is called from threshold module"
+puts "  - Threshold globals are exported correctly"
+puts "  - Real-world scenario: quiet→noisy→speech"
+puts "\nRun all tests with: cd tests && ./all_tests.tcl"

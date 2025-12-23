@@ -45,6 +45,9 @@ package require jbr::filewatch
 
 tk appname Talkie
 wm title . Talkie
+wm client . [info hostname]
+wm command . [list [info nameofexecutable] {*}$::argv0 {*}$::argv]
+wm protocol . WM_DELETE_WINDOW quit
 
 set script_dir [file dirname [file normalize [info script]]]
 lappend auto_path [file join $script_dir pa lib pa]
@@ -169,6 +172,15 @@ proc check_and_display_uinput_status {} {
         append error_msg "Current groups: [exec groups]\n"
 
         after idle [list $::final insert end $error_msg]
+    }
+}
+
+after idle {
+    after 100 {
+        set frame [wm frame .]
+        if {$frame ne "0x0"} {
+            exec xprop -id $frame -f _NET_WM_PID 32c -set _NET_WM_PID [pid]
+        }
     }
 }
 
