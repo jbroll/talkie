@@ -54,4 +54,13 @@ EOF
     esac
 fi
 
-./talkie.tcl "$@"
+# Launch GUI and set WM_COMMAND for session management
+./talkie.tcl "$@" &
+PID=$!
+for i in $(seq 30); do
+    WID=$(wmctrl -l -p | awk -v pid=$PID '$3 == pid {print $1; exit}')
+    [ -n "$WID" ] && break
+    sleep 0.1
+done
+[ -n "$WID" ] && xprop -id "$WID" -f WM_COMMAND 8s -set WM_COMMAND "talkie"
+wait $PID
