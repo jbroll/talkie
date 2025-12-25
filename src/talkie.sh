@@ -2,6 +2,8 @@
 
 cd "$(dirname "$(realpath "$0")")"
 
+export LD_LIBRARY_PATH="$HOME/.local/lib:$LD_LIBRARY_PATH"
+
 # Command-line interface
 if [ $# -gt 0 ]; then
     case "$1" in

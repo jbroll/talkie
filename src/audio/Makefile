@@ -2,7 +2,7 @@
 
 .PHONY: all clean
 
-CRITCL = ../../critcl9
+CRITCL = /usr/bin/critcl
 
 all:
 	$(CRITCL) -pkg audio.tcl
