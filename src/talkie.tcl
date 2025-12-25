@@ -1,4 +1,4 @@
-#!/usr/bin/env tclsh9.0
+#!/usr/bin/env tclsh8.6
 # talkie.tcl - Tcl version of Talkie
 
 # Redefine bgerror to show errors on stderr instead of dialog
