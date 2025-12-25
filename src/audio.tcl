@@ -233,7 +233,12 @@ namespace eval ::audio {
         set audio_buffer_list {}
         set last_speech_time 0
 
-        [::engine::recognizer] reset
+        set recognizer [::engine::recognizer]
+        if {$recognizer eq ""} {
+            puts "ERROR: No recognizer available - engine not initialized"
+            return false
+        }
+        $recognizer reset
         textproc_reset
         threshold::reset
 

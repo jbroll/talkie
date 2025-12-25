@@ -29,8 +29,28 @@ proc config_load {} {
     array set ::config [list {*}{
         window_x                   100
         window_y                   100
+        typing_delay_ms            10
+        silence_seconds            0.5
+        vosk_modelfile             vosk-model-en-us-0.22-lgraph
         initialization_samples     50
+        vosk_alternatives          1
+        speech_engine              vosk
+        faster_whisper_modelfile   ""
+        vosk_lattice               8
+        min_duration               0.15
+        noise_floor_percentile     10
+        speech_min_multiplier      0.8
+        sherpa_max_active_paths    4
+        confidence_threshold       100
+        sherpa_modelfile           sherpa-onnx-streaming-zipformer-en-2023-06-26
+        speech_floor_percentile    70
+        speech_max_multiplier      1.5
         spike_suppression_seconds  0.3
+        lookback_seconds           1.0
+        audio_threshold_multiplier 2.5
+        vosk_beam                  20
+        input_device               default
+        max_confidence_penalty     100
     } {*}[array get ::config]]
 
     set file [config_file]
