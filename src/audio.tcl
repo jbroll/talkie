@@ -319,7 +319,7 @@ namespace eval ::audio {
             }
 
             set ::input_device $input_device
-            set ::input_devices $input_devices
+            catch {set ::input_devices $input_devices}  ;# trace may reference dead widget
             set ::device_info_map $device_info_map
             set ::device_sample_rate $device_sample_rate
 
