@@ -152,8 +152,15 @@ proc check_uinput_access {} {
         set groups [exec groups]
         puts "ERROR: Cannot write to /dev/uinput"
         puts "       Current groups: $groups"
-        puts "       Run: sudo usermod -a -G input $::env(USER)"
-        puts "       Then logout and login again"
+        puts ""
+        puts "       Fix for Void Linux:"
+        puts "         sudo chgrp input /dev/uinput"
+        puts "         sudo chmod 660 /dev/uinput"
+        puts "       Or install the uinput-perms runit service."
+        puts ""
+        puts "       If not in input group:"
+        puts "         sudo usermod -a -G input $::env(USER)"
+        puts "         Then logout and login again"
         return false
     }
 
@@ -166,9 +173,13 @@ proc check_and_display_uinput_status {} {
         append error_msg "uinput device access failed. To fix:\n\n"
         append error_msg "1. Load uinput module:\n"
         append error_msg "   sudo modprobe uinput\n\n"
-        append error_msg "2. Add user to input group:\n"
-        append error_msg "   sudo usermod -a -G input $::env(USER)\n\n"
-        append error_msg "3. Logout and login again\n\n"
+        append error_msg "2. Set device permissions (Void Linux):\n"
+        append error_msg "   sudo chgrp input /dev/uinput\n"
+        append error_msg "   sudo chmod 660 /dev/uinput\n"
+        append error_msg "   Or install the uinput-perms runit service.\n\n"
+        append error_msg "3. Add user to input group (if needed):\n"
+        append error_msg "   sudo usermod -a -G input $::env(USER)\n"
+        append error_msg "   Then logout and login again\n\n"
         append error_msg "Current groups: [exec groups]\n"
 
         after idle [list $::final insert end $error_msg]

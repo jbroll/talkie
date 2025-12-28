@@ -1,0 +1,21 @@
+#!/bin/sh
+# One-shot service to set /dev/uinput permissions for input group
+exec 2>&1
+
+# Wait for uinput device to appear (up to 30 seconds)
+n=0
+while [ ! -e /dev/uinput ] && [ $n -lt 30 ]; do
+    sleep 1
+    n=$((n + 1))
+done
+
+if [ -e /dev/uinput ]; then
+    chgrp input /dev/uinput
+    chmod 660 /dev/uinput
+    echo "uinput-perms: set /dev/uinput group=input mode=660"
+else
+    echo "uinput-perms: /dev/uinput not found after 30s"
+fi
+
+# Stay alive (one-shot complete)
+exec pause

@@ -239,6 +239,15 @@ Verify user is in `input` group and has logged out/in:
 groups | grep input
 ```
 
+**Void Linux**: The `/dev/uinput` device needs group permissions set:
+```bash
+# Quick fix (temporary)
+make fix-uinput
+
+# Permanent fix: install runit service
+make install-uinput-service
+```
+
 ### uinput Device Not Found
 ```
 ERROR: /dev/uinput device not found

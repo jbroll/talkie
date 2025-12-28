@@ -4,8 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Talkie is a modular speech-to-text application designed for Ubuntu Linux. It
-provides real-time audio transcription with intelligent keyboard simulation,
+Talkie is a modular speech-to-text application for Linux. It provides
+real-time audio transcription with intelligent keyboard simulation,
 featuring a modern GUI, configurable audio processing, and support for
 multiple speech recognition engines.
 
@@ -228,7 +228,23 @@ cd tcl
 ### Tested Platforms
 - Intel Core Ultra 7 155H (primary development)
 - Ubuntu Linux 22.04+ with PulseAudio
+- Void Linux with PipeWire/PulseAudio
 - Various USB and integrated microphones
+
+### Void Linux Setup
+
+The uinput device requires permission setup on Void Linux:
+
+```bash
+# Quick fix (temporary, resets on reboot)
+make fix-uinput
+
+# Permanent fix: install runit service
+make install-uinput-service
+```
+
+The runit service (`etc/sv/uinput-perms`) waits for `/dev/uinput` to appear
+and sets `group=input mode=660` permissions.
 
 ### Audio Devices
 - Automatic device detection and selection
