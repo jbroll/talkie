@@ -192,7 +192,7 @@ namespace eval ::engine {
                     catch {thread::send -async $worker_tid {::engine::worker::final}}
                 }
                 "reset" {
-                    catch {thread::send $worker_tid {::engine::worker::reset}}
+                    catch {thread::send -async $worker_tid {::engine::worker::reset}}
                 }
                 "close" {
                     catch {thread::send $worker_tid {::engine::worker::close}}

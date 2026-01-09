@@ -14,6 +14,11 @@ namespace eval ::audio {
     variable level_change_count 0
     variable health_timer ""
 
+    # Buffer health tracking
+    variable last_overflow_count 0
+    variable overflow_rate 0
+    variable output_queue_depth 0
+
     proc audio_callback {stream_name timestamp data} {
         variable this_speech_time
         variable last_speech_time
@@ -126,17 +131,32 @@ namespace eval ::audio {
         variable level_change_count
         variable health_timer
         variable audio_stream
+        variable last_overflow_count
+        variable overflow_rate
 
         set now [clock seconds]
         set time_since_data [expr {$now - $last_callback_time}]
 
         # Only check health if stream exists
         if {$audio_stream ne ""} {
+            # Check buffer overflow stats
+            if {![catch {$audio_stream stats} stats]} {
+                set current_overflows [dict get $stats overflows]
+                set new_overflows [expr {$current_overflows - $last_overflow_count}]
+                set last_overflow_count $current_overflows
+
+                # Calculate overflow rate (per 10s interval)
+                set overflow_rate $new_overflows
+
+                # Update global health status
+                update_health_status $current_overflows $new_overflows
+            }
+
             # Detect frozen stream: no data for 30s AND almost no level changes
             # This indicates device stopped streaming (e.g., after suspend/resume)
             if {$time_since_data > 30 && $level_change_count < 3} {
-                puts "⚠️  Audio stream frozen (no data for ${time_since_data}s, ${level_change_count} level changes)"
-                puts "🔄 Re-enumerating devices and restarting stream..."
+                puts "Audio stream frozen (no data for ${time_since_data}s, ${level_change_count} level changes)"
+                puts "Re-enumerating devices and restarting stream..."
                 restart_audio_stream
                 set last_callback_time $now
                 set level_change_count 0
@@ -150,13 +170,32 @@ namespace eval ::audio {
         set health_timer [after 10000 ::audio::check_stream_health]
     }
 
+    # Update global health status for UI display
+    proc update_health_status {total_overflows recent_overflows} {
+        # Health status: 0=good, 1=warning, 2=critical
+        if {$recent_overflows > 5} {
+            set ::buffer_health 2
+        } elseif {$recent_overflows > 0 || $total_overflows > 10} {
+            set ::buffer_health 1
+        } else {
+            set ::buffer_health 0
+        }
+        set ::buffer_overflows $total_overflows
+    }
+
     proc start_health_monitoring {} {
         variable health_timer
         variable last_callback_time
         variable level_change_count
+        variable last_overflow_count
 
         set last_callback_time [clock seconds]
         set level_change_count 0
+        set last_overflow_count 0
+
+        # Initialize global health variables
+        set ::buffer_health 0
+        set ::buffer_overflows 0
 
         # Cancel any existing timer
         if {$health_timer ne ""} {

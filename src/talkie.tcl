@@ -62,6 +62,8 @@ package require uinput
 set ::transcribing 0
 set ::audiolevel 0
 set ::confidence 0
+set ::buffer_health 0
+set ::buffer_overflows 0
 
 proc quit {} {
     try { ::output::cleanup } on error message {}

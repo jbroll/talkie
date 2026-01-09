@@ -31,7 +31,8 @@ proc bgerror { args } {
  
 set transcribing 0
 set audiolevel   0
-set confidence   0
+set buffer_health 0
+set buffer_overflows 0
 
 # Available speech engines (global list for config dialog)
 set ::speech_engines {vosk sherpa faster-whisper}
@@ -64,7 +65,15 @@ array set ::config {
 # UI initializaiton and callbacks -----------------------------------
 
 proc audiolevel { value } { return [format "Audio: %7.2f" $value] }
-proc confidence { value } { return [format "Conf: %7.0f" $value] }
+proc health_label { value } {
+    upvar ::buffer_overflows overflows
+    if {$value == 0} { return "OK" }
+    if {$value == 1} { return "Warn:$overflows" }
+    return "DROP:$overflows"
+}
+
+# Health status colors: 0=good (green), 1=warning (yellow), 2=critical (red)
+set HealthColors { { 0 1 2 } { lightgreen yellow #FF6B6B } }
 
 set TranscribingStateLabel { Idle Transcribing }
 set TranscribingStateColor { pink lightgreen }
@@ -111,12 +120,12 @@ grid [row .w -sticky news {
     ! Start        -text :transcribing@TranscribingButtonLabel -command "if {\$::transcribing} { audio::stop_transcription } else { audio::start_transcription }"         -width 15
     @ "" -bg :is_speech@SpeechStatusColor -width 6
     @ Audio: -text :audiolevel!audiolevel -bg :audiolevel&AudioRanges   -width 13
-    @ Conf:  -text :confidence!confidence                               -width 13
+    @ Buf:   -text :buffer_health!health_label -bg :buffer_health&HealthColors -width 13
     @ "" -width 5
-    ! Config -command config 
+    ! Config -command config
     ! Quit -command quit                              &
     text ::final   -width 60 -height 10 - - - - - - - &
-    text ::partial -width 60 -height  2 - - - - - - - 
+    text ::partial -width 60 -height  2 - - - - - - -
  }] -sticky news
 
 # Build config dialog spec based on current engine
