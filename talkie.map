@@ -1,18 +1,23 @@
 # Talkie punctuation mapping - Tcl list format
-# Comments are stripped
+# Each line: "pattern" "replacement"
+# Patterns are matched at word boundaries only
+# Patterns ending with $ only match at end of utterance
 
-" period "           " period "
-" period"            "."
-" question mark"     "?"
-" exclamation mark"  "!"
-" exclamation point" "!"
+# Sentence endings (end of utterance only)
+"period$"            "."
+"question mark$"     "?"
+"exclamation mark$"  "!"
+"exclamation point$" "!"
 
-" new line "          " new line "
-" new line"          "\n"
-" new paragraph"     "\n\n"
+# Line breaks (end of utterance only)
+"new line$"          "\n"
+"newline$"           "\n"
+"new paragraph$"     "\n\n"
 
-" comma "             ","
-" colon"              ":"
-" semicolon"          ";"
-" semi-colon"         ";"
-" hyphen "            "-"
+# Mid-sentence punctuation (match anywhere)
+"comma"              ","
+"colon"              ":"
+"semicolon"          ";"
+"semi colon"         ";"
+"hyphen"             "-"
+"dash"               "-"
