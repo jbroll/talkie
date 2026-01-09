@@ -55,7 +55,6 @@ array set ::config {
     typing_delay_ms           10
     vosk_beam                 20
     vosk_lattice              8
-    vosk_alternatives         1
     vosk_modelfile            vosk-model-en-us-0.22-lgraph
     sherpa_max_active_paths   4
     sherpa_modelfile          sherpa-onnx-streaming-zipformer-en-2023-06-26
@@ -155,7 +154,6 @@ proc build_config_spec {} {
     if {$::config(speech_engine) eq "vosk"} {
         lappend config_spec @ "Vosk Beam" @ :config(vosk_beam) -width 10 <--> config(vosk_beam) -from 0 -to 50 &
         lappend config_spec @ "Lattice Beam" @ :config(vosk_lattice) -width 10 <--> config(vosk_lattice) -from 0 -to 20 &
-        lappend config_spec @ "Alternatives" @ :config(vosk_alternatives) -width 10 <--> config(vosk_alternatives) -from 1 -to 3 &
         lappend config_spec @ "Model" x ? config(vosk_modelfile) -listvariable vosk_model_files &
     } elseif {$::config(speech_engine) eq "sherpa"} {
         lappend config_spec @ "Max Active Paths" @ :config(sherpa_max_active_paths) -width 10 <--> config(sherpa_max_active_paths) -from 1 -to 10 &

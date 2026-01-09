@@ -33,7 +33,6 @@ proc config_load {} {
         silence_seconds            0.5
         vosk_modelfile             vosk-model-en-us-0.22-lgraph
         initialization_samples     50
-        vosk_alternatives          1
         speech_engine              vosk
         faster_whisper_modelfile   ""
         vosk_lattice               8

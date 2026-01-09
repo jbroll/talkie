@@ -77,7 +77,7 @@ namespace eval ::engine {
                 
                 if {[file exists $model_path]} {
                     set model [vosk::load_model -path $model_path]
-                    set recognizer [$model create_recognizer -rate $sample_rate]
+                    set recognizer [$model create_recognizer -rate $sample_rate -alternatives 1]
                     return [json::dict2json {status ok message "Vosk worker initialized"}]
                 } else {
                     return [json::dict2json [list status error error "Model not found: $model_path"]]
@@ -271,7 +271,7 @@ namespace eval ::engine {
                     
                     if {[file exists $model_path]} {
                         set model [vosk::load_model -path $model_path]
-                        set recognizer [$model create_recognizer -rate $sample_rate]
+                        set recognizer [$model create_recognizer -rate $sample_rate -alternatives 1]
                         return [json::dict2json {status ok message "Vosk worker initialized"}]
                     } else {
                         return [json::dict2json [list status error error "Model not found: $model_path"]]

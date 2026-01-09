@@ -3,6 +3,17 @@
 cd "$(dirname "$(realpath "$0")")"
 
 export LD_LIBRARY_PATH="$HOME/.local/lib:$LD_LIBRARY_PATH"
+export OPENBLAS_NUM_THREADS=4
+
+# Pin to P-cores (0-11) on Intel hybrid CPUs, fall back gracefully
+TASKSET=""
+if command -v taskset >/dev/null 2>&1; then
+    # Check if we have hybrid architecture (P-cores + E-cores)
+    if lscpu 2>/dev/null | grep -q "900.0000.*MINMHZ\|700.0000.*MINMHZ" 2>/dev/null || \
+       [ "$(lscpu -e=MAXMHZ 2>/dev/null | sort -u | wc -l)" -gt 2 ]; then
+        TASKSET="taskset -c 0-11"
+    fi
+fi
 
 # Command-line interface
 if [ $# -gt 0 ]; then
@@ -55,7 +66,7 @@ EOF
 fi
 
 # Launch GUI and set WM_COMMAND for session management
-./talkie.tcl "$@" &
+$TASKSET ./talkie.tcl "$@" &
 PID=$!
 for i in $(seq 30); do
     WID=$(wmctrl -l -p | awk -v pid=$PID '$3 == pid {print $1; exit}')

@@ -112,8 +112,36 @@ namespace eval ::audio {
             return
         }
 
-        set text [json-get $result_dict alternatives 0 text]
-        set conf [json-get $result_dict alternatives 0 confidence]
+        # Handle both MBR format (alternatives=0) and N-best format (alternatives>0)
+        if {[dict exists $result_dict alternatives]} {
+            # N-best format: {"alternatives": [{"text": "...", "confidence": ...}]}
+            set text [json-get $result_dict alternatives 0 text]
+            set conf [json-get $result_dict alternatives 0 confidence]
+        } elseif {[dict exists $result_dict text]} {
+            # MBR format: {"text": "...", "result": [{"word":..., "conf":...}, ...]}
+            set text [dict get $result_dict text]
+            # Calculate average confidence from per-word results
+            if {[dict exists $result_dict result]} {
+                set words [dict get $result_dict result]
+                set total_conf 0.0
+                set word_count 0
+                foreach word_info $words {
+                    if {[dict exists $word_info conf]} {
+                        set total_conf [expr {$total_conf + [dict get $word_info conf]}]
+                        incr word_count
+                    }
+                }
+                if {$word_count > 0} {
+                    set conf [expr {($total_conf / $word_count) * 100}]
+                } else {
+                    set conf 100
+                }
+            } else {
+                set conf 100
+            }
+        } else {
+            return
+        }
 
         if { [lsearch -exact $::killwords $text] < 0 } {
             if { [threshold::accept $conf] } {
