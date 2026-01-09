@@ -41,20 +41,20 @@ set ::speech_engines {vosk sherpa faster-whisper}
 #
 array set ::config {
     speech_engine             vosk
-    input_device              pulse
-    confidence_threshold      175
-    lookback_seconds          1.0
-    silence_seconds            .5
-    minumum_duration           .25
+    input_device              default
+    confidence_threshold      100
+    lookback_seconds          0.5
+    silence_seconds           0.3
+    min_duration              0.30
     noise_floor_percentile    10
     speech_floor_percentile   70
     audio_threshold_multiplier 2.5
-    speech_min_multiplier     0.8
-    speech_max_multiplier     1.5
-    max_confidence_penalty    100
-    typing_delay_ms           10
-    vosk_beam                 20
-    vosk_lattice              8
+    speech_min_multiplier     0.6
+    speech_max_multiplier     1.3
+    max_confidence_penalty    75
+    typing_delay_ms           5
+    vosk_beam                 10
+    vosk_lattice              5
     vosk_modelfile            vosk-model-en-us-0.22-lgraph
     sherpa_max_active_paths   4
     sherpa_modelfile          sherpa-onnx-streaming-zipformer-en-2023-06-26
