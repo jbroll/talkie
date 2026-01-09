@@ -7,7 +7,7 @@ set ::textproc_macros {}
 
 proc textproc_load_map {} {
     set map_file [file join [file dirname [info script]] .. talkie.map]
-    set raw [| { cat $map_file | regsub -all -line {#.*$} ~ "" }]
+    set raw [| { cat $map_file | regsub -all -line {^\s*#.*$} ~ "" }]
 
     # Parse {pattern replacement} pairs into {pattern_words replacement end_only} tuples
     set ::textproc_macros {}

@@ -21,3 +21,25 @@
 "semi colon"         ";"
 "hyphen"             "-"
 "dash"               "-"
+"apostrophe"         "'"
+"ellipsis"           "..."
+
+# Quotes and brackets
+"open quote"         "\""
+"close quote"        "\""
+"quote"              "\""
+"open paren"         "("
+"close paren"        ")"
+
+# Symbols
+"at sign"            "@"
+"ampersand"          "&"
+"hashtag"            "#"
+"pound sign"         "#"
+"asterisk"           "*"
+"slash"              "/"
+"underscore"         "_"
+"dollar sign"        "$"
+"percent"            "%"
+"plus sign"          "+"
+"equals"             "="

@@ -163,6 +163,76 @@ test "new paragraph (two words) is matched" {
 } "End\n\n"
 
 # ============================================================
+# Quotes and Brackets
+# ============================================================
+test_section "Quotes and Brackets"
+
+test "open quote is replaced" {
+    textproc "he said open quote hello"
+} {He said " hello}
+
+test "close quote is replaced" {
+    textproc "world close quote she replied"
+} {World " she replied}
+
+test "open paren is replaced" {
+    textproc "see appendix open paren a close paren"
+} {See appendix ( a )}
+
+# ============================================================
+# Symbols
+# ============================================================
+test_section "Symbols"
+
+test "apostrophe is replaced" {
+    textproc "don apostrophe t"
+} {Don ' t}
+
+test "ellipsis is replaced" {
+    textproc "wait ellipsis what"
+} {Wait... what}
+
+test "at sign is replaced" {
+    textproc "email at sign example"
+} {Email @ example}
+
+test "ampersand is replaced" {
+    textproc "tom ampersand jerry"
+} {Tom & jerry}
+
+test "hashtag is replaced" {
+    textproc "hashtag trending"
+} {# trending}
+
+test "asterisk is replaced" {
+    textproc "note asterisk important"
+} {Note * important}
+
+test "slash is replaced" {
+    textproc "yes slash no"
+} {Yes / no}
+
+test "underscore is replaced" {
+    textproc "my underscore variable"
+} {My _ variable}
+
+test "dollar sign is replaced" {
+    textproc "costs dollar sign fifty"
+} {Costs $ fifty}
+
+test "percent is replaced" {
+    textproc "fifty percent off"
+} {Fifty % off}
+
+test "plus sign is replaced" {
+    textproc "one plus sign two"
+} {One + two}
+
+test "equals is replaced" {
+    textproc "x equals five"
+} {X = five}
+
+# ============================================================
 # Edge Cases
 # ============================================================
 test_section "Edge Cases"
