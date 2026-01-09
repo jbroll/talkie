@@ -1,45 +1,50 @@
-# Talkie punctuation mapping - Tcl list format
-# Each line: "pattern" "replacement"
-# Patterns are matched at word boundaries only
+# Talkie punctuation mapping
+# Format: "pattern" "replacement" [attachment]
 # Patterns ending with $ only match at end of utterance
+# Attachment: < = left, > = right, <> = both, (omit) = normal spacing
 
-# Sentence endings (end of utterance only)
-"period$"            "."
-"question mark$"     "?"
-"exclamation mark$"  "!"
-"exclamation point$" "!"
+# Sentence endings (attach left, end of utterance only)
+"period$"            "."    <
+"question mark$"     "?"    <
+"exclamation mark$"  "!"    <
+"exclamation point$" "!"    <
 
 # Line breaks (end of utterance only)
-"new line$"          "\n"
-"newline$"           "\n"
-"new paragraph$"     "\n\n"
+"new line$"          "\n"   <
+"newline$"           "\n"   <
+"new paragraph$"     "\n\n" <
 
-# Mid-sentence punctuation (match anywhere)
-"comma"              ","
-"colon"              ":"
-"semicolon"          ";"
-"semi colon"         ";"
-"hyphen"             "-"
-"dash"               "-"
-"apostrophe"         "'"
-"ellipsis"           "..."
+# Mid-sentence punctuation (attach left)
+"comma"              ","    <
+"colon"              ":"    <
+"semicolon"          ";"    <
+"semi colon"         ";"    <
+"ellipsis"           "..."  <
+
+# Attach both sides
+"hyphen"             "-"    <>
+"dash"               "-"    <>
+"apostrophe"         "'"    <>
 
 # Quotes and brackets
-"open quote"         "\""
-"close quote"        "\""
-"quote"              "\""
-"open paren"         "("
-"close paren"        ")"
+"open quote"         "\""   >
+"close quote"        "\""   <
+"open paren"         "("    >
+"close paren"        ")"    <
 
-# Symbols
-"at sign"            "@"
-"ampersand"          "&"
-"hashtag"            "#"
-"pound sign"         "#"
-"asterisk"           "*"
-"slash"              "/"
-"underscore"         "_"
-"dollar sign"        "$"
-"percent"            "%"
-"plus sign"          "+"
-"equals"             "="
+# Prefix symbols (attach right)
+"at sign"            "@"    >
+"hashtag"            "#"    >
+"pound sign"         "#"    >
+"dollar sign"        "$"    >
+"asterisk"           "*"    >
+"slash"              "/"    >
+"underscore"         "_"    >
+
+# Normal spacing
+"ampersand"          "&"    ""
+"percent"            "%"    ""
+"plus sign"          "+"    ""
+"equals"             "="    ""
+"less than"          "<"    ""
+"greater than"       ">"    ""

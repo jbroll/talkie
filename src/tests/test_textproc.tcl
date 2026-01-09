@@ -167,70 +167,78 @@ test "new paragraph (two words) is matched" {
 # ============================================================
 test_section "Quotes and Brackets"
 
-test "open quote is replaced" {
+test "open quote attaches right" {
     textproc "he said open quote hello"
-} {He said " hello}
+} {He said "hello}
 
-test "close quote is replaced" {
+test "close quote attaches left" {
     textproc "world close quote she replied"
-} {World " she replied}
+} {World" she replied}
 
-test "open paren is replaced" {
+test "parens attach correctly" {
     textproc "see appendix open paren a close paren"
-} {See appendix ( a )}
+} {See appendix (a)}
 
 # ============================================================
 # Symbols
 # ============================================================
 test_section "Symbols"
 
-test "apostrophe is replaced" {
+test "apostrophe attaches both" {
     textproc "don apostrophe t"
-} {Don ' t}
+} Don't
 
-test "ellipsis is replaced" {
+test "ellipsis attaches left" {
     textproc "wait ellipsis what"
 } {Wait... what}
 
-test "at sign is replaced" {
+test "at sign attaches right" {
     textproc "email at sign example"
-} {Email @ example}
+} {Email @example}
 
-test "ampersand is replaced" {
+test "ampersand normal spacing" {
     textproc "tom ampersand jerry"
 } {Tom & jerry}
 
-test "hashtag is replaced" {
+test "hashtag attaches right" {
     textproc "hashtag trending"
-} {# trending}
+} {#trending}
 
-test "asterisk is replaced" {
+test "asterisk attaches right" {
     textproc "note asterisk important"
-} {Note * important}
+} {Note *important}
 
-test "slash is replaced" {
+test "slash attaches right" {
     textproc "yes slash no"
-} {Yes / no}
+} {Yes /no}
 
-test "underscore is replaced" {
+test "underscore attaches right" {
     textproc "my underscore variable"
-} {My _ variable}
+} {My _variable}
 
-test "dollar sign is replaced" {
+test "dollar sign attaches right" {
     textproc "costs dollar sign fifty"
-} {Costs $ fifty}
+} {Costs $fifty}
 
-test "percent is replaced" {
+test "percent normal spacing" {
     textproc "fifty percent off"
 } {Fifty % off}
 
-test "plus sign is replaced" {
+test "plus sign normal spacing" {
     textproc "one plus sign two"
 } {One + two}
 
-test "equals is replaced" {
+test "equals normal spacing" {
     textproc "x equals five"
 } {X = five}
+
+test "less than normal spacing" {
+    textproc "a less than b"
+} {A < b}
+
+test "greater than normal spacing" {
+    textproc "a greater than b"
+} {A > b}
 
 # ============================================================
 # Edge Cases
