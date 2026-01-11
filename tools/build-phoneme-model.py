@@ -5,10 +5,23 @@ This creates a model that outputs phoneme sequences instead of words,
 useful for debugging pronunciations and understanding what the acoustic
 model actually hears.
 
-Usage (on GPU host):
-    ./build-phoneme-model.py ~/vosk-lgraph-compile ~/models/vosk-phoneme
+IMPORTANT: This script must be run on the GPU host (not locally).
+It requires podman with kaldiasr/kaldi image and the Vosk compile package.
 
-Requires podman with kaldiasr/kaldi image.
+Usage:
+    # On GPU host:
+    scp tools/build-phoneme-model.py gpu:~/vosk-lgraph-compile/
+    ssh gpu
+    cd ~/vosk-lgraph-compile
+    ./build-phoneme-model.py . ~/models/vosk-phoneme --reference-model ~/models/vosk-custom-lgraph
+
+    # Then fetch result:
+    scp -r gpu:~/models/vosk-phoneme ~/src/talkie/models/vosk/phoneme
+
+Prerequisites on GPU host:
+    - podman with docker.io/kaldiasr/kaldi:latest image
+    - ~/vosk-lgraph-compile/ with db/en.dic, exp/chain/tdnn/, utils/
+    - Existing Vosk model for --reference-model (provides ivector files)
 """
 
 import argparse
@@ -86,6 +99,10 @@ def create_lexicon_fst_txt(phonemes: list[str], phones_txt: Path, output_path: P
     For phoneme model: each phoneme word maps to itself.
     FST format: src dest ilabel olabel [weight]
     Uses symbol names, not IDs (fstcompile will look up IDs from symbol tables).
+
+    Important: Phones have position markers (_B, _E, _I, _S) for word position.
+    We need to map ALL variants to the base phoneme output so continuous
+    speech is recognized regardless of phone position.
     """
     # Read phones.txt to check which phones exist
     available_phones = set()
@@ -97,22 +114,24 @@ def create_lexicon_fst_txt(phonemes: list[str], phones_txt: Path, output_path: P
 
     with open(output_path, 'w') as f:
         for phone in phonemes:
-            # Find the phone symbol to use as input
-            # Phones have position markers (_B, _E, _I, _S) - use _S for singleton
-            phone_symbol = None
-            if phone in available_phones:
-                phone_symbol = phone
-            else:
-                # Try with _S suffix (singleton - single phone word)
-                phone_s = f"{phone}_S"
-                if phone_s in available_phones:
-                    phone_symbol = phone_s
-                else:
-                    print(f"Warning: phone {phone} not found in phones.txt, skipping")
-                    continue
+            # Map ALL position variants to the same output phoneme
+            # _B = beginning, _I = inside, _E = end, _S = singleton
+            found_any = False
 
-            # FST arc: state 0 -> state 0, input=phone_symbol, output=phone (word)
-            f.write(f"0 0 {phone_symbol} {phone}\n")
+            # Try base phone first (for phones without position markers like SIL, SPN)
+            if phone in available_phones:
+                f.write(f"0 0 {phone} {phone}\n")
+                found_any = True
+
+            # Try all position variants
+            for suffix in ['_B', '_I', '_E', '_S']:
+                phone_variant = f"{phone}{suffix}"
+                if phone_variant in available_phones:
+                    f.write(f"0 0 {phone_variant} {phone}\n")
+                    found_any = True
+
+            if not found_any:
+                print(f"Warning: phone {phone} not found in phones.txt, skipping")
 
         # Final state
         f.write("0\n")
@@ -184,19 +203,30 @@ gunzip -c phoneme.arpa.gz | arpa2fst --disambig-symbol='#0' --read-symbol-table=
     fstarcsort --sort_type=ilabel > data/lang/G.fst
 
 echo "Building HCLG graph..."
-utils/mkgraph.sh --self-loop-scale 1.0 data/lang /compile/exp/chain/tdnn graph || true
+echo "=== mkgraph.sh output ==="
+utils/mkgraph.sh --self-loop-scale 1.0 data/lang /compile/exp/chain/tdnn graph 2>&1 | tee mkgraph.log
+MKGRAPH_EXIT=${PIPESTATUS[0]}
+echo "=== mkgraph.sh exit code: $MKGRAPH_EXIT ==="
 
-# If mkgraph failed, try simpler approach
 if [ ! -f graph/HCLG.fst ]; then
-    echo "mkgraph.sh failed, trying manual composition..."
-    mkdir -p graph
-
-    # Just create a simple graph for testing
-    fsttablecompose data/lang/L.fst data/lang/G.fst | \\
-        fstdeterminizestar --use-log=true | \\
-        fstminimizeencoded > graph/LG.fst
-
-    cp graph/LG.fst graph/HCLG.fst
+    echo ""
+    echo "ERROR: mkgraph.sh failed to create HCLG.fst"
+    echo "Check mkgraph.log for details"
+    echo ""
+    echo "=== Last 50 lines of mkgraph.log ==="
+    tail -50 mkgraph.log
+    echo ""
+    echo "=== Checking required files ==="
+    echo "L.fst exists: $(test -f data/lang/L.fst && echo yes || echo NO)"
+    echo "G.fst exists: $(test -f data/lang/G.fst && echo yes || echo NO)"
+    echo "words.txt exists: $(test -f data/lang/words.txt && echo yes || echo NO)"
+    echo "phones.txt exists: $(test -f data/lang/phones.txt && echo yes || echo NO)"
+    echo "phones/ dir exists: $(test -d data/lang/phones && echo yes || echo NO)"
+    ls -la data/lang/
+    echo ""
+    echo "=== Contents of data/lang/phones/ ==="
+    ls -la data/lang/phones/ 2>/dev/null || echo "phones/ directory missing"
+    exit 1
 fi
 
 echo "Graph files:"
