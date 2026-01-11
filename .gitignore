@@ -20,3 +20,8 @@ error.log
 *.o
 build/
 .claude/settings.local.json
+
+# Generated vocabulary files
+extra.dic
+extra_contexts.txt
+missing_words.txt
