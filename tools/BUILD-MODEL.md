@@ -121,6 +121,7 @@ conda install -c conda-forge opengrm-ngram
 | Tool | Location | Purpose |
 |------|----------|---------|
 | `extract_vocabulary.py` | Local (tools/) | Find missing words, generate extra.dic |
+| `phonetic_similarity.py` | Local (tools/) | Find acoustically similar words for confusion analysis |
 | `deploy_and_build.sh` | Local (tools/) | Orchestrate local+remote build |
 | `compile-lgraph-v9.sh` | GPU host | Full model build |
 | `dict-full.py` | GPU host | Merge en.dic + base_missing.dic + extra.dic |
@@ -263,11 +264,27 @@ grep -i "yourword" ~/vosk-lgraph-compile/db/extra.dic
 
 ### Domain words sound like common words
 
-Some domain words are acoustically similar to common English words:
-- "critcl" → "critical"
-- "portaudio" → "port audio"
-- "kupries" → "caprice"
+Use `phonetic_similarity.py` to identify potential confusions:
+```bash
+./phonetic_similarity.py --common-only critcl kupries vosk
+```
 
+Output shows phonetically similar common words (* marks likely confusions):
+```
+'critcl' /k r I t k @ l/
+  1.0  critical             /k r I 4 I k @ l/ *
+
+'kupries' /k V p r i z/
+  0.0  capri's              /k V p r i z/
+  1.0  caprice              /k @ p r i s/
+```
+
+The weighted phoneme distance accounts for:
+- Similar sounds (t/d/4 tap, s/z, reduced vowels) cost 0.5
+- Inserting/deleting reduced vowels (@, I, V) costs 0.5
+- Other substitutions/insertions cost 1.0
+
+Words with distance < 1.5 to common English words will likely be misrecognized.
 The LM boost may not be enough to overcome acoustic similarity.
 Consider post-processing with context-aware substitution.
 
