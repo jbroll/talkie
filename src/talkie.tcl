@@ -102,10 +102,20 @@ source [file join $script_dir pos.tcl]
 
 # POS disambiguation - enable for debugging
 set ::pos_enabled 1
-set pos_model_dir [file join [file dirname $::script_dir] models vosk lm-test]
-set pos_dic [file join $::env(HOME) Downloads vosk-model-en-us-0.22-compile db en.dic]
-set pos_vocab [file join $pos_model_dir graph words.txt]
-set pos_arpa [file join $pos_model_dir lgraph-base.arpa]
+
+# Model paths - see CLAUDE.md "Vosk Model Data" section
+set models_dir [file join [file dirname $::script_dir] models vosk]
+set base_model_dir [file join $models_dir vosk-model-en-us-0.22-lgraph]  ;# Base model (reference)
+set custom_model_dir [file join $models_dir lm-test]                     ;# Custom model with domain words
+
+# Compile package data (pronunciation dictionary)
+set compile_pkg [file join $::env(HOME) Downloads vosk-model-en-us-0.22-compile]
+set pos_dic [file join $compile_pkg db en.dic]
+
+# Use custom model for vocabulary and probabilities
+set pos_vocab [file join $custom_model_dir graph words.txt]
+set pos_arpa [file join $custom_model_dir lgraph-base.arpa]
+
 ::pos::init $pos_dic $pos_vocab $pos_arpa
 
 proc get_model_path {modelfile} {

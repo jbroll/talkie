@@ -251,3 +251,48 @@ and sets `group=input mode=660` permissions.
 - Configurable device selection via GUI
 - PulseAudio and ALSA support
 
+## Vosk Model Data
+
+### Model Directories
+
+```
+models/vosk/
+├── vosk-model-en-us-0.22-lgraph/  # Base model (symlink to ~/Downloads/...)
+│   ├── am/                        # Acoustic model
+│   ├── conf/                      # Configuration
+│   ├── graph/                     # Decoding graph
+│   │   ├── words.txt             # Vocabulary
+│   │   ├── Gr.fst                # Language model FST
+│   │   └── HCLr.fst              # Lexicon/acoustic FST
+│   └── ivector/                   # Speaker adaptation
+│
+└── lm-test/                       # Custom model with domain words
+    ├── (same structure as base)
+    └── lgraph-base.arpa           # ARPA LM for word probabilities
+```
+
+### External Data Files
+
+These files are from the Vosk compile package (not the runtime model):
+
+| File | Location | Purpose |
+|------|----------|---------|
+| en.dic | `~/Downloads/vosk-model-en-us-0.22-compile/db/en.dic` | Pronunciation dictionary (312k words) |
+| en.fst | `~/Downloads/vosk-model-en-us-0.22-compile/db/en-g2p/en.fst` | G2P model for new words |
+
+### POS Disambiguation Data
+
+The POS module (`src/pos_disambiguate.py`) uses:
+- **Pronunciation dictionary**: en.dic from compile package
+- **Vocabulary**: words.txt from active model (lm-test)
+- **Word probabilities**: lgraph-base.arpa from lm-test
+
+Homophone index is cached in `~/.cache/talkie/homophones_*.json`.
+
+### Building Custom Models
+
+See `tools/BUILD-CUSTOM-LGRAPH.md` for instructions on:
+- Adding domain vocabulary
+- Vocabulary pruning (removes words not in LM)
+- Building on GPU host with Kaldi container
+
