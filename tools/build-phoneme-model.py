@@ -46,39 +46,35 @@ def extract_phonemes(compile_dir: Path) -> list[str]:
     return sorted(phonemes)
 
 
-def create_words_txt(phonemes: list[str], phones_txt: Path, output_path: Path):
-    """Create words.txt mapping phonemes to IDs.
-
-    We need to include disambiguation symbols (#0, #1, etc.) and special symbols.
-    """
-    # Read phones.txt to get phone IDs
-    phone_to_id = {}
-    with open(phones_txt) as f:
-        for line in f:
-            parts = line.strip().split()
-            if len(parts) == 2:
-                phone_to_id[parts[0]] = int(parts[1])
-
-    # Create words.txt: phonemes as words, plus special symbols
+def create_words_txt(phonemes: list[str], output_path: Path):
+    """Create words.txt mapping phonemes to word IDs."""
     with open(output_path, 'w') as f:
         f.write("<eps> 0\n")
         word_id = 1
         for phone in phonemes:
             f.write(f"{phone} {word_id}\n")
             word_id += 1
-        # Add disambiguation symbol
+        # Add sentence boundary symbols (required for ARPA LM)
+        f.write(f"<s> {word_id}\n")
+        word_id += 1
+        f.write(f"</s> {word_id}\n")
+        word_id += 1
+        # Add disambiguation symbol for LM
         f.write(f"#0 {word_id}\n")
 
 
 def create_phoneme_lm(phonemes: list[str], output_path: Path):
-    """Create simple unigram ARPA language model."""
-    n = len(phonemes)
+    """Create simple unigram ARPA language model with sentence markers."""
+    n = len(phonemes) + 2  # +2 for <s> and </s>
     log_prob = math.log10(1.0 / n)
 
     with open(output_path, 'w') as f:
         f.write("\\data\\\n")
         f.write(f"ngram 1={n}\n\n")
         f.write("\\1-grams:\n")
+        # Sentence boundary symbols (required by Kaldi)
+        f.write(f"{log_prob:.4f} <s>\n")
+        f.write(f"{log_prob:.4f} </s>\n")
         for phone in phonemes:
             f.write(f"{log_prob:.4f} {phone}\n")
         f.write("\n\\end\\\n")
@@ -89,36 +85,34 @@ def create_lexicon_fst_txt(phonemes: list[str], phones_txt: Path, output_path: P
 
     For phoneme model: each phoneme word maps to itself.
     FST format: src dest ilabel olabel [weight]
+    Uses symbol names, not IDs (fstcompile will look up IDs from symbol tables).
     """
-    # Read phones.txt to get phone IDs (for input labels)
-    phone_to_id = {}
+    # Read phones.txt to check which phones exist
+    available_phones = set()
     with open(phones_txt) as f:
         for line in f:
             parts = line.strip().split()
             if len(parts) == 2:
-                phone_to_id[parts[0]] = int(parts[1])
+                available_phones.add(parts[0])
 
     with open(output_path, 'w') as f:
-        # For each phoneme, create a simple path: 0 -> 0 with phone_id as input, word_id as output
-        word_id = 1  # word IDs start at 1 (0 is <eps>)
         for phone in phonemes:
-            # Get the base phone (without position markers) and find any variant
-            # Try exact match first
-            if phone in phone_to_id:
-                phone_id = phone_to_id[phone]
+            # Find the phone symbol to use as input
+            # Phones have position markers (_B, _E, _I, _S) - use _S for singleton
+            phone_symbol = None
+            if phone in available_phones:
+                phone_symbol = phone
             else:
-                # Try with _S suffix (singleton)
+                # Try with _S suffix (singleton - single phone word)
                 phone_s = f"{phone}_S"
-                if phone_s in phone_to_id:
-                    phone_id = phone_to_id[phone_s]
+                if phone_s in available_phones:
+                    phone_symbol = phone_s
                 else:
                     print(f"Warning: phone {phone} not found in phones.txt, skipping")
-                    word_id += 1
                     continue
 
-            # Simple path: state 0 -> state 0, input=phone_id, output=word_id
-            f.write(f"0 0 {phone_id} {word_id}\n")
-            word_id += 1
+            # FST arc: state 0 -> state 0, input=phone_symbol, output=phone (word)
+            f.write(f"0 0 {phone_symbol} {phone}\n")
 
         # Final state
         f.write("0\n")
@@ -153,7 +147,7 @@ def build_graph(compile_dir: Path, work_dir: Path, phonemes: list[str]):
     shutil.copy(lang_src / "topo", lang_dst)
 
     # Create our phoneme-specific files
-    create_words_txt(phonemes, lang_dst / "phones.txt", lang_dst / "words.txt")
+    create_words_txt(phonemes, lang_dst / "words.txt")
 
     # Create lexicon FST text file
     create_lexicon_fst_txt(phonemes, lang_dst / "phones.txt", work_dir / "L.txt")
@@ -211,7 +205,8 @@ ls -la graph/
     run_in_kaldi_container(compile_dir, work_dir, kaldi_script)
 
 
-def assemble_model(compile_dir: Path, work_dir: Path, output_dir: Path):
+def assemble_model(compile_dir: Path, work_dir: Path, output_dir: Path,
+                   reference_model: Path | None = None):
     """Assemble final model directory."""
     if output_dir.exists():
         shutil.rmtree(output_dir)
@@ -228,15 +223,29 @@ def assemble_model(compile_dir: Path, work_dir: Path, output_dir: Path):
     shutil.copy(tdnn_dir / "final.mdl", output_dir / "am")
     shutil.copy(tdnn_dir / "tree", output_dir / "am")
 
-    # Copy ivector extractor
-    ivector_src = tdnn_dir / "ivector_extractor"
-    if not ivector_src.exists():
-        ivector_src = compile_dir / "exp" / "nnet3_chain" / "extractor"
+    # Copy ivector extractor - try multiple sources
+    ivector_src = None
+    ivector_candidates = [
+        tdnn_dir / "ivector_extractor",
+        compile_dir / "exp" / "nnet3_chain" / "extractor",
+        compile_dir / "ivector",
+    ]
+    if reference_model:
+        ivector_candidates.insert(0, reference_model / "ivector")
 
-    if ivector_src.exists():
+    for candidate in ivector_candidates:
+        if candidate.exists() and (candidate / "final.ie").exists():
+            ivector_src = candidate
+            print(f"Using ivector from: {ivector_src}")
+            break
+
+    if ivector_src:
         for f in ivector_src.iterdir():
             if f.is_file():
                 shutil.copy(f, output_dir / "ivector")
+    else:
+        print("WARNING: No ivector extractor found! Model may not work.")
+        print("Use --reference-model to specify a working model to copy ivector from.")
 
     # Copy graph files
     graph_src = work_dir / "graph"
@@ -291,6 +300,8 @@ def main():
                         help="Path for output phoneme model")
     parser.add_argument("--keep-work", action="store_true",
                         help="Keep temporary working directory")
+    parser.add_argument("--reference-model", type=Path,
+                        help="Copy ivector files from this existing model")
 
     args = parser.parse_args()
 
@@ -327,7 +338,8 @@ def main():
 
         # Step 4: Assemble model
         print("\n=== Step 4: Assembling output model ===")
-        assemble_model(args.compile_dir, work_dir, args.output_dir)
+        assemble_model(args.compile_dir, work_dir, args.output_dir,
+                       args.reference_model)
 
         # Report
         print("\n=== Build Complete ===")
