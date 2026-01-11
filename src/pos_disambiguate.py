@@ -366,11 +366,13 @@ class HomophoneDisambiguator:
         score = 0
 
         # Context rules for common homophones
+        # NOTE: Rules only apply when we have good POS tags (not 'X')
+        # Without spaCy, the fallback tagger is too weak for reliable disambiguation
         rules = {
             # their/there/they're
             'their': [
                 (lambda p, n, pp, np: np in ['NOUN', 'ADJ'], 3),  # their + noun/adj
-                (lambda p, n, pp, np: n and n not in ['is', 'are', 'was', 'were', 'will', 'would', 'could', 'should', 'have', 'has', 'had'], 1),
+                # Removed overly broad rule that triggered on any non-be-verb next word
             ],
             'there': [
                 (lambda p, n, pp, np: n in ['is', 'are', 'was', 'were'], 3),  # there is/are
