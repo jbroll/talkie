@@ -98,6 +98,15 @@ source [file join $script_dir vosk.tcl]
 source [file join $script_dir engine.tcl]
 source [file join $script_dir output.tcl]
 source [file join $script_dir audio.tcl]
+source [file join $script_dir pos.tcl]
+
+# POS disambiguation - enable for debugging
+set ::pos_enabled 1
+set pos_model_dir [file join [file dirname $::script_dir] models vosk lm-test]
+set pos_dic [file join $::env(HOME) Downloads vosk-model-en-us-0.22-compile db en.dic]
+set pos_vocab [file join $pos_model_dir graph words.txt]
+set pos_arpa [file join $pos_model_dir lgraph-base.arpa]
+::pos::init $pos_dic $pos_vocab $pos_arpa
 
 proc get_model_path {modelfile} {
     # Generic model path lookup - delegates to engine.tcl

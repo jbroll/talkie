@@ -6,10 +6,23 @@ This document describes how to build a custom `vosk-model-en-us-0.22-lgraph` mod
 
 The lgraph (lookahead graph) model separates the language model (Gr.fst) from the lexicon/acoustic model (HCLr.fst), making it easier to add vocabulary. This process:
 
-1. Preserves all 368k words from the original lgraph model
+1. Uses a **pruned vocabulary** (~232k words) matching the language model
 2. Adds custom domain vocabulary from `db/extra.txt`
 3. Generates pronunciations for new words using Phonetisaurus G2P
 4. Rebuilds the graph with proper `olabel_lookahead` FST format
+
+## Vocabulary Pruning
+
+The pronunciation dictionary (en.dic) contains ~312k words including many archaic
+spellings and variants that are not in the language model. Since words without LM
+probability can never be selected by the decoder, we prune the vocabulary to only
+include words that appear in the language model:
+
+- **en.dic**: 312k words (includes archaic/unused words)
+- **Language model**: 231k words (from training corpus)
+- **Pruned vocabulary**: ~232k words (LM words + domain words)
+
+This reduces the vocabulary by ~37% and eliminates words that could never be output.
 
 ## Prerequisites
 
@@ -37,8 +50,8 @@ The build requires significant memory and is done on a remote host with:
 
 ```
 ~/vosk-lgraph-compile/
-├── compile-lgraph-v7.sh      # Main build script
-├── dict-full.py              # Lexicon generator
+├── compile-lgraph.sh         # Main build script
+├── dict-pruned.py            # Lexicon generator (filters to LM words only)
 ├── lgraph-base.arpa          # Extracted base LM (89MB)
 ├── data/
 │   ├── lgraph-base.lm.gz     # Gzipped base LM
@@ -108,25 +121,68 @@ with open('missing_pronunciations.txt', 'w') as out:
 \""
 ```
 
-### 4. Create dict-full.py
+### 4. Create dict-pruned.py
+
+This script builds the lexicon by filtering en.dic to only include words that
+appear in the language model. Words not in the LM would never be output anyway.
 
 ```python
 #!/usr/bin/env python3
+"""
+Generate pruned lexicon from:
+1. Original en.dic filtered to only words in LM
+2. Generated pronunciations for LM words not in en.dic
+3. New domain words from extra.txt
+"""
 import phonetisaurus
 import sys
+import gzip
+
+# First, load LM vocabulary to know what words to keep
+lm_words = set()
+lm_file = 'data/lgraph-base.lm.gz'
+print(f'Loading LM vocabulary from {lm_file}...', file=sys.stderr, flush=True)
+
+with gzip.open(lm_file, 'rt') as f:
+    in_unigrams = False
+    for line in f:
+        line = line.strip()
+        if line == '\\1-grams:':
+            in_unigrams = True
+            continue
+        elif line.startswith('\\') and line.endswith(':'):
+            if in_unigrams:
+                break
+            continue
+        if in_unigrams and line:
+            parts = line.split('\t')
+            if len(parts) >= 2:
+                word = parts[1]
+                if not word.startswith('<'):
+                    lm_words.add(word)
+
+print(f'LM vocabulary: {len(lm_words)} words', file=sys.stderr, flush=True)
 
 words = {}
 
-# Load original lexicon (312k words)
+# Load original lexicon, but only keep words in LM
+skipped = 0
 for line in open('db/en.dic'):
     items = line.split()
-    if items[0] not in words:
-        words[items[0]] = []
-    words[items[0]].append(' '.join(items[1:]))
+    word = items[0]
+    base_word = word.split('(')[0] if '(' in word else word
 
-print(f'Loaded {len(words)} words from en.dic', file=sys.stderr)
+    if base_word not in lm_words:
+        skipped += 1
+        continue
 
-# Load extra.dic if exists
+    if word not in words:
+        words[word] = []
+    words[word].append(' '.join(items[1:]))
+
+print(f'Loaded {len(words)} words from en.dic (skipped {skipped} not in LM)', file=sys.stderr)
+
+# Load extra.dic if exists (domain-specific, always include)
 try:
     for line in open('db/extra.dic'):
         items = line.split()
@@ -136,7 +192,7 @@ try:
 except:
     pass
 
-# Load generated pronunciations for missing 56k words
+# Load generated pronunciations for LM words not in dictionary
 for line in open('missing_pronunciations.txt'):
     items = line.split()
     if items[0] not in words:
@@ -165,7 +221,7 @@ for w, phones in sorted(words.items()):
         print(w, p)
 ```
 
-### 5. Create compile-lgraph-v7.sh
+### 5. Create compile-lgraph.sh
 
 ```bash
 #!/bin/bash
@@ -180,7 +236,7 @@ rm -rf data/dict data/lang data/lang_local exp/chain/tdnn/lgraph
 echo "=== Step 1: Dictionary ==="
 mkdir -p data/dict
 cp db/phone/* data/dict/
-$HOME/miniconda3/bin/python3 dict-full.py > data/dict/lexicon.txt
+$HOME/miniconda3/bin/python3 dict-pruned.py > data/dict/lexicon.txt
 
 echo "=== Step 2: prepare_lang.sh ==="
 podman run --rm -v $HOME/vosk-lgraph-compile:/work -w /work docker.io/kaldiasr/kaldi:latest bash -c '
@@ -267,7 +323,7 @@ EOF"
 ### 3. Rebuild
 
 ```bash
-ssh john@gpu "cd ~/vosk-lgraph-compile && ./compile-lgraph-v7.sh"
+ssh john@gpu "cd ~/vosk-lgraph-compile && ./compile-lgraph.sh"
 ```
 
 ### 4. Copy to local machine
@@ -289,9 +345,9 @@ The build produces:
 
 | File | Size | Description |
 |------|------|-------------|
-| HCLr.fst | ~35MB | Lexicon/acoustic graph (olabel_lookahead format) |
-| Gr.fst | ~82MB | Language model (const format) |
-| words.txt | ~5.5MB | Vocabulary (368k+ words) |
+| HCLr.fst | ~27MB | Lexicon/acoustic graph (olabel_lookahead format) |
+| Gr.fst | ~80MB | Language model (const format) |
+| words.txt | ~3.5MB | Vocabulary (~232k words, pruned to LM) |
 | phones.txt | ~2KB | Phone symbols |
 | phones/ | - | Phone definitions |
 

@@ -146,6 +146,14 @@ namespace eval ::audio {
         if { [lsearch -exact $::killwords $text] < 0 } {
             if { [threshold::accept $conf] } {
                 set text [textproc $text]
+                # POS disambiguation (debug mode - prints to stderr)
+                if {[info exists ::pos_enabled] && $::pos_enabled} {
+                    set pos_text [::pos::disambiguate $text]
+                    if {$pos_text ne $text} {
+                        puts stderr "POS: '$text' -> '$pos_text'"
+                        set text $pos_text
+                    }
+                }
                 ::output::type_async $text
                 after idle [final_text $text $conf]
             }
