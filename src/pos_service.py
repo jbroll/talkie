@@ -409,9 +409,13 @@ class LexiconPOSService:
                 for candidate in homophones:
                     scores[candidate] = self.score_candidate(candidate, prev_pos, next_pos, prev_word, next_word)
 
-                # Find best
-                best_word = max(scores, key=scores.get)
-                best_score = scores[best_word]
+                # Find best - but keep original if tied (don't change on equal scores)
+                best_word = word_lower
+                best_score = scores[word_lower]
+                for candidate, score in scores.items():
+                    if score > best_score:  # Strictly greater - ties keep original
+                        best_score = score
+                        best_word = candidate
 
                 # Log the decision for later analysis
                 self._log_decision(text, i, word_lower, scores, best_word, prev_word, next_word)
