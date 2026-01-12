@@ -381,6 +381,12 @@ class LexiconPOSService:
         if not text.strip():
             return text
 
+        # Preserve leading/trailing whitespace
+        leading = len(text) - len(text.lstrip())
+        trailing = len(text) - len(text.rstrip())
+        prefix = text[:leading] if leading else ''
+        suffix = text[-trailing:] if trailing else ''
+
         words = text.split()
         result = []
 
@@ -419,7 +425,7 @@ class LexiconPOSService:
 
             result.append(word)
 
-        return ' '.join(result)
+        return prefix + ' '.join(result) + suffix
 
 
 def main():
