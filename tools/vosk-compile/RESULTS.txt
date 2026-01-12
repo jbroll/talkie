@@ -1,0 +1,4 @@
+%WER 8.11 [ 2229 / 27500, 286 ins, 518 del, 1425 sub ] exp/chain/tdnn/decode_test_tedlium/wer_9_0.0
+%WER 8.10 [ 2227 / 27500, 286 ins, 519 del, 1422 sub ] exp/chain/tdnn/decode_test_tedlium_l/wer_9_0.0
+%WER 6.57 [ 1806 / 27500, 218 ins, 557 del, 1031 sub ] exp/chain/tdnn/decode_test_tedlium_rescore/wer_10_0.0
+%WER 5.91 [ 1626 / 27500, 225 ins, 516 del, 885 sub ] exp/chain/tdnn/decode_test_tedlium_rnnlm/wer_10_0.0

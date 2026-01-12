@@ -1,0 +1,6 @@
+1. Compile Kaldi according to instructions
+2. Compile srilm and opengrm from tools/extras.
+3. Make sure KALDI_ROOT is properly configured in path.sh
+4. Cleanup book text in db
+5. Run compile-graph.sh
+6. Pick graph files from exp/chain/tdnn/graph

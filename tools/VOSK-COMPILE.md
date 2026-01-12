@@ -1,8 +1,32 @@
 # Vosk Model Compilation
 
-Documentation for the Vosk language model compilation setup on the GPU host.
+Documentation for the Vosk language model compilation setup.
+
+## Local Copy
+
+Key scripts and phone definitions are copied to `tools/vosk-compile/`:
+
+```
+tools/vosk-compile/
+├── compile-graph.sh      # Main compilation script
+├── remote-compile.sh     # Podman-based compilation
+├── dict.py               # Dictionary builder with G2P
+├── path.sh               # Kaldi environment setup
+├── path.local.sh         # Local path overrides
+├── extra.txt             # Custom text for LM interpolation
+├── extra.dic             # Custom pronunciations
+├── phone/                # Phone set definitions
+│   ├── nonsilence_phones.txt
+│   ├── silence_phones.txt
+│   ├── optional_silence.txt
+│   └── extra_questions.txt
+├── README
+└── RESULTS.txt
+```
 
 ## GPU Host Location
+
+Large data files remain on the GPU host:
 
 ```
 gpu:~/vosk-compile/
@@ -184,7 +208,14 @@ From RESULTS.txt (TED-LIUM test set):
 - OpenFST
 - Phonetisaurus (for G2P)
 
-## Source Data Sizes
+## Source Data (GPU Host Only)
 
-- `db/en-230k-0.5.lm.gz`: 1.9 GB (base ARPA language model)
-- `db/en.dic`: 428k pronunciations
+These large files remain on the GPU host and are accessed via ssh:
+
+| File | Size | Description |
+|------|------|-------------|
+| `db/en-230k-0.5.lm.gz` | 1.9 GB | Base ARPA language model |
+| `db/en.dic` | ~10 MB | 428k pronunciations |
+| `db/en-g2p/en.fst` | - | Grapheme-to-phoneme model |
+| `exp/chain/tdnn/` | - | Acoustic model |
+| `exp/rnnlm/` | ~230 MB | RNNLM rescoring model |
