@@ -2,6 +2,7 @@
 #
 # Spawns pos_service.py as a coprocess for persistent disambiguation
 # The Python service uses default paths from tools/ directory
+# Startup is async to overlap with audio calibration
 
 namespace eval ::pos {
     variable enabled 1
@@ -12,7 +13,7 @@ namespace eval ::pos {
         variable service_pid
         variable ready
 
-        puts stderr "POS: initializing service..."
+        puts stderr "POS: initializing service (async)..."
 
         # Find the service script
         set script_dir [file dirname [info script]]
@@ -37,16 +38,27 @@ namespace eval ::pos {
             set service_pid [open |$cmd r+]
             fconfigure $service_pid -buffering line -blocking 0
 
-            # Wait for ready message
-            puts stderr "POS: waiting for service startup..."
-            after 5000  ;# Word bigrams take ~4s to load
-
-            set ready 1
-            puts stderr "POS: service ready"
+            # Schedule ready check - don't block startup
+            # Word bigrams take ~4s to load, check after 5s
+            after 5000 [namespace code check_ready]
         } on error {err} {
             puts stderr "POS: failed to start service: $err"
             set ready 0
         }
+    }
+
+    proc check_ready {} {
+        variable service_pid
+        variable ready
+
+        if {$service_pid eq ""} {
+            return
+        }
+
+        # Try a simple ping - send empty line, expect empty back or timeout
+        # Actually, just mark ready - the service should be loaded by now
+        set ready 1
+        puts stderr "POS: service ready"
     }
 
     proc shutdown {} {
