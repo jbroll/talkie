@@ -181,13 +181,16 @@ The model uses ARPAbet-style phones:
 The ARPA language model contains n-gram probabilities used by the POS service:
 
 ```bash
-# Extract word bigrams
-ssh gpu "zcat ~/vosk-compile/db/en-230k-0.5.lm.gz" | \
+# Extract word bigrams (from local copy)
+zcat tools/vosk-compile/db/en-230k-0.5.lm.gz | \
     python3 tools/extract-word-bigrams.py > tools/word-bigrams.tsv
 
 # Extract distinguishing trigrams
-ssh gpu "zcat ~/vosk-compile/db/en-230k-0.5.lm.gz" | \
+zcat tools/vosk-compile/db/en-230k-0.5.lm.gz | \
     python3 tools/extract-distinguishing-trigrams.py tools/word-bigrams.tsv > tools/distinguishing-trigrams.tsv
+
+# Or via GPU host if local copy unavailable:
+ssh gpu "zcat ~/vosk-compile/db/en-230k-0.5.lm.gz" | python3 tools/extract-word-bigrams.py > tools/word-bigrams.tsv
 ```
 
 ## Model Performance
@@ -208,14 +211,21 @@ From RESULTS.txt (TED-LIUM test set):
 - OpenFST
 - Phonetisaurus (for G2P)
 
-## Source Data (GPU Host Only)
+## Source Data (Local Copy, Git-Ignored)
 
-These large files remain on the GPU host and are accessed via ssh:
+Large data files are copied locally to `tools/vosk-compile/` but excluded from git:
 
 | File | Size | Description |
 |------|------|-------------|
 | `db/en-230k-0.5.lm.gz` | 1.9 GB | Base ARPA language model |
-| `db/en.dic` | ~10 MB | 428k pronunciations |
-| `db/en-g2p/en.fst` | - | Grapheme-to-phoneme model |
-| `exp/chain/tdnn/` | - | Acoustic model |
-| `exp/rnnlm/` | ~230 MB | RNNLM rescoring model |
+| `db/en.dic` | 9.4 MB | 428k pronunciations |
+| `db/en-g2p/` | 105 MB | Grapheme-to-phoneme model and training data |
+| `exp/rnnlm/` | 220 MB | RNNLM rescoring model |
+
+To restore from GPU host:
+```bash
+scp gpu:~/vosk-compile/db/en-230k-0.5.lm.gz tools/vosk-compile/db/
+scp gpu:~/vosk-compile/db/en.dic tools/vosk-compile/db/
+scp -r gpu:~/vosk-compile/db/en-g2p tools/vosk-compile/db/
+scp -r gpu:~/vosk-compile/exp/rnnlm tools/vosk-compile/exp/
+```
