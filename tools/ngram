@@ -1,0 +1,340 @@
+#!/usr/bin/env python3
+"""
+SRILM-compatible ngram command - true streaming merge implementation.
+
+Processes files line-by-line without loading sections into memory.
+Requires both files to have sorted entries within each section.
+
+Supports:
+  ngram -lm X -mix-lm Y -lambda W -write-lm Z    # interpolate
+  ngram -lm X -prune T -write-lm Z               # prune
+  ngram -lm X -write-lm Z                        # copy
+"""
+
+import sys
+import gzip
+import math
+import argparse
+from contextlib import contextmanager
+
+
+@contextmanager
+def open_lm(path, mode='r'):
+    """Open LM file, handling gzip."""
+    if path.endswith('.gz'):
+        f = gzip.open(path, mode + 't', encoding='utf-8')
+    else:
+        f = open(path, mode, encoding='utf-8')
+    try:
+        yield f
+    finally:
+        f.close()
+
+
+def parse_ngram_line(line):
+    """Parse: prob\\tngram\\t[backoff] -> (ngram, prob, backoff)"""
+    parts = line.rstrip('\n').split('\t')
+    if len(parts) >= 2:
+        try:
+            prob = float(parts[0])
+            ngram = parts[1]
+            backoff = float(parts[2]) if len(parts) > 2 else 0.0
+            return ngram, prob, backoff
+        except ValueError:
+            pass
+    return None, None, None
+
+
+def format_ngram(ngram, prob, backoff, is_highest):
+    """Format ngram line for output."""
+    if backoff != 0.0 and not is_highest:
+        return f"{prob:.6f}\t{ngram}\t{backoff:.6f}\n"
+    return f"{prob:.6f}\t{ngram}\n"
+
+
+def log_add(a, b):
+    """log10(10^a + 10^b)"""
+    if a == float('-inf'): return b
+    if b == float('-inf'): return a
+    if a > b:
+        return a + math.log10(1 + 10**(b - a))
+    return b + math.log10(1 + 10**(a - b))
+
+
+class ARPAReader:
+    """Line-by-line ARPA file reader."""
+
+    def __init__(self, path):
+        self.path = path
+        self.f = None
+        self.counts = {}
+        self.max_order = 0
+        self.current_order = 0
+        self.pending_line = None
+        self.eof = False
+
+    def open(self):
+        if self.path.endswith('.gz'):
+            self.f = gzip.open(self.path, 'rt', encoding='utf-8')
+        else:
+            self.f = open(self.path, 'r', encoding='utf-8')
+        self._read_header()
+
+    def close(self):
+        if self.f:
+            self.f.close()
+
+    def _read_header(self):
+        """Read and parse ARPA header."""
+        for line in self.f:
+            line = line.strip()
+            if line == '\\data\\':
+                continue
+            if line.startswith('ngram '):
+                parts = line.split('=')
+                order = int(parts[0].split()[1])
+                count = int(parts[1])
+                self.counts[order] = count
+                self.max_order = max(self.max_order, order)
+            elif line.startswith('\\') and line.endswith('-grams:'):
+                self.current_order = int(line[1:-7])
+                break
+
+    def next_entry(self):
+        """Get next (ngram, prob, backoff) or None if section ended."""
+        if self.eof:
+            return None
+
+        for line in self.f:
+            line = line.rstrip('\n')
+            if not line:
+                continue
+            if line.startswith('\\'):
+                if line == '\\end\\':
+                    self.eof = True
+                    return None
+                if line.endswith('-grams:'):
+                    self.current_order = int(line[1:-7])
+                    return None  # Section boundary
+                continue
+            ngram, prob, backoff = parse_ngram_line(line)
+            if ngram is not None:
+                return (ngram, prob, backoff)
+        self.eof = True
+        return None
+
+    def skip_to_order(self, target_order):
+        """Skip entries until we reach target order section."""
+        while self.current_order < target_order and not self.eof:
+            entry = self.next_entry()
+            if entry is None and not self.eof:
+                continue  # Hit section boundary, try again
+
+
+def stream_interpolate(lm1_path, lm2_path, lambda1, out_path):
+    """True streaming merge-interpolation."""
+    lambda2 = 1.0 - lambda1
+    log_l1 = math.log10(lambda1) if lambda1 > 0 else float('-inf')
+    log_l2 = math.log10(lambda2) if lambda2 > 0 else float('-inf')
+
+    print(f"ngram: streaming merge {lm1_path} + {lm2_path}", file=sys.stderr)
+    print(f"ngram: lambda={lambda1}", file=sys.stderr)
+
+    r1 = ARPAReader(lm1_path)
+    r2 = ARPAReader(lm2_path)
+    r1.open()
+    r2.open()
+
+    max_order = max(r1.max_order, r2.max_order)
+
+    with open_lm(out_path, 'w') as out:
+        # Write header with estimated counts
+        out.write('\\data\\\n')
+        for order in range(1, max_order + 1):
+            est = r1.counts.get(order, 0) + r2.counts.get(order, 0)
+            out.write(f'ngram {order}={est}\n')
+        out.write('\n')
+
+        # Process each order with merge-sort style
+        for order in range(1, max_order + 1):
+            out.write(f'\\{order}-grams:\n')
+            is_highest = (order == max_order)
+            count = 0
+
+            # Get first entry from each reader for this order
+            e1 = r1.next_entry() if r1.current_order == order else None
+            e2 = r2.next_entry() if r2.current_order == order else None
+
+            while e1 is not None or e2 is not None:
+                # Determine which entry comes first (merge sort)
+                if e1 is None:
+                    ng, p, b = e2
+                    prob = log_l2 + p
+                    backoff = lambda2 * b
+                    e2 = r2.next_entry() if r2.current_order == order else None
+                elif e2 is None:
+                    ng, p, b = e1
+                    prob = log_l1 + p
+                    backoff = lambda1 * b
+                    e1 = r1.next_entry() if r1.current_order == order else None
+                elif e1[0] < e2[0]:
+                    ng, p, b = e1
+                    prob = log_l1 + p
+                    backoff = lambda1 * b
+                    e1 = r1.next_entry() if r1.current_order == order else None
+                elif e1[0] > e2[0]:
+                    ng, p, b = e2
+                    prob = log_l2 + p
+                    backoff = lambda2 * b
+                    e2 = r2.next_entry() if r2.current_order == order else None
+                else:  # Same ngram - interpolate
+                    ng = e1[0]
+                    prob = log_add(log_l1 + e1[1], log_l2 + e2[1])
+                    backoff = lambda1 * e1[2] + lambda2 * e2[2]
+                    e1 = r1.next_entry() if r1.current_order == order else None
+                    e2 = r2.next_entry() if r2.current_order == order else None
+
+                out.write(format_ngram(ng, prob, backoff, is_highest))
+                count += 1
+
+                if count % 1000000 == 0:
+                    print(f"ngram: order {order}: {count}...", file=sys.stderr)
+
+            out.write('\n')
+            print(f"ngram: order {order}: {count} ngrams", file=sys.stderr)
+
+        out.write('\\end\\\n')
+
+    r1.close()
+    r2.close()
+    print(f"ngram: wrote {out_path}", file=sys.stderr)
+
+
+def stream_prune(lm_path, threshold, out_path):
+    """
+    Simple probability-threshold pruning - pure streaming, minimal memory.
+
+    Keeps n-gram if prob >= log10(threshold).
+    Always keeps unigrams and bigrams for stability.
+
+    Two-pass: first count survivors, then write.
+    """
+    log_thresh = math.log10(threshold) if threshold > 0 else float('-inf')
+
+    print(f"ngram: prob-threshold prune, threshold={threshold} (log={log_thresh:.2f})", file=sys.stderr)
+
+    # First pass: count survivors per order
+    kept_counts = {}
+    removed_counts = {}
+    max_order = 0
+
+    with open_lm(lm_path) as f:
+        current_order = 0
+        for line in f:
+            stripped = line.strip()
+
+            if stripped.startswith('ngram '):
+                order = int(stripped.split('=')[0].split()[1])
+                max_order = max(max_order, order)
+                kept_counts[order] = 0
+                removed_counts[order] = 0
+                continue
+
+            if stripped.startswith('\\') and stripped.endswith('-grams:'):
+                current_order = int(stripped[1:-7])
+                continue
+
+            if stripped == '\\end\\' or not stripped:
+                continue
+
+            ng, prob, bow = parse_ngram_line(stripped)
+            if ng is None:
+                continue
+
+            # Keep unigrams and bigrams always; prune higher orders by prob
+            if current_order <= 2 or prob >= log_thresh:
+                kept_counts[current_order] += 1
+            else:
+                removed_counts[current_order] += 1
+
+    for o in range(1, max_order + 1):
+        print(f"ngram: order {o}: keep {kept_counts[o]}, prune {removed_counts[o]}", file=sys.stderr)
+
+    # Second pass: write survivors
+    print(f"ngram: writing {out_path}...", file=sys.stderr)
+
+    with open_lm(lm_path) as f, open_lm(out_path, 'w') as out:
+        # Write header
+        out.write('\\data\\\n')
+        for order in range(1, max_order + 1):
+            out.write(f'ngram {order}={kept_counts[order]}\n')
+        out.write('\n')
+
+        current_order = 0
+        for line in f:
+            stripped = line.strip()
+
+            if stripped == '\\data\\' or stripped.startswith('ngram '):
+                continue  # Skip original header
+
+            if stripped.startswith('\\') and stripped.endswith('-grams:'):
+                current_order = int(stripped[1:-7])
+                out.write(f'\\{current_order}-grams:\n')
+                continue
+
+            if stripped == '\\end\\':
+                out.write('\\end\\\n')
+                break
+
+            if not stripped:
+                out.write('\n')
+                continue
+
+            ng, prob, bow = parse_ngram_line(stripped)
+            if ng is None:
+                continue
+
+            is_highest = (current_order == max_order)
+
+            if current_order <= 2 or prob >= log_thresh:
+                out.write(format_ngram(ng, prob, bow, is_highest))
+
+    total_kept = sum(kept_counts.values())
+    total_removed = sum(removed_counts.values())
+    print(f"ngram: total kept {total_kept}, pruned {total_removed}", file=sys.stderr)
+
+
+def stream_copy(lm_path, out_path):
+    """Simple copy."""
+    print(f"ngram: copy {lm_path} -> {out_path}", file=sys.stderr)
+    with open_lm(lm_path) as f, open_lm(out_path, 'w') as out:
+        for line in f:
+            out.write(line)
+
+
+def main():
+    p = argparse.ArgumentParser(description='SRILM-compatible ngram (streaming)')
+    p.add_argument('-lm', required=True)
+    p.add_argument('-mix-lm', dest='mix_lm')
+    p.add_argument('-lambda', dest='lam', type=float, default=0.5)
+    p.add_argument('-prune', type=float)
+    p.add_argument('-write-lm', dest='out', required=True)
+    p.add_argument('-order', type=int)
+    args = p.parse_args()
+
+    try:
+        if args.mix_lm:
+            stream_interpolate(args.lm, args.mix_lm, args.lam, args.out)
+        elif args.prune:
+            stream_prune(args.lm, args.prune, args.out)
+        else:
+            stream_copy(args.lm, args.out)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

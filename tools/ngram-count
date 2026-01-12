@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""
+SRILM ngram-count compatible wrapper.
+
+Wraps Kaldi's make_kn_lm.py to provide SRILM-compatible CLI.
+
+Usage (SRILM style):
+    ngram-count -wbdiscount -order 4 -text corpus.txt -lm output.lm.gz
+"""
+
+import argparse
+import subprocess
+import sys
+import os
+from pathlib import Path
+
+def find_make_kn_lm():
+    """Find make_kn_lm.py in common locations."""
+    locations = [
+        # Container path (kaldiasr/kaldi image)
+        Path("/opt/kaldi/egs/wsj/s5/utils/lang/make_kn_lm.py"),
+        # Local development paths
+        Path.home() / "Downloads" / "vosk-model-en-us-0.22-compile" / "utils" / "lang" / "make_kn_lm.py",
+        Path.home() / "kaldi" / "egs" / "wsj" / "s5" / "utils" / "lang" / "make_kn_lm.py",
+        Path("/usr/local/share/kaldi/utils/lang/make_kn_lm.py"),
+        # Working directory
+        Path("utils/lang/make_kn_lm.py"),
+    ]
+    for loc in locations:
+        if loc.exists():
+            return loc
+    return None
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="SRILM ngram-count compatible wrapper",
+        add_help=False
+    )
+
+    # SRILM-compatible arguments
+    parser.add_argument("-order", type=int, default=3, help="N-gram order")
+    parser.add_argument("-text", required=True, help="Input text file")
+    parser.add_argument("-lm", required=True, help="Output LM file")
+    parser.add_argument("-wbdiscount", action="store_true", help="Use Witten-Bell discounting (mapped to KN)")
+    parser.add_argument("-kndiscount", action="store_true", help="Use Kneser-Ney discounting")
+    parser.add_argument("-interpolate", action="store_true", help="Use interpolation")
+    parser.add_argument("-help", action="help", help="Show this help")
+
+    args = parser.parse_args()
+
+    make_kn_lm = find_make_kn_lm()
+    if not make_kn_lm:
+        print("Error: make_kn_lm.py not found", file=sys.stderr)
+        print("Expected in ~/Downloads/vosk-model-en-us-0.22-compile/utils/lang/", file=sys.stderr)
+        sys.exit(1)
+
+    import tempfile
+    import gzip
+    import shutil
+
+    # Check if output should be gzipped
+    output_gz = args.lm.endswith('.gz')
+    if output_gz:
+        # Use temp file for plain output, then gzip
+        tmp_lm = args.lm[:-3]  # Remove .gz
+    else:
+        tmp_lm = args.lm
+
+    # Build command
+    cmd = [
+        sys.executable, str(make_kn_lm),
+        "-ngram-order", str(args.order),
+        "-text", args.text,
+        "-lm", tmp_lm
+    ]
+
+    # Run
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.stdout:
+        print(result.stdout, end='')
+    if result.stderr:
+        print(result.stderr, end='', file=sys.stderr)
+
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+    # Gzip if needed
+    if output_gz and os.path.exists(tmp_lm):
+        with open(tmp_lm, 'rb') as f_in:
+            with gzip.open(args.lm, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+        os.remove(tmp_lm)
+
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main()

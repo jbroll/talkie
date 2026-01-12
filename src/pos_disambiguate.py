@@ -12,6 +12,7 @@ not from an ad-hoc curated list.
 """
 
 import sys
+import time
 from pathlib import Path
 from collections import defaultdict
 
@@ -62,6 +63,7 @@ class HomophoneDisambiguator:
 
     def load_arpa_probabilities(self, arpa_path: Path | str):
         """Load unigram probabilities from ARPA language model file."""
+        t0 = time.perf_counter()
         arpa_path = Path(arpa_path)
         if not arpa_path.exists():
             print(f"Warning: ARPA file not found: {arpa_path}", file=sys.stderr)
@@ -98,7 +100,8 @@ class HomophoneDisambiguator:
                         except ValueError:
                             continue
 
-        print(f"POS: loaded {count} word probabilities", file=sys.stderr)
+        elapsed = time.perf_counter() - t0
+        print(f"POS: loaded {count} word probabilities ({elapsed*1000:.0f}ms)", file=sys.stderr)
 
         # Show probability distribution
         if self.word_prob:
@@ -121,6 +124,7 @@ class HomophoneDisambiguator:
 
     def load_dictionary(self, dic_path: Path | str):
         """Load pronunciation dictionary."""
+        t0 = time.perf_counter()
         dic_path = Path(dic_path)
         if not dic_path.exists():
             print(f"Warning: Dictionary not found: {dic_path}", file=sys.stderr)
@@ -128,7 +132,8 @@ class HomophoneDisambiguator:
 
         if HAS_PHONETIC:
             self.word_to_pron = load_dictionary(dic_path)
-            print(f"POS: loaded {len(self.word_to_pron)} pronunciations", file=sys.stderr)
+            elapsed = time.perf_counter() - t0
+            print(f"POS: loaded {len(self.word_to_pron)} pronunciations ({elapsed*1000:.0f}ms)", file=sys.stderr)
         else:
             # Fallback: just load words without phoneme parsing
             with open(dic_path, 'r', encoding='utf-8', errors='replace') as f:
@@ -139,13 +144,15 @@ class HomophoneDisambiguator:
                         if '(' in word:
                             word = word.split('(')[0]
                         self.word_to_pron[word] = parts[1:]
-            print(f"POS: loaded {len(self.word_to_pron)} words (no phonetic module)", file=sys.stderr)
+            elapsed = time.perf_counter() - t0
+            print(f"POS: loaded {len(self.word_to_pron)} words ({elapsed*1000:.0f}ms, no phonetic module)", file=sys.stderr)
 
     def build_homophone_index(self, vocab_path: Path | str):
         """Build homophone index from vocabulary file, with caching."""
         import json
         import hashlib
 
+        t0 = time.perf_counter()
         vocab_path = Path(vocab_path)
         if not vocab_path.exists():
             print(f"Warning: Vocabulary not found: {vocab_path}", file=sys.stderr)
@@ -169,7 +176,8 @@ class HomophoneDisambiguator:
                     cached = json.load(f)
                 for word, homophones in cached.items():
                     self.homophones[word] = set(homophones)
-                print(f"POS: loaded {len(self.homophones)} cached homophones", file=sys.stderr)
+                elapsed = time.perf_counter() - t0
+                print(f"POS: loaded {len(self.homophones)} cached homophones ({elapsed*1000:.0f}ms)", file=sys.stderr)
                 return
             except Exception as e:
                 print(f"POS: cache load failed: {e}", file=sys.stderr)

@@ -25,3 +25,10 @@ build/
 extra.dic
 extra_contexts.txt
 missing_words.txt
+
+# Large data files (can be regenerated - see tools/POS-SERVICE.md)
+tools/wiktionary-english.jsonl
+tools/word-bigrams.tsv
+
+# Runtime logs
+logs/

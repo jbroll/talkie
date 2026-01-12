@@ -1,0 +1,43 @@
+#!/bin/bash
+# Simplest possible LM pruning - shell-based, minimal memory
+# Usage: ngram-prune-simple input.lm.gz threshold output.lm.gz
+#
+# Keeps all unigrams/bigrams, prunes trigrams+ below threshold
+
+INPUT="$1"
+THRESH="$2"  # e.g., -7.5 (log10 scale)
+OUTPUT="$3"
+
+if [ -z "$OUTPUT" ]; then
+    echo "Usage: $0 input.lm.gz threshold output.lm.gz" >&2
+    echo "  threshold in log10 (e.g., -7.5 for 3e-8)" >&2
+    exit 1
+fi
+
+echo "Pruning $INPUT -> $OUTPUT (threshold=$THRESH)" >&2
+
+# Use awk for single-pass filtering
+zcat "$INPUT" | awk -v thresh="$THRESH" '
+BEGIN { order = 0; in_data = 0 }
+
+/^\\data\\/ { in_data = 1; print; next }
+/^\\end\\/ { print; next }
+/^\\[0-9]+-grams:/ {
+    order = substr($0, 2, 1) + 0
+    print
+    next
+}
+/^ngram [0-9]+=/ { print; next }  # header counts (will be wrong but ok for testing)
+/^$/ { print; next }
+
+# Data lines: prob \t ngram \t [backoff]
+order > 0 {
+    prob = $1 + 0
+    # Keep unigrams and bigrams always
+    if (order <= 2) { print; next }
+    # Prune higher orders by probability
+    if (prob >= thresh) { print }
+}
+' | gzip > "$OUTPUT"
+
+echo "Done" >&2
