@@ -91,7 +91,7 @@ ssh gpu "zcat ~/vosk-compile/db/en-230k-0.5.lm.gz" | \
     python3 tools/extract-word-bigrams.py > tools/word-bigrams.tsv
 ```
 
-**Size**: ~150k bigrams involving homophone words (filtered by log_prob > -2.0)
+**Size**: ~932k bigrams involving homophone words (21 MB, filtered by log_prob > -4.0)
 
 ---
 
@@ -119,7 +119,7 @@ ssh gpu "zcat ~/vosk-compile/db/en-230k-0.5.lm.gz" | \
     python3 tools/extract-distinguishing-trigrams.py tools/word-bigrams.tsv > tools/distinguishing-trigrams.tsv
 ```
 
-**Size**: ~133k entries covering ~55k unique (prev, next) contexts
+**Size**: ~113k entries covering ~47k unique (prev, next) contexts (3.8 MB)
 
 ---
 

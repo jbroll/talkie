@@ -97,7 +97,7 @@ def main():
 
         # Keep bigrams where at least one word is a homophone
         # Prune by probability threshold to drop rare usages
-        if (w1 in HOMOPHONE_WORDS or w2 in HOMOPHONE_WORDS) and log_prob > -2.0:
+        if (w1 in HOMOPHONE_WORDS or w2 in HOMOPHONE_WORDS) and log_prob > -4.0:
             bigrams[(w1, w2)] = log_prob
             count += 1
 
