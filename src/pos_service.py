@@ -101,12 +101,13 @@ class LexiconPOSService:
         {'which', 'witch'},
     ]
 
-    def __init__(self, lexicon_path: str, unigram_path: str = None, bigram_path: str = None, word_bigram_path: str = None):
+    def __init__(self, lexicon_path: str, unigram_path: str | None = None, bigram_path: str | None = None, word_bigram_path: str | None = None, trigram_path: str | None = None):
         self.word_pos = {}  # word -> set of possible POS chars
         self.homophones = {}  # word -> set of homophones (curated only)
         self.unigram_prob = {}  # word -> probability
         self.pos_bigrams = {}  # (pos1, pos2) -> probability
         self.word_bigrams = {}  # (word1, word2) -> log_probability
+        self.distinguishing_trigrams = {}  # (prev, next) -> {homophone: log_prob}
 
         self.load_lexicon(lexicon_path)
         self.build_homophones()
@@ -116,6 +117,8 @@ class LexiconPOSService:
             self.load_pos_bigrams(bigram_path)
         if word_bigram_path:
             self.load_word_bigrams(word_bigram_path)
+        if trigram_path:
+            self.load_distinguishing_trigrams(trigram_path)
 
     def load_lexicon(self, path: str):
         """Load word -> POS mapping from talkie.lex."""
@@ -215,6 +218,34 @@ class LexiconPOSService:
         elapsed = (time.perf_counter() - t0) * 1000
         print(f"POS: loaded {len(self.word_bigrams)} word bigrams ({elapsed:.0f}ms)", file=sys.stderr)
 
+    def load_distinguishing_trigrams(self, path: str):
+        """Load distinguishing trigrams from file.
+
+        These are trigrams where the trigram probability selects a different
+        homophone than bigram-only scoring would.
+        Format: prev<tab>homophone<tab>next<tab>log_prob<tab>bigram_pick<tab>trigram_pick
+        """
+        t0 = time.perf_counter()
+
+        with open(path, 'r') as f:
+            for line in f:
+                if line.startswith('#'):
+                    continue
+                parts = line.strip().split('\t')
+                if len(parts) >= 4:
+                    prev_word, homophone, next_word = parts[0], parts[1], parts[2]
+                    try:
+                        log_prob = float(parts[3])
+                        key = (prev_word, next_word)
+                        if key not in self.distinguishing_trigrams:
+                            self.distinguishing_trigrams[key] = {}
+                        self.distinguishing_trigrams[key][homophone] = log_prob
+                    except ValueError:
+                        pass
+
+        elapsed = (time.perf_counter() - t0) * 1000
+        print(f"POS: loaded {len(self.distinguishing_trigrams)} distinguishing trigram contexts ({elapsed:.0f}ms)", file=sys.stderr)
+
     def get_neighbor_pos(self, words: list[str], word_index: int) -> tuple[str | None, str | None]:
         """Get POS of neighboring words (not the target word itself).
 
@@ -270,17 +301,28 @@ class LexiconPOSService:
         return expected_pos in possible
 
     def score_candidate(self, word: str, prev_pos: str | None, next_pos: str | None, prev_word: str | None, next_word: str | None) -> float:
-        """Score how well a word fits using word bigrams (primary) or POS bigrams (fallback).
+        """Score how well a word fits using distinguishing trigrams, word bigrams, or POS bigrams.
 
-        Word bigrams P(word | prev_word) and P(next_word | word) capture specific
-        contextual patterns much better than POS-level bigrams.
+        Priority:
+        1. Distinguishing trigrams - high-value contexts where trigrams pick differently than bigrams
+        2. Word bigrams P(word | prev_word) and P(next_word | word)
+        3. POS bigrams (fallback)
         """
         import math
 
         word_lower = word.lower()
         score = 0.0
 
-        # Primary: Use word bigrams if available
+        # Highest priority: Use distinguishing trigrams if we have this exact context
+        if self.distinguishing_trigrams and prev_word and next_word:
+            key = (prev_word.lower(), next_word.lower())
+            if key in self.distinguishing_trigrams:
+                trigram_probs = self.distinguishing_trigrams[key]
+                if word_lower in trigram_probs:
+                    # Return trigram score directly (these are high-value corrections)
+                    return trigram_probs[word_lower]
+
+        # Secondary: Use word bigrams if available
         if self.word_bigrams:
             # P(word | prev_word)
             if prev_word:
@@ -436,9 +478,10 @@ def main():
     # Default paths
     script_dir = Path(__file__).parent
     lexicon_path = script_dir.parent / "tools" / "talkie.lex"
-    unigram_path = script_dir.parent / "tools" / "unigram_probs.txt"
-    bigram_path = script_dir.parent / "tools" / "pos-bigrams.tsv"
-    word_bigram_path = script_dir.parent / "tools" / "word-bigrams.tsv"
+    unigram_path: Path | None = script_dir.parent / "tools" / "unigram_probs.txt"
+    bigram_path: Path | None = script_dir.parent / "tools" / "pos-bigrams.tsv"
+    word_bigram_path: Path | None = script_dir.parent / "tools" / "word-bigrams.tsv"
+    trigram_path: Path | None = script_dir.parent / "tools" / "distinguishing-trigrams.tsv"
 
     # Allow override from command line
     if len(sys.argv) >= 2:
@@ -449,28 +492,35 @@ def main():
         bigram_path = Path(sys.argv[3])
     if len(sys.argv) >= 5:
         word_bigram_path = Path(sys.argv[4])
+    if len(sys.argv) >= 6:
+        trigram_path = Path(sys.argv[5])
 
     if not lexicon_path.exists():
         print(f"Error: lexicon not found: {lexicon_path}", file=sys.stderr)
         sys.exit(1)
 
-    if not unigram_path.exists():
+    if unigram_path and not unigram_path.exists():
         print(f"Warning: unigram probs not found: {unigram_path}", file=sys.stderr)
         unigram_path = None
 
-    if not bigram_path.exists():
+    if bigram_path and not bigram_path.exists():
         print(f"Warning: POS bigrams not found: {bigram_path}", file=sys.stderr)
         bigram_path = None
 
-    if not word_bigram_path.exists():
+    if word_bigram_path and not word_bigram_path.exists():
         print(f"Warning: word bigrams not found: {word_bigram_path}", file=sys.stderr)
         word_bigram_path = None
+
+    if trigram_path and not trigram_path.exists():
+        print(f"Warning: distinguishing trigrams not found: {trigram_path}", file=sys.stderr)
+        trigram_path = None
 
     print(f"POS: starting service...", file=sys.stderr)
     print(f"POS: lexicon={lexicon_path}", file=sys.stderr)
     print(f"POS: unigrams={unigram_path}", file=sys.stderr)
     print(f"POS: pos_bigrams={bigram_path}", file=sys.stderr)
     print(f"POS: word_bigrams={word_bigram_path}", file=sys.stderr)
+    print(f"POS: trigrams={trigram_path}", file=sys.stderr)
     print(f"POS: spacy={'yes' if HAS_SPACY else 'no'}", file=sys.stderr)
 
     t0 = time.perf_counter()
@@ -478,7 +528,8 @@ def main():
         str(lexicon_path),
         str(unigram_path) if unigram_path else None,
         str(bigram_path) if bigram_path else None,
-        str(word_bigram_path) if word_bigram_path else None
+        str(word_bigram_path) if word_bigram_path else None,
+        str(trigram_path) if trigram_path else None
     )
     elapsed = (time.perf_counter() - t0) * 1000
     print(f"POS: ready ({elapsed:.0f}ms)", file=sys.stderr)

@@ -91,7 +91,35 @@ ssh gpu "zcat ~/vosk-compile/db/en-230k-0.5.lm.gz" | \
     python3 tools/extract-word-bigrams.py > tools/word-bigrams.tsv
 ```
 
-**Size**: ~2.2 million bigrams involving homophone words
+**Size**: ~150k bigrams involving homophone words (filtered by log_prob > -2.0)
+
+---
+
+### 5. distinguishing-trigrams.tsv (High-Value Trigram Contexts)
+
+**Purpose**: Trigram contexts where longer context picks a different homophone than bigrams alone
+
+**Format**: Tab-separated: `prev<TAB>homophone<TAB>next<TAB>log_prob<TAB>bigram_pick<TAB>trigram_pick`
+```
+to      sea     again   -2.188984       see     sea
+to      see     again   -3.271974       see     sea
+a       see     saw     -1.286652       sea     see
+a       sea     saw     -3.863681       sea     see
+```
+
+**Interpretation**:
+- Row 1-2: In "to __ again", bigrams would pick "see", but trigrams correctly pick "sea"
+- Row 3-4: In "a __ saw" (see-saw), bigrams would pick "sea", but trigrams correctly pick "see"
+
+**Source**: Trigrams where trigram probability selects different homophone than bigram-only scoring
+
+**Derivation**:
+```bash
+ssh gpu "zcat ~/vosk-compile/db/en-230k-0.5.lm.gz" | \
+    python3 tools/extract-distinguishing-trigrams.py tools/word-bigrams.tsv > tools/distinguishing-trigrams.tsv
+```
+
+**Size**: ~133k entries covering ~55k unique (prev, next) contexts
 
 ---
 
@@ -99,8 +127,11 @@ ssh gpu "zcat ~/vosk-compile/db/en-230k-0.5.lm.gz" | \
 
 ```
 ARPA Language Model (en-230k-0.5.lm.gz)
+├── word trigrams ────────────────────> distinguishing-trigrams.tsv (HIGHEST PRIORITY)
+│   filtered where trigram != bigram decision
+│
 ├── word bigrams ──────────────────────> word-bigrams.tsv (PRIMARY)
-│   filtered to homophone words
+│   filtered to homophone words, log_prob > -2.0
 │
 ├── word bigrams + lexicon POS ────────> pos-bigrams.tsv (FALLBACK)
 │   mapped words → POS, counted transitions
@@ -114,11 +145,18 @@ Moby + Wiktionary + spaCy ─────────────> talkie.lex (P
 
 ## Scoring Algorithm
 
-For each homophone candidate:
-1. **Word bigrams** (if available): `score = log P(word|prev) + log P(next|word)`
-2. **POS bigrams** (fallback): `score = log P(POS|prev_POS) * P(next_POS|POS) + log P_unigram(word)`
+For each homophone candidate, in priority order:
 
-The candidate with the highest score is selected.
+1. **Distinguishing trigrams** (if exact (prev, next) context matches):
+   Use trigram log probability directly - these are high-value corrections
+
+2. **Word bigrams** (if available):
+   `score = log P(word|prev) + log P(next|word)`
+
+3. **POS bigrams** (fallback):
+   `score = log P(POS|prev_POS) * P(next_POS|POS) + log P_unigram(word)`
+
+The candidate with the highest score is selected. On ties, the original word is kept.
 
 ## Logging
 
@@ -152,6 +190,10 @@ ssh gpu "zcat ~/vosk-compile/db/en-230k-0.5.lm.gz" | \
 # Rebuild word bigrams (requires ssh to gpu)
 ssh gpu "zcat ~/vosk-compile/db/en-230k-0.5.lm.gz" | \
     python3 extract-word-bigrams.py > word-bigrams.tsv
+
+# Rebuild distinguishing trigrams (requires word bigrams first)
+ssh gpu "zcat ~/vosk-compile/db/en-230k-0.5.lm.gz" | \
+    python3 extract-distinguishing-trigrams.py word-bigrams.tsv > distinguishing-trigrams.tsv
 ```
 
 ## GPU Host Paths
