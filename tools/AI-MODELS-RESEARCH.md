@@ -87,12 +87,26 @@ Output: "I have been going to the store"
 
 **How it works:** Generate corrected text token-by-token.
 
-**Performance:**
+**Standard T5 Performance:**
 - T5-small: 60M params, 240 MB, 100-300ms/sentence
 - Better for complete rewrites
 - 10x slower than GECToR
 
-**Not recommended** for real-time use due to speed.
+**Efficient T5 Variants (Updated Jan 2026):**
+
+| Model | Parameters | Size (INT8) | Expected Latency | Notes |
+|-------|------------|-------------|------------------|-------|
+| t5-efficient-tiny | ~12M | ~12 MB | 20-60ms | Smallest viable |
+| t5-efficient-mini | ~31M | ~31 MB | 30-80ms | Better quality |
+| grammar-synthesis-small | 60M | ~60 MB | 50-150ms | JFLEG-trained |
+
+**Pre-built ONNX Models Available:**
+- `visheratin/t5-efficient-tiny-grammar-correction` - Ready for ONNX Runtime
+- `visheratin/t5-efficient-mini-grammar-correction` - Better quality/speed tradeoff
+- `onnx-community/t5-base-grammar-correction-ONNX` - Full T5-base in ONNX
+- `Xenova/t5-base-grammar-correction` - Quantized for web/edge
+
+The tiny/mini variants may be competitive with GECToR due to smaller size, despite autoregressive generation.
 
 ---
 
@@ -106,17 +120,50 @@ Output: "I have been going to the store"
 | DistilBERT (ONNX C, INT8) | 10-30ms | Native C, quantized |
 | GECToR (Python) | 100-300ms | Per sentence |
 | GECToR (ONNX C, INT8) | 20-50ms | Estimated |
+| t5-efficient-tiny (CTranslate2, INT8) | 20-60ms | Needs benchmarking |
+| t5-efficient-mini (CTranslate2, INT8) | 30-80ms | Needs benchmarking |
 
 **Your hardware (Intel Core Ultra 7 155H):**
 - Supports AVX2, VNNI instructions
 - INT8 quantization gives 2-3x speedup
 - Expected: 20-50ms for GECToR with ONNX Runtime
+- CTranslate2 reported 2.2x faster than ONNX Runtime for T5 models
 
 ---
 
 ## C/C++ Integration Options
 
-### ONNX Runtime (Recommended)
+### CTranslate2 (Recommended for T5)
+
+**Why CTranslate2:**
+- Powers faster-whisper (already integrated in Talkie)
+- 2.2x faster than ONNX Runtime for T5/seq2seq models
+- Transformer-specific optimizations (layer fusion, batch reordering)
+- Excellent INT8 quantization on Intel CPUs
+- Installing faster-whisper brings both CTranslate2 AND ONNX Runtime
+
+```cpp
+#include "ctranslate2/translator.h"
+
+auto translator = ctranslate2::Translator("./t5-grammar-ct2");
+auto result = translator.translate_batch({tokens});
+```
+
+**Conversion from HuggingFace:**
+```bash
+ct2-transformers-converter \
+  --model visheratin/t5-efficient-mini-grammar-correction \
+  --output_dir ./t5-grammar-ct2 \
+  --quantization int8
+```
+
+**Pros:**
+- Best performance for seq2seq models
+- Same backend as faster-whisper
+- ~55 MB for INT8 T5-base (4x reduction)
+- Process-based IPC matches existing POS service architecture
+
+### ONNX Runtime
 
 ```c
 // Pseudocode
@@ -130,12 +177,14 @@ OrtRun(session, input_ids, output_tags);
 - Excellent INT8/INT4 quantization
 - Cross-platform
 - Well documented
+- Better for GECToR (encoder-only, tag-based)
 
 **Tcl integration:** Create C extension or use FFI (`ffidl`)
 
 ### llama.cpp / ggml
 
 - Better for generative models (GPT-style)
+- No GEC-specific GGUF models available
 - Less ideal for encoder-only models
 - No existing Tcl bindings
 
@@ -153,56 +202,82 @@ auto output = module.forward(inputs);
 
 ## Recommendation
 
-### Best Overall: GECToR
+### Two Viable Paths (Updated Jan 2026)
 
+#### Option A: GECToR (Tag-based)
 **Why:**
 1. Fixes homophones AND grammar in one pass
-2. 10x faster than seq2seq alternatives
+2. 10x faster than standard seq2seq (T5-small)
 3. Parallel inference (non-autoregressive)
 4. Well-tested, production-ready (Grammarly uses it)
 5. Can be quantized for faster CPU inference
 
-### Implementation Path
+**Challenges:**
+- Old dependencies (AllenNLP 0.8.4, PyTorch 1.10)
+- No pre-built ONNX models available
+- Requires conversion work
 
-**Phase 1: Python Prototype (2-4 hours)**
-```python
-from gector import GECToR, predict
+#### Option B: T5-efficient-tiny/mini (Seq2Seq)
+**Why:**
+1. Pre-built ONNX models ready to use
+2. CTranslate2 integration via faster-whisper (already in Talkie)
+3. Much smaller than original T5 research suggested
+4. Simple development path - same coprocess architecture as POS service
 
-model = GECToR.from_pretrained('bert_0_gectorv2.th')
-corrected = predict(model, tokenizer, "I has going to store")
-# Output: "I have been going to the store"
-```
+**Trade-offs:**
+- Autoregressive generation (theoretically slower)
+- May match GECToR speed due to 5-10x smaller size
 
-**Phase 2: Persistent Service (1-2 days)**
-- Similar to current POS service architecture
-- Load model once, process requests via stdin/stdout
+### Recommended Implementation Path
+
+**Phase 1: Install faster-whisper + benchmark tiny T5**
+- `pip install faster-whisper` brings CTranslate2 + ONNX Runtime
+- Convert `visheratin/t5-efficient-tiny-grammar-correction` to CTranslate2
+- Benchmark actual latency on Intel Core Ultra 7
+
+**Phase 2: Python coprocess service**
+- Same architecture as POS service (stdin/stdout JSON)
+- Load model once, process corrections on demand
 - Target: <100ms per correction
 
-**Phase 3: ONNX/C Integration (1-2 weeks)**
-- Export to ONNX format
-- Create Tcl C extension
-- Target: <50ms per correction
+**Phase 3: Evaluate and optimize**
+- If tiny T5 meets latency targets, done
+- If not, try GECToR with ONNX Runtime
+- Consider C extension only if Python latency is unacceptable
 
 ---
 
 ## Comparison: Bigrams vs AI Models
 
-| Aspect | Bigrams/Trigrams | GECToR |
-|--------|------------------|--------|
-| Speed | <1ms | 20-100ms |
-| Model size | 25 MB | 420 MB - 1.3 GB |
-| Homophones | Good (known patterns) | Excellent (semantic) |
-| Grammar | None | Yes |
-| Novel phrases | Poor | Good |
-| Missing words | None | Yes |
-| Punctuation | None | Yes |
-| Complexity | Simple | Moderate |
+| Aspect | Bigrams/Trigrams | GECToR | T5-efficient-tiny |
+|--------|------------------|--------|-------------------|
+| Speed | <1ms | 20-100ms | 20-60ms (est.) |
+| Model size | 25 MB | 420 MB - 1.3 GB | ~12 MB (INT8) |
+| Homophones | Good (known patterns) | Excellent (semantic) | Excellent |
+| Grammar | None | Yes | Yes |
+| Novel phrases | Poor | Good | Good |
+| Missing words | None | Yes | Yes |
+| Punctuation | None | Yes | Yes |
+| Complexity | Simple | Moderate | Simple |
+| Dependencies | None | Old (AllenNLP 0.8.4) | Modern (CTranslate2) |
+| Pre-built models | N/A | Need conversion | ONNX ready |
 
-**Verdict:** GECToR provides significantly more value (grammar + homophones + punctuation) at acceptable latency cost (~50-100ms vs <1ms). For real-time transcription, run GECToR on final results only (not partial results).
+**Verdict:** T5-efficient-tiny offers the best development path - modern dependencies, pre-built models, and integration via CTranslate2 (same backend as faster-whisper). For real-time transcription, run on final results only (not partial results).
 
 ---
 
 ## Files and Resources
+
+**T5 Grammar Models (Pre-built ONNX):**
+- `visheratin/t5-efficient-tiny-grammar-correction` - Smallest, fastest
+- `visheratin/t5-efficient-mini-grammar-correction` - Better quality
+- `onnx-community/t5-base-grammar-correction-ONNX` - Full T5-base
+- HuggingFace models: https://huggingface.co/models?search=grammar+correction+onnx
+
+**CTranslate2:**
+- GitHub: https://github.com/OpenNMT/CTranslate2
+- Quantization guide: https://opennmt.net/CTranslate2/quantization.html
+- Python package: `pip install ctranslate2`
 
 **GECToR:**
 - Official repo: https://github.com/grammarly/gector
@@ -218,11 +293,18 @@ corrected = predict(model, tokenizer, "I has going to store")
 - `tools/word-bigrams.tsv` - 932k bigram entries
 - `tools/distinguishing-trigrams.tsv` - 113k trigram entries
 
+**Talkie Faster-Whisper Integration:**
+- `src/engines/faster_whisper_engine.py` - Coprocess engine (designed, not installed)
+- `FASTER_WHISPER_INTEGRATION.md` - Architecture documentation
+
 ---
 
 ## Next Steps
 
-1. **Prototype GECToR** in Python, test on logged homophone decisions
-2. **Benchmark latency** on actual hardware
-3. **Compare accuracy** to current bigram approach
-4. **Decide integration path** (Python service vs ONNX C extension)
+1. **Install faster-whisper** in venv (brings CTranslate2 + ONNX Runtime)
+2. **Download and convert** t5-efficient-tiny to CTranslate2 format
+3. **Benchmark latency** on Intel Core Ultra 7 155H
+4. **Create GEC coprocess service** following POS service pattern
+5. **Test on logged homophone decisions** from `logs/homophone_decisions.jsonl`
+6. **Compare accuracy** to current bigram approach
+7. **Integrate into Talkie** as optional post-processing step
