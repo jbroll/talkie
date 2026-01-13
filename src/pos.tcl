@@ -33,10 +33,14 @@ namespace eval ::pos {
         }
 
         # Spawn the service as a coprocess (uses defaults from tools/)
+        # Use -u for unbuffered stderr
         try {
-            set cmd [list $python $py_script]
+            set cmd [list $python -u $py_script]
             set service_pid [open |$cmd r+]
             fconfigure $service_pid -buffering line -blocking 0
+
+            # Set up fileevent to read the READY message from stdout
+            fileevent $service_pid readable [namespace code [list read_startup $service_pid]]
 
             # Schedule ready check - don't block startup
             # Word bigrams take ~4s to load, check after 5s
@@ -44,6 +48,28 @@ namespace eval ::pos {
         } on error {err} {
             puts stderr "POS: failed to start service: $err"
             set ready 0
+        }
+    }
+
+    proc read_startup {fd} {
+        variable ready
+
+        if {[eof $fd]} {
+            fileevent $fd readable {}
+            return
+        }
+
+        if {[gets $fd line] >= 0} {
+            # Display startup messages
+            if {[string match "POS:*" $line] || [string match "POS_READY*" $line]} {
+                puts stderr $line
+            }
+            # Mark ready when we see POS_READY
+            if {[string match "POS_READY*" $line]} {
+                set ready 1
+                # Stop reading startup messages, switch to normal mode
+                fileevent $fd readable {}
+            }
         }
     }
 
@@ -55,9 +81,11 @@ namespace eval ::pos {
             return
         }
 
-        # Service prints POS_READY to stderr when loaded (visible in terminal)
-        # We just mark ready here - actual loading stats come from Python stderr
-        set ready 1
+        # Fallback if POS_READY wasn't seen - mark ready anyway
+        if {!$ready} {
+            set ready 1
+            puts stderr "POS: service ready (timeout fallback)"
+        }
     }
 
     proc shutdown {} {

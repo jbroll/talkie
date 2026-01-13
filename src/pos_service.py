@@ -533,9 +533,11 @@ def main():
     )
     elapsed = (time.perf_counter() - t0) * 1000
 
-    # Print ready message with statistics (Tcl wrapper reads this)
+    # Print ready message with statistics
     stats = f"bigrams={len(service.word_bigrams)} trigrams={len(service.distinguishing_trigrams)} groups={len(service.HOMOPHONE_GROUPS)}"
-    print(f"POS_READY {elapsed:.0f}ms {stats}", file=sys.stderr)
+    ready_msg = f"POS_READY {elapsed:.0f}ms {stats}"
+    print(ready_msg, file=sys.stderr)  # For terminal visibility
+    print(ready_msg, flush=True)  # For Tcl wrapper to read from stdout
     sys.stderr.flush()
 
     # Process stdin line by line
