@@ -55,10 +55,9 @@ namespace eval ::pos {
             return
         }
 
-        # Try a simple ping - send empty line, expect empty back or timeout
-        # Actually, just mark ready - the service should be loaded by now
+        # Service prints POS_READY to stderr when loaded (visible in terminal)
+        # We just mark ready here - actual loading stats come from Python stderr
         set ready 1
-        puts stderr "POS: service ready"
     }
 
     proc shutdown {} {

@@ -532,7 +532,10 @@ def main():
         str(trigram_path) if trigram_path else None
     )
     elapsed = (time.perf_counter() - t0) * 1000
-    print(f"POS: ready ({elapsed:.0f}ms)", file=sys.stderr)
+
+    # Print ready message with statistics (Tcl wrapper reads this)
+    stats = f"bigrams={len(service.word_bigrams)} trigrams={len(service.distinguishing_trigrams)} groups={len(service.HOMOPHONE_GROUPS)}"
+    print(f"POS_READY {elapsed:.0f}ms {stats}", file=sys.stderr)
     sys.stderr.flush()
 
     # Process stdin line by line
