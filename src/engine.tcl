@@ -224,9 +224,9 @@ namespace eval ::engine {
                     set audiolevel [audio::energy $data int16]
                     set speech [is_speech $audiolevel]
 
-                    # Throttle UI updates to ~10Hz
+                    # Throttle UI updates to ~5Hz
                     set now [clock milliseconds]
-                    if {$now - $last_ui_update_time >= 100} {
+                    if {$now - $last_ui_update_time >= 200} {
                         thread::send -async $main_tid [list ::engine::update_ui $audiolevel $speech]
                         set last_ui_update_time $now
                     }
