@@ -1,0 +1,1304 @@
+[
+  {
+    "name": "t5-efficient-tiny",
+    "total": 69,
+    "correct": 35,
+    "by_category": {
+      "homophone": {
+        "total": 47,
+        "correct": 20
+      },
+      "grammar": {
+        "total": 16,
+        "correct": 11
+      },
+      "correct": {
+        "total": 6,
+        "correct": 4
+      }
+    },
+    "errors": [
+      {
+        "input": "I went to there house",
+        "expected": "I went to their house",
+        "got": "I went to the house there.",
+        "category": "homophone"
+      },
+      {
+        "input": "Their going to the park",
+        "expected": "They're going to the park",
+        "got": "They are going to the park.",
+        "category": "homophone"
+      },
+      {
+        "input": "Put it over their",
+        "expected": "Put it over there",
+        "got": "Put it over their teeth.",
+        "category": "homophone"
+      },
+      {
+        "input": "There dog is cute",
+        "expected": "Their dog is cute",
+        "got": "There is a cute dog.",
+        "category": "homophone"
+      },
+      {
+        "input": "I think there right",
+        "expected": "I think they're right",
+        "got": "I think there is right.",
+        "category": "homophone"
+      },
+      {
+        "input": "Your going to love this",
+        "expected": "You're going to love this",
+        "got": "Are you going to love this?",
+        "category": "homophone"
+      },
+      {
+        "input": "Is that you're car",
+        "expected": "Is that your car",
+        "got": "Is that your car?",
+        "category": "homophone"
+      },
+      {
+        "input": "Your the best",
+        "expected": "You're the best",
+        "got": "Your best",
+        "category": "homophone"
+      },
+      {
+        "input": "Its a beautiful day",
+        "expected": "It's a beautiful day",
+        "got": "It was a beautiful day.",
+        "category": "homophone"
+      },
+      {
+        "input": "Me to",
+        "expected": "Me too",
+        "got": "To me.",
+        "category": "homophone"
+      },
+      {
+        "input": "I have to cats",
+        "expected": "I have two cats",
+        "got": "I have to treat cats.",
+        "category": "homophone"
+      },
+      {
+        "input": "Do you no the answer",
+        "expected": "Do you know the answer",
+        "got": "Do you know the answer?",
+        "category": "homophone"
+      },
+      {
+        "input": "Know thanks",
+        "expected": "No thanks",
+        "got": "I know thanks.",
+        "category": "homophone"
+      },
+      {
+        "input": "Did you here that",
+        "expected": "Did you hear that",
+        "got": "Did you hear that?",
+        "category": "homophone"
+      },
+      {
+        "input": "Write the answer write now",
+        "expected": "Write the answer right now",
+        "got": "Write the answer to write now.",
+        "category": "homophone"
+      },
+      {
+        "input": "Turn write at the corner",
+        "expected": "Turn right at the corner",
+        "got": "Write a turn at the corner.",
+        "category": "homophone"
+      },
+      {
+        "input": "You are write about that",
+        "expected": "You are right about that",
+        "got": "Do you write about that?",
+        "category": "homophone"
+      },
+      {
+        "input": "Check the whether forecast",
+        "expected": "Check the weather forecast",
+        "got": "Check whether the forecast",
+        "category": "homophone"
+      },
+      {
+        "input": "I through the ball",
+        "expected": "I threw the ball",
+        "got": "I went through the ball.",
+        "category": "homophone"
+      },
+      {
+        "input": "He threw the window",
+        "expected": "He threw through the window",
+        "got": "He threw the window.",
+        "category": "homophone"
+      },
+      {
+        "input": "Walk threw the door",
+        "expected": "Walk through the door",
+        "got": "Walk threw the door.",
+        "category": "homophone"
+      },
+      {
+        "input": "There is a whole in my sock",
+        "expected": "There is a hole in my sock",
+        "got": "There is a whole day in my sock.",
+        "category": "homophone"
+      },
+      {
+        "input": "Stand buy the door",
+        "expected": "Stand by the door",
+        "got": "Buy the stand door.",
+        "category": "homophone"
+      },
+      {
+        "input": "Were are you going",
+        "expected": "Where are you going",
+        "got": "Where are you going?",
+        "category": "homophone"
+      },
+      {
+        "input": "Where going home",
+        "expected": "We're going home",
+        "got": "Where are you going home?",
+        "category": "homophone"
+      },
+      {
+        "input": "I except your apology",
+        "expected": "I accept your apology",
+        "got": "I expect your apology.",
+        "category": "homophone"
+      },
+      {
+        "input": "Everyone accept him came",
+        "expected": "Everyone except him came",
+        "got": "Everyone accepted him and came.",
+        "category": "homophone"
+      },
+      {
+        "input": "He has went home",
+        "expected": "He has gone home",
+        "got": "He went home.",
+        "category": "grammar"
+      },
+      {
+        "input": "I should of done it",
+        "expected": "I should have done it",
+        "got": "I should do it.",
+        "category": "grammar"
+      },
+      {
+        "input": "Me and him went to school",
+        "expected": "He and I went to school",
+        "got": "Me and him went to school.",
+        "category": "grammar"
+      },
+      {
+        "input": "Her and me are friends",
+        "expected": "She and I are friends",
+        "got": "Her and me are friends.",
+        "category": "grammar"
+      },
+      {
+        "input": "Give it to John and I",
+        "expected": "Give it to John and me",
+        "got": "Give it to John and I.",
+        "category": "grammar"
+      },
+      {
+        "input": "They're going to their house over there",
+        "expected": "They're going to their house over there",
+        "got": "They are going to their house over there.",
+        "category": "correct"
+      },
+      {
+        "input": "It's clear that its tail is wagging",
+        "expected": "It's clear that its tail is wagging",
+        "got": "It is clear that its tail is wagging.",
+        "category": "correct"
+      }
+    ],
+    "accuracy": 0.5072463768115942,
+    "latency_mean": 4.10199201196783,
+    "latency_median": 3.9672909770160913,
+    "latency_min": 1.65185600053519,
+    "latency_max": 8.321119996253401
+  },
+  {
+    "name": "t5-efficient-mini",
+    "total": 69,
+    "correct": 35,
+    "by_category": {
+      "homophone": {
+        "total": 47,
+        "correct": 21
+      },
+      "grammar": {
+        "total": 16,
+        "correct": 11
+      },
+      "correct": {
+        "total": 6,
+        "correct": 3
+      }
+    },
+    "errors": [
+      {
+        "input": "I went to there house",
+        "expected": "I went to their house",
+        "got": "I went to the house there.",
+        "category": "homophone"
+      },
+      {
+        "input": "Their going to the park",
+        "expected": "They're going to the park",
+        "got": "They are going to the park.",
+        "category": "homophone"
+      },
+      {
+        "input": "There dog is cute",
+        "expected": "Their dog is cute",
+        "got": "The dog is cute.",
+        "category": "homophone"
+      },
+      {
+        "input": "I think there right",
+        "expected": "I think they're right",
+        "got": "I think it is right there.",
+        "category": "homophone"
+      },
+      {
+        "input": "Your going to love this",
+        "expected": "You're going to love this",
+        "got": "Are you going to love this?",
+        "category": "homophone"
+      },
+      {
+        "input": "Is that you're car",
+        "expected": "Is that your car",
+        "got": "Is that your car?",
+        "category": "homophone"
+      },
+      {
+        "input": "Your the best",
+        "expected": "You're the best",
+        "got": "Your best wishes",
+        "category": "homophone"
+      },
+      {
+        "input": "Me to",
+        "expected": "Me too",
+        "got": "To me!",
+        "category": "homophone"
+      },
+      {
+        "input": "I have to cats",
+        "expected": "I have two cats",
+        "got": "I have to have cats.",
+        "category": "homophone"
+      },
+      {
+        "input": "Do you no the answer",
+        "expected": "Do you know the answer",
+        "got": "Do you know the answer?",
+        "category": "homophone"
+      },
+      {
+        "input": "Know thanks",
+        "expected": "No thanks",
+        "got": "I know thanks.",
+        "category": "homophone"
+      },
+      {
+        "input": "I can here you clearly",
+        "expected": "I can hear you clearly",
+        "got": "I can hear from you clearly.",
+        "category": "homophone"
+      },
+      {
+        "input": "Come hear right now",
+        "expected": "Come here right now",
+        "got": "Come here right now!",
+        "category": "homophone"
+      },
+      {
+        "input": "Did you here that",
+        "expected": "Did you hear that",
+        "got": "Did you hear that?",
+        "category": "homophone"
+      },
+      {
+        "input": "Write the answer write now",
+        "expected": "Write the answer right now",
+        "got": "Write the answer and write now.",
+        "category": "homophone"
+      },
+      {
+        "input": "Turn write at the corner",
+        "expected": "Turn right at the corner",
+        "got": "Write turn at the corner.",
+        "category": "homophone"
+      },
+      {
+        "input": "You are write about that",
+        "expected": "You are right about that",
+        "got": "Do you write about that?",
+        "category": "homophone"
+      },
+      {
+        "input": "I through the ball",
+        "expected": "I threw the ball",
+        "got": "I went through the ball.",
+        "category": "homophone"
+      },
+      {
+        "input": "He threw the window",
+        "expected": "He threw through the window",
+        "got": "He threw the window.",
+        "category": "homophone"
+      },
+      {
+        "input": "Walk threw the door",
+        "expected": "Walk through the door",
+        "got": "The walk threw the door.",
+        "category": "homophone"
+      },
+      {
+        "input": "There is a whole in my sock",
+        "expected": "There is a hole in my sock",
+        "got": "There is a whole house in my sock.",
+        "category": "homophone"
+      },
+      {
+        "input": "Say good buy",
+        "expected": "Say goodbye",
+        "got": "Say goodbye!",
+        "category": "homophone"
+      },
+      {
+        "input": "Were are you going",
+        "expected": "Where are you going",
+        "got": "Where are you going?",
+        "category": "homophone"
+      },
+      {
+        "input": "Where going home",
+        "expected": "We're going home",
+        "got": "Where is going home?",
+        "category": "homophone"
+      },
+      {
+        "input": "I except your apology",
+        "expected": "I accept your apology",
+        "got": "I expect your apology.",
+        "category": "homophone"
+      },
+      {
+        "input": "Everyone accept him came",
+        "expected": "Everyone except him came",
+        "got": "Everyone accepted him and came.",
+        "category": "homophone"
+      },
+      {
+        "input": "He has went home",
+        "expected": "He has gone home",
+        "got": "He had gone home.",
+        "category": "grammar"
+      },
+      {
+        "input": "I could of been there",
+        "expected": "I could have been there",
+        "got": "I could sort of be there.",
+        "category": "grammar"
+      },
+      {
+        "input": "Me and him went to school",
+        "expected": "He and I went to school",
+        "got": "Me and him went to school.",
+        "category": "grammar"
+      },
+      {
+        "input": "Her and me are friends",
+        "expected": "She and I are friends",
+        "got": "Her friends and I are friends.",
+        "category": "grammar"
+      },
+      {
+        "input": "Give it to John and I",
+        "expected": "Give it to John and me",
+        "got": "Give it to John and I.",
+        "category": "grammar"
+      },
+      {
+        "input": "The weather is nice",
+        "expected": "The weather is nice",
+        "got": "The weather is very nice.",
+        "category": "correct"
+      },
+      {
+        "input": "They're going to their house over there",
+        "expected": "They're going to their house over there",
+        "got": "They are going to their house over there.",
+        "category": "correct"
+      },
+      {
+        "input": "It's clear that its tail is wagging",
+        "expected": "It's clear that its tail is wagging",
+        "got": "It is clear that its tail is wagging.",
+        "category": "correct"
+      }
+    ],
+    "accuracy": 0.5072463768115942,
+    "latency_mean": 8.713408102925893,
+    "latency_median": 7.992902013938874,
+    "latency_min": 4.3844909814652056,
+    "latency_max": 17.384866980137303
+  },
+  {
+    "name": "t5-base-grammar",
+    "total": 69,
+    "correct": 29,
+    "by_category": {
+      "homophone": {
+        "total": 47,
+        "correct": 11
+      },
+      "grammar": {
+        "total": 16,
+        "correct": 12
+      },
+      "correct": {
+        "total": 6,
+        "correct": 6
+      }
+    },
+    "errors": [
+      {
+        "input": "Their going to the park",
+        "expected": "They're going to the park",
+        "got": "Their going to the park.",
+        "category": "homophone"
+      },
+      {
+        "input": "Put it over their",
+        "expected": "Put it over there",
+        "got": "Put it over their heads.",
+        "category": "homophone"
+      },
+      {
+        "input": "There dog is cute",
+        "expected": "Their dog is cute",
+        "got": "The dog is cute.",
+        "category": "homophone"
+      },
+      {
+        "input": "I think there right",
+        "expected": "I think they're right",
+        "got": "I think there is right there.",
+        "category": "homophone"
+      },
+      {
+        "input": "Your going to love this",
+        "expected": "You're going to love this",
+        "got": "Your going to love this.",
+        "category": "homophone"
+      },
+      {
+        "input": "Is that you're car",
+        "expected": "Is that your car",
+        "got": "Is that you're car?",
+        "category": "homophone"
+      },
+      {
+        "input": "Your the best",
+        "expected": "You're the best",
+        "got": "Your the best.",
+        "category": "homophone"
+      },
+      {
+        "input": "The dog wagged it's tail",
+        "expected": "The dog wagged its tail",
+        "got": "The dog wagged it's tail.",
+        "category": "homophone"
+      },
+      {
+        "input": "Its a beautiful day",
+        "expected": "It's a beautiful day",
+        "got": "It is a beautiful day.",
+        "category": "homophone"
+      },
+      {
+        "input": "Me to",
+        "expected": "Me too",
+        "got": "Me to.",
+        "category": "homophone"
+      },
+      {
+        "input": "I have to cats",
+        "expected": "I have two cats",
+        "got": "I have to cats.",
+        "category": "homophone"
+      },
+      {
+        "input": "I no what you mean",
+        "expected": "I know what you mean",
+        "got": "I no what you mean.",
+        "category": "homophone"
+      },
+      {
+        "input": "Do you no the answer",
+        "expected": "Do you know the answer",
+        "got": "Do you not the answer?",
+        "category": "homophone"
+      },
+      {
+        "input": "Know thanks",
+        "expected": "No thanks",
+        "got": "Know thanks.",
+        "category": "homophone"
+      },
+      {
+        "input": "I can here you clearly",
+        "expected": "I can hear you clearly",
+        "got": "I can here you clearly.",
+        "category": "homophone"
+      },
+      {
+        "input": "Come hear right now",
+        "expected": "Come here right now",
+        "got": "Come hear right now.",
+        "category": "homophone"
+      },
+      {
+        "input": "Did you here that",
+        "expected": "Did you hear that",
+        "got": "Did you here that?",
+        "category": "homophone"
+      },
+      {
+        "input": "Write the answer write now",
+        "expected": "Write the answer right now",
+        "got": "Write the answer write now.",
+        "category": "homophone"
+      },
+      {
+        "input": "Turn write at the corner",
+        "expected": "Turn right at the corner",
+        "got": "Turn write at the corner and write at the corner.",
+        "category": "homophone"
+      },
+      {
+        "input": "You are write about that",
+        "expected": "You are right about that",
+        "got": "You are writing about that.",
+        "category": "homophone"
+      },
+      {
+        "input": "The whether is nice today",
+        "expected": "The weather is nice today",
+        "got": "The whether is nice today.",
+        "category": "homophone"
+      },
+      {
+        "input": "I wonder weather it will rain",
+        "expected": "I wonder whether it will rain",
+        "got": "I wonder if it will rain.",
+        "category": "homophone"
+      },
+      {
+        "input": "Check the whether forecast",
+        "expected": "Check the weather forecast",
+        "got": "Check the whether the forecast is correct.",
+        "category": "homophone"
+      },
+      {
+        "input": "I through the ball",
+        "expected": "I threw the ball",
+        "got": "I through the ball.",
+        "category": "homophone"
+      },
+      {
+        "input": "He threw the window",
+        "expected": "He threw through the window",
+        "got": "He threw the window.",
+        "category": "homophone"
+      },
+      {
+        "input": "Walk threw the door",
+        "expected": "Walk through the door",
+        "got": "Walk threw the door.",
+        "category": "homophone"
+      },
+      {
+        "input": "The hole thing was wrong",
+        "expected": "The whole thing was wrong",
+        "got": "The hole thing was wrong.",
+        "category": "homophone"
+      },
+      {
+        "input": "There is a whole in my sock",
+        "expected": "There is a hole in my sock",
+        "got": "There is a whole in my socks.",
+        "category": "homophone"
+      },
+      {
+        "input": "I ate the hole pizza",
+        "expected": "I ate the whole pizza",
+        "got": "I ate the hole pizza.",
+        "category": "homophone"
+      },
+      {
+        "input": "I want to by a car",
+        "expected": "I want to buy a car",
+        "got": "I want to by a car.",
+        "category": "homophone"
+      },
+      {
+        "input": "Say good buy",
+        "expected": "Say goodbye",
+        "got": "Say good buys.",
+        "category": "homophone"
+      },
+      {
+        "input": "Stand buy the door",
+        "expected": "Stand by the door",
+        "got": "Stand buy the door.",
+        "category": "homophone"
+      },
+      {
+        "input": "Were are you going",
+        "expected": "Where are you going",
+        "got": "Were you going to go?",
+        "category": "homophone"
+      },
+      {
+        "input": "Where going home",
+        "expected": "We're going home",
+        "got": "Where is going home?",
+        "category": "homophone"
+      },
+      {
+        "input": "I except your apology",
+        "expected": "I accept your apology",
+        "got": "I except your apology.",
+        "category": "homophone"
+      },
+      {
+        "input": "Everyone accept him came",
+        "expected": "Everyone except him came",
+        "got": "Everyone accepted him.",
+        "category": "homophone"
+      },
+      {
+        "input": "She done her homework",
+        "expected": "She did her homework",
+        "got": "She has done her homework.",
+        "category": "grammar"
+      },
+      {
+        "input": "Me and him went to school",
+        "expected": "He and I went to school",
+        "got": "Me and him went to school.",
+        "category": "grammar"
+      },
+      {
+        "input": "Her and me are friends",
+        "expected": "She and I are friends",
+        "got": "Her and me are friends.",
+        "category": "grammar"
+      },
+      {
+        "input": "Give it to John and I",
+        "expected": "Give it to John and me",
+        "got": "Give it to John and I.",
+        "category": "grammar"
+      }
+    ],
+    "accuracy": 0.42028985507246375,
+    "latency_mean": 52.37782229053572,
+    "latency_median": 49.34121700352989,
+    "latency_min": 29.419024009257555,
+    "latency_max": 117.9899649869185
+  },
+  {
+    "name": "distilbert-mlm",
+    "total": 69,
+    "correct": 42,
+    "by_category": {
+      "homophone": {
+        "total": 47,
+        "correct": 38
+      },
+      "grammar": {
+        "total": 16,
+        "correct": 0
+      },
+      "correct": {
+        "total": 6,
+        "correct": 4
+      }
+    },
+    "errors": [
+      {
+        "input": "Their going to the park",
+        "expected": "They're going to the park",
+        "got": "There going to the park",
+        "category": "homophone"
+      },
+      {
+        "input": "I think there right",
+        "expected": "I think they're right",
+        "got": "I think there right",
+        "category": "homophone"
+      },
+      {
+        "input": "Your going to love this",
+        "expected": "You're going to love this",
+        "got": "Your going to love this",
+        "category": "homophone"
+      },
+      {
+        "input": "Your the best",
+        "expected": "You're the best",
+        "got": "Your the best",
+        "category": "homophone"
+      },
+      {
+        "input": "I know its wrong",
+        "expected": "I know it's wrong",
+        "got": "I know its wrong",
+        "category": "homophone"
+      },
+      {
+        "input": "Its a beautiful day",
+        "expected": "It's a beautiful day",
+        "got": "Its a beautiful day",
+        "category": "homophone"
+      },
+      {
+        "input": "He threw the window",
+        "expected": "He threw through the window",
+        "got": "He threw the window",
+        "category": "homophone"
+      },
+      {
+        "input": "Say good buy",
+        "expected": "Say goodbye",
+        "got": "Say good bye",
+        "category": "homophone"
+      },
+      {
+        "input": "Where going home",
+        "expected": "We're going home",
+        "got": "Were going home",
+        "category": "homophone"
+      },
+      {
+        "input": "She have been working hard",
+        "expected": "She has been working hard",
+        "got": "She have been working hard",
+        "category": "grammar"
+      },
+      {
+        "input": "They was going to the store",
+        "expected": "They were going to the store",
+        "got": "They was going to the store",
+        "category": "grammar"
+      },
+      {
+        "input": "He dont understand",
+        "expected": "He doesn't understand",
+        "got": "He dont understand",
+        "category": "grammar"
+      },
+      {
+        "input": "I has a question",
+        "expected": "I have a question",
+        "got": "I has a question",
+        "category": "grammar"
+      },
+      {
+        "input": "The dogs runs fast",
+        "expected": "The dogs run fast",
+        "got": "The dogs runs fast",
+        "category": "grammar"
+      },
+      {
+        "input": "I seen him yesterday",
+        "expected": "I saw him yesterday",
+        "got": "I seen him yesterday",
+        "category": "grammar"
+      },
+      {
+        "input": "She done her homework",
+        "expected": "She did her homework",
+        "got": "She done her homework",
+        "category": "grammar"
+      },
+      {
+        "input": "He has went home",
+        "expected": "He has gone home",
+        "got": "He has went home",
+        "category": "grammar"
+      },
+      {
+        "input": "I should of done it",
+        "expected": "I should have done it",
+        "got": "I should of done it",
+        "category": "grammar"
+      },
+      {
+        "input": "I could of been there",
+        "expected": "I could have been there",
+        "got": "I could of been there",
+        "category": "grammar"
+      },
+      {
+        "input": "Me and him went to school",
+        "expected": "He and I went to school",
+        "got": "Me and him went to school",
+        "category": "grammar"
+      },
+      {
+        "input": "Her and me are friends",
+        "expected": "She and I are friends",
+        "got": "Her and me are friends",
+        "category": "grammar"
+      },
+      {
+        "input": "Give it to John and I",
+        "expected": "Give it to John and me",
+        "got": "Give it to John and I",
+        "category": "grammar"
+      },
+      {
+        "input": "I saw a elephant",
+        "expected": "I saw an elephant",
+        "got": "I saw a elephant",
+        "category": "grammar"
+      },
+      {
+        "input": "She is an doctor",
+        "expected": "She is a doctor",
+        "got": "She is an doctor",
+        "category": "grammar"
+      },
+      {
+        "input": "I need an new computer",
+        "expected": "I need a new computer",
+        "got": "I need an new computer",
+        "category": "grammar"
+      },
+      {
+        "input": "They're going to their house over there",
+        "expected": "They're going to their house over there",
+        "got": "Their going to their house over there",
+        "category": "correct"
+      },
+      {
+        "input": "It's clear that its tail is wagging",
+        "expected": "It's clear that its tail is wagging",
+        "got": "Its clear that its tail is wagging",
+        "category": "correct"
+      }
+    ],
+    "accuracy": 0.6086956521739131,
+    "latency_mean": 13.350968437262582,
+    "latency_median": 12.455485004466027,
+    "latency_min": 0.004049012204632163,
+    "latency_max": 63.00587800797075
+  },
+  {
+    "name": "electra-small-mlm",
+    "total": 69,
+    "correct": 41,
+    "by_category": {
+      "homophone": {
+        "total": 47,
+        "correct": 37
+      },
+      "grammar": {
+        "total": 16,
+        "correct": 0
+      },
+      "correct": {
+        "total": 6,
+        "correct": 4
+      }
+    },
+    "errors": [
+      {
+        "input": "Their going to the park",
+        "expected": "They're going to the park",
+        "got": "There going to the park",
+        "category": "homophone"
+      },
+      {
+        "input": "I think there right",
+        "expected": "I think they're right",
+        "got": "I think their right",
+        "category": "homophone"
+      },
+      {
+        "input": "Your going to love this",
+        "expected": "You're going to love this",
+        "got": "Your going to love this",
+        "category": "homophone"
+      },
+      {
+        "input": "Your the best",
+        "expected": "You're the best",
+        "got": "Your the best",
+        "category": "homophone"
+      },
+      {
+        "input": "I know its wrong",
+        "expected": "I know it's wrong",
+        "got": "I know its wrong",
+        "category": "homophone"
+      },
+      {
+        "input": "Its a beautiful day",
+        "expected": "It's a beautiful day",
+        "got": "Its a beautiful day",
+        "category": "homophone"
+      },
+      {
+        "input": "Me to",
+        "expected": "Me too",
+        "got": "Me to",
+        "category": "homophone"
+      },
+      {
+        "input": "He threw the window",
+        "expected": "He threw through the window",
+        "got": "He threw the window",
+        "category": "homophone"
+      },
+      {
+        "input": "Say good buy",
+        "expected": "Say goodbye",
+        "got": "Say good by",
+        "category": "homophone"
+      },
+      {
+        "input": "Where going home",
+        "expected": "We're going home",
+        "got": "Where going home",
+        "category": "homophone"
+      },
+      {
+        "input": "She have been working hard",
+        "expected": "She has been working hard",
+        "got": "She have been working hard",
+        "category": "grammar"
+      },
+      {
+        "input": "They was going to the store",
+        "expected": "They were going to the store",
+        "got": "They was going to the store",
+        "category": "grammar"
+      },
+      {
+        "input": "He dont understand",
+        "expected": "He doesn't understand",
+        "got": "He dont understand",
+        "category": "grammar"
+      },
+      {
+        "input": "I has a question",
+        "expected": "I have a question",
+        "got": "I has a question",
+        "category": "grammar"
+      },
+      {
+        "input": "The dogs runs fast",
+        "expected": "The dogs run fast",
+        "got": "The dogs runs fast",
+        "category": "grammar"
+      },
+      {
+        "input": "I seen him yesterday",
+        "expected": "I saw him yesterday",
+        "got": "I seen him yesterday",
+        "category": "grammar"
+      },
+      {
+        "input": "She done her homework",
+        "expected": "She did her homework",
+        "got": "She done her homework",
+        "category": "grammar"
+      },
+      {
+        "input": "He has went home",
+        "expected": "He has gone home",
+        "got": "He has went home",
+        "category": "grammar"
+      },
+      {
+        "input": "I should of done it",
+        "expected": "I should have done it",
+        "got": "I should of done it",
+        "category": "grammar"
+      },
+      {
+        "input": "I could of been there",
+        "expected": "I could have been there",
+        "got": "I could of been there",
+        "category": "grammar"
+      },
+      {
+        "input": "Me and him went to school",
+        "expected": "He and I went to school",
+        "got": "Me and him went to school",
+        "category": "grammar"
+      },
+      {
+        "input": "Her and me are friends",
+        "expected": "She and I are friends",
+        "got": "Her and me are friends",
+        "category": "grammar"
+      },
+      {
+        "input": "Give it to John and I",
+        "expected": "Give it to John and me",
+        "got": "Give it to John and I",
+        "category": "grammar"
+      },
+      {
+        "input": "I saw a elephant",
+        "expected": "I saw an elephant",
+        "got": "I saw a elephant",
+        "category": "grammar"
+      },
+      {
+        "input": "She is an doctor",
+        "expected": "She is a doctor",
+        "got": "She is an doctor",
+        "category": "grammar"
+      },
+      {
+        "input": "I need an new computer",
+        "expected": "I need a new computer",
+        "got": "I need an new computer",
+        "category": "grammar"
+      },
+      {
+        "input": "They're going to their house over there",
+        "expected": "They're going to their house over there",
+        "got": "Their going to their house over there",
+        "category": "correct"
+      },
+      {
+        "input": "It's clear that its tail is wagging",
+        "expected": "It's clear that its tail is wagging",
+        "got": "Its clear that its tail is wagging",
+        "category": "correct"
+      }
+    ],
+    "accuracy": 0.5942028985507246,
+    "latency_mean": 8.221569041252486,
+    "latency_median": 7.629542000358924,
+    "latency_min": 0.0019360159058123827,
+    "latency_max": 37.40485999151133
+  },
+  {
+    "name": "bert-base-mlm",
+    "total": 69,
+    "correct": 41,
+    "by_category": {
+      "homophone": {
+        "total": 47,
+        "correct": 37
+      },
+      "grammar": {
+        "total": 16,
+        "correct": 0
+      },
+      "correct": {
+        "total": 6,
+        "correct": 4
+      }
+    },
+    "errors": [
+      {
+        "input": "Their going to the park",
+        "expected": "They're going to the park",
+        "got": "Their going to the park",
+        "category": "homophone"
+      },
+      {
+        "input": "I think there right",
+        "expected": "I think they're right",
+        "got": "I think their right",
+        "category": "homophone"
+      },
+      {
+        "input": "Your going to love this",
+        "expected": "You're going to love this",
+        "got": "Your going to love this",
+        "category": "homophone"
+      },
+      {
+        "input": "Your the best",
+        "expected": "You're the best",
+        "got": "Your the best",
+        "category": "homophone"
+      },
+      {
+        "input": "I know its wrong",
+        "expected": "I know it's wrong",
+        "got": "I know its wrong",
+        "category": "homophone"
+      },
+      {
+        "input": "Its a beautiful day",
+        "expected": "It's a beautiful day",
+        "got": "Its a beautiful day",
+        "category": "homophone"
+      },
+      {
+        "input": "Me to",
+        "expected": "Me too",
+        "got": "Me to",
+        "category": "homophone"
+      },
+      {
+        "input": "He threw the window",
+        "expected": "He threw through the window",
+        "got": "He through the window",
+        "category": "homophone"
+      },
+      {
+        "input": "Say good buy",
+        "expected": "Say goodbye",
+        "got": "Say good by",
+        "category": "homophone"
+      },
+      {
+        "input": "Where going home",
+        "expected": "We're going home",
+        "got": "Were going home",
+        "category": "homophone"
+      },
+      {
+        "input": "She have been working hard",
+        "expected": "She has been working hard",
+        "got": "She have been working hard",
+        "category": "grammar"
+      },
+      {
+        "input": "They was going to the store",
+        "expected": "They were going to the store",
+        "got": "They was going to the store",
+        "category": "grammar"
+      },
+      {
+        "input": "He dont understand",
+        "expected": "He doesn't understand",
+        "got": "He dont understand",
+        "category": "grammar"
+      },
+      {
+        "input": "I has a question",
+        "expected": "I have a question",
+        "got": "I has a question",
+        "category": "grammar"
+      },
+      {
+        "input": "The dogs runs fast",
+        "expected": "The dogs run fast",
+        "got": "The dogs runs fast",
+        "category": "grammar"
+      },
+      {
+        "input": "I seen him yesterday",
+        "expected": "I saw him yesterday",
+        "got": "I seen him yesterday",
+        "category": "grammar"
+      },
+      {
+        "input": "She done her homework",
+        "expected": "She did her homework",
+        "got": "She done her homework",
+        "category": "grammar"
+      },
+      {
+        "input": "He has went home",
+        "expected": "He has gone home",
+        "got": "He has went home",
+        "category": "grammar"
+      },
+      {
+        "input": "I should of done it",
+        "expected": "I should have done it",
+        "got": "I should of done it",
+        "category": "grammar"
+      },
+      {
+        "input": "I could of been there",
+        "expected": "I could have been there",
+        "got": "I could of been there",
+        "category": "grammar"
+      },
+      {
+        "input": "Me and him went to school",
+        "expected": "He and I went to school",
+        "got": "Me and him went to school",
+        "category": "grammar"
+      },
+      {
+        "input": "Her and me are friends",
+        "expected": "She and I are friends",
+        "got": "Her and me are friends",
+        "category": "grammar"
+      },
+      {
+        "input": "Give it to John and I",
+        "expected": "Give it to John and me",
+        "got": "Give it to John and I",
+        "category": "grammar"
+      },
+      {
+        "input": "I saw a elephant",
+        "expected": "I saw an elephant",
+        "got": "I saw a elephant",
+        "category": "grammar"
+      },
+      {
+        "input": "She is an doctor",
+        "expected": "She is a doctor",
+        "got": "She is an doctor",
+        "category": "grammar"
+      },
+      {
+        "input": "I need an new computer",
+        "expected": "I need a new computer",
+        "got": "I need an new computer",
+        "category": "grammar"
+      },
+      {
+        "input": "They're going to their house over there",
+        "expected": "They're going to their house over there",
+        "got": "Their going to their house over there",
+        "category": "correct"
+      },
+      {
+        "input": "It's clear that its tail is wagging",
+        "expected": "It's clear that its tail is wagging",
+        "got": "Its clear that its tail is wagging",
+        "category": "correct"
+      }
+    ],
+    "accuracy": 0.5942028985507246,
+    "latency_mean": 18.534611360983167,
+    "latency_median": 17.45024399133399,
+    "latency_min": 0.0015690166037529707,
+    "latency_max": 79.27118000225164
+  }
+]

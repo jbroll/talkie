@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""Export HuggingFace models to ONNX format for OpenVINO NPU inference."""
+
+import argparse
+import warnings
+from pathlib import Path
+
+# Suppress PyTorch ONNX deprecation warning - legacy export works fine for encoder models
+warnings.filterwarnings("ignore", message=".*legacy TorchScript-based ONNX export.*")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Export HuggingFace transformer models to ONNX"
+    )
+    parser.add_argument("model", help="HuggingFace model name or local path")
+    parser.add_argument("output", help="Output ONNX file path")
+    parser.add_argument(
+        "--seq-len", type=int, default=64, help="Sequence length (default: 64)"
+    )
+    parser.add_argument(
+        "--task",
+        choices=["mlm", "token-classification", "sequence-classification"],
+        default="auto",
+        help="Model task type (default: auto-detect)",
+    )
+    args = parser.parse_args()
+
+    import torch
+    from transformers import AutoConfig, AutoTokenizer
+
+    print(f"Loading {args.model}...")
+    config = AutoConfig.from_pretrained(args.model)
+
+    # Auto-detect task from architecture
+    task = args.task
+    if task == "auto":
+        arch = config.architectures[0] if config.architectures else ""
+        if "ForMaskedLM" in arch:
+            task = "mlm"
+        elif "ForTokenClassification" in arch:
+            task = "token-classification"
+        elif "ForSequenceClassification" in arch:
+            task = "sequence-classification"
+        else:
+            task = "mlm"  # Default fallback
+        print(f"Auto-detected task: {task}")
+
+    # Load appropriate model class
+    if task == "mlm":
+        from transformers import AutoModelForMaskedLM
+        model = AutoModelForMaskedLM.from_pretrained(args.model)
+    elif task == "token-classification":
+        from transformers import AutoModelForTokenClassification
+        model = AutoModelForTokenClassification.from_pretrained(args.model)
+    elif task == "sequence-classification":
+        from transformers import AutoModelForSequenceClassification
+        model = AutoModelForSequenceClassification.from_pretrained(args.model)
+
+    model.eval()
+    params = sum(p.numel() for p in model.parameters())
+    print(f"Parameters: {params/1e6:.1f}M")
+
+    # Create dummy inputs with fixed shapes
+    dummy_input_ids = torch.ones(1, args.seq_len, dtype=torch.long)
+    dummy_attention_mask = torch.ones(1, args.seq_len, dtype=torch.long)
+
+    # Export
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    print(f"Exporting to {output_path}...")
+    with torch.no_grad():
+        torch.onnx.export(
+            model,
+            (dummy_input_ids, dummy_attention_mask),
+            str(output_path),
+            input_names=["input_ids", "attention_mask"],
+            output_names=["logits"],
+            opset_version=14,
+            do_constant_folding=True,
+            dynamo=False,
+        )
+
+    size_mb = output_path.stat().st_size / 1024 / 1024
+    print(f"Exported: {output_path} ({size_mb:.1f} MB)")
+
+
+if __name__ == "__main__":
+    main()
