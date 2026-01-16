@@ -180,6 +180,33 @@ proc punctcap::restore {text} {
             }
         }
 
+        # Punctuation confidence threshold - don't add punct unless clearly better
+        # Classes with no punctuation: 0, 1, 2, 3, 10, 11, 22, 23
+        # Classes with punctuation: 4-9, 12-21
+        set no_punct_classes {0 1 2 3 10 11 22 23}
+        set punct_classes {4 5 6 7 8 9 12 13 14 15 16 17 18 19 20 21}
+
+        if {$best_class in $punct_classes} {
+            # Find best no-punctuation alternative with same capitalization style
+            lassign $class_map($best_class) best_cap _
+            set best_nopunct_score -1e30
+            set best_nopunct_class 2  ;# default: lowercase, no punct
+            foreach npc $no_punct_classes {
+                lassign $class_map($npc) npc_cap _
+                set npc_score [lindex $data [expr {$start + $npc}]]
+                # Prefer same capitalization style
+                if {$npc_score > $best_nopunct_score} {
+                    set best_nopunct_score $npc_score
+                    set best_nopunct_class $npc
+                }
+            }
+            # Only keep punctuation if score difference exceeds threshold (3.0)
+            # This prevents weak punctuation predictions from being applied
+            if {$best_score - $best_nopunct_score < 3.0} {
+                set best_class $best_nopunct_class
+            }
+        }
+
         # Get capitalization and punctuation from class
         if {[info exists class_map($best_class)]} {
             lassign $class_map($best_class) cap_type punct
