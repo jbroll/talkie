@@ -15,17 +15,26 @@ multiple speech recognition engines.
 talkie/src/
 ├── talkie.tcl                   # Main application orchestrator
 ├── config.tcl                   # Configuration and state management
-├── audio.tcl                    # Audio processing and transcription control
-├── gui.tcl                      # Tk UI interface
+├── engine.tcl                   # Speech engine with integrated audio (worker thread)
+├── audio.tcl                    # Result parsing and transcription state
+├── worker.tcl                   # Reusable worker thread abstraction
+├── output.tcl                   # Keyboard output (worker thread)
+├── threshold.tcl                # Confidence threshold management
+├── textproc.tcl                 # Text processing and voice commands
+├── coprocess.tcl                # External engine communication
+├── ui-layout.tcl                # Tk UI layout and widgets
 ├── display.tcl                  # Text display and visualization
-├── device.tcl                   # Audio device management
 ├── vosk.tcl                     # Vosk speech engine integration
-├── uinput/                      # Keyboard simulation
-│   ├── uinput.tcl              # uinput wrapper
-│   └── test_uinput_verify.tcl  # Testing tools
-├── pa/                          # PortAudio bindings
-├── vosk/                        # Vosk bindings
-└── audio/                       # Audio processing bindings
+├── gec/                         # Grammar/Error Correction pipeline
+│   ├── gec.tcl                 # GEC coordinator
+│   ├── pipeline.tcl            # ONNX inference pipeline
+│   ├── punctcap.tcl            # Punctuation and capitalization
+│   ├── homophone.tcl           # Homophone correction
+│   └── tokens.tcl              # BERT token constants
+├── uinput/                      # Keyboard simulation (critcl)
+├── pa/                          # PortAudio bindings (critcl)
+├── vosk/                        # Vosk bindings (critcl)
+└── audio/                       # Audio processing bindings (critcl)
 ```
 
 ### Core Components (Tcl)
@@ -43,17 +52,34 @@ talkie/src/
 - Auto-save traces on configuration changes
 - Minimal load/save functions using `cat` and `echo`
 
-#### Audio Processing (audio.tcl)
-- Real-time audio stream processing via PortAudio
-- Voice activity detection with energy thresholds
-- Circular buffer for pre-speech audio lookback
-- Vosk speech recognition integration
-- Global transcription state management
+#### Engine (engine.tcl) - Worker Thread
+- Integrates PortAudio stream directly on worker thread
+- Audio callbacks fire on worker, bypassing main thread
+- Voice activity detection with adaptive threshold
+- Speech recognition (Vosk critcl or coprocess engines)
+- Sends results to main thread via `thread::send -async`
+- UI updates throttled to 5Hz
 
-#### GUI Interface (gui.tcl)
+#### Audio/Results (audio.tcl) - Main Thread
+- Parses recognition results (JSON from Vosk)
+- Coordinates GEC processing (punctuation, homophones)
+- Manages transcription state
+- Device enumeration for configuration
+
+#### Output (output.tcl) - Worker Thread
+- Keyboard simulation via uinput
+- Runs on dedicated worker thread
+- Async text output to avoid blocking
+
+#### GEC Pipeline (gec/)
+- **pipeline.tcl**: ONNX Runtime inference for BERT models
+- **punctcap.tcl**: Adds punctuation and capitalization
+- **homophone.tcl**: Corrects homophones using context
+- **tokens.tcl**: BERT token constants (PAD, CLS, SEP, etc.)
+
+#### GUI Interface (ui-layout.tcl)
 - Tk-based responsive interface
-- Controls and text view switching
-- Real-time audio energy and confidence display
+- Real-time audio energy and confidence display (5Hz updates)
 - Automatic button updates via `::transcribing` trace
 - Device selection and parameter adjustment
 
@@ -62,11 +88,6 @@ talkie/src/
 - Partial and final result handling
 - Energy level and confidence visualization
 - Rolling buffer management
-
-#### Device Management (device.tcl)
-- Audio device enumeration and selection
-- GUI dropdown population
-- Device configuration updates
 
 ### State Management Architecture
 
@@ -80,6 +101,46 @@ talkie/src/
 - **Configuration**: `~/.talkie.conf` (JSON format with auto-save)
 - **Transcription State**: `~/.talkie` (JSON format: `{"transcribing": true/false}`)
 - **File Watching**: 500ms interval monitoring for external control
+
+### Threading Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Main Thread                               │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────────────────┐ │
+│  │   GUI   │  │  GEC    │  │ Display │  │ Result Processing   │ │
+│  │ (5Hz)   │  │Pipeline │  │         │  │ (parse_and_display) │ │
+│  └─────────┘  └─────────┘  └─────────┘  └─────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+        ▲                                          ▲
+        │ thread::send -async                      │
+        │ (UI updates)                             │ thread::send -async
+        │                                          │ (recognition results)
+┌───────┴─────────────────────────┐  ┌─────────────┴───────────────┐
+│      Engine Worker Thread       │  │     Output Worker Thread    │
+│  ┌──────────────────────────┐  │  │  ┌───────────────────────┐  │
+│  │   PortAudio Callbacks    │  │  │  │   uinput Keyboard     │  │
+│  │   (25ms chunks, 40Hz)    │  │  │  │   Simulation          │  │
+│  └────────────┬─────────────┘  │  │  └───────────────────────┘  │
+│               ▼                 │  │                             │
+│  ┌──────────────────────────┐  │  └─────────────────────────────┘
+│  │  Threshold Detection     │  │
+│  │  (adaptive noise floor)  │  │
+│  └────────────┬─────────────┘  │
+│               ▼                 │
+│  ┌──────────────────────────┐  │
+│  │  Vosk Recognition        │  │
+│  │  (or coprocess engine)   │  │
+│  └──────────────────────────┘  │
+└─────────────────────────────────┘
+```
+
+**Data Flow:**
+1. PortAudio delivers 25ms audio chunks directly to engine worker
+2. Worker performs threshold detection and Vosk processing
+3. Recognition results sent to main thread for GEC
+4. Processed text sent to output worker for typing
+5. UI updates throttled to 5Hz to reduce overhead
 
 ### Speech Recognition
 
@@ -175,13 +236,14 @@ echo '{"transcribing": false}' > ~/.talkie
 
 #### Tcl Packages
 - **Tk**: GUI framework
+- **Thread**: Worker thread management
 - **json**: JSON parsing/generation
 - **jbr::unix**: Unix utilities (`cat`, `echo`)
 - **jbr::filewatch**: File monitoring
-- **pa**: PortAudio bindings
-- **vosk**: Vosk speech recognition bindings
-- **audio**: Audio processing utilities
-- **uinput**: Keyboard simulation
+- **pa**: PortAudio bindings (critcl)
+- **vosk**: Vosk speech recognition bindings (critcl)
+- **audio**: Audio energy calculation (critcl)
+- **uinput**: Keyboard simulation (critcl)
 
 #### System Requirements
 - Tcl/Tk 8.6+
@@ -194,6 +256,8 @@ echo '{"transcribing": false}' > ~/.talkie
 ### Architecture Principles
 - **Minimal Code**: Prefer one-liners over bloated functions
 - **Trace-Based**: Use variable traces for state synchronization
+- **Worker Threads**: Audio and output on dedicated threads (worker.tcl)
+- **Async Communication**: `thread::send -async` for cross-thread messaging
 - **Global State**: Central `::transcribing` variable for simplicity
 - **File-Based IPC**: JSON state files for external control
 
@@ -212,16 +276,23 @@ cd tcl
 ## Performance
 
 ### Audio Processing
-- **Sample Rate**: 44.1kHz (configurable)
-- **Buffer Size**: 4410 frames (~0.1s at 44.1kHz)
-- **Latency**: Sub-second response times
-- **Lookback**: Configurable pre-speech audio buffering
+- **Sample Rate**: 16kHz (device native rate)
+- **Chunk Size**: 25ms (~400 frames at 16kHz)
+- **Callback Rate**: 40Hz on engine worker thread
+- **Latency**: ~50-100ms speech detection response
+- **Lookback**: Configurable pre-speech audio buffering (default 1.0s)
+
+### Threading Benefits
+- **No Main Thread Blocking**: Audio processing on dedicated worker
+- **Reduced Latency**: Direct path from audio to recognition
+- **UI Responsiveness**: GUI never waits for audio processing
+- **Throttled Updates**: UI refreshes at 5Hz, not 40Hz
 
 ### Real-time Features
-- **Energy Display**: Live audio level visualization
-- **Confidence Display**: Real-time recognition quality
+- **Energy Display**: Audio level visualization (5Hz updates)
+- **Confidence Display**: Recognition quality indicator
 - **Partial Results**: Streaming transcription preview
-- **State Sync**: 500ms file watcher updates
+- **State Sync**: 500ms file watcher for external control
 
 ## Hardware Support
 
