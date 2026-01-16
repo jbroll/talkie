@@ -13,6 +13,8 @@ namespace eval ::gec {
     variable enabled 1
     variable ready 0
     variable script_dir
+    variable log_file ""
+    variable log_enabled 1
 }
 
 # Capture script directory at load time (before procs are called)
@@ -46,10 +48,11 @@ proc ::gec::init {} {
 
     set punctcap_model [file join $models_dir distilbert-punct-cap.onnx]
     set homophone_model [file join $models_dir electra-small-generator.onnx]
+    set grammar_model [file join $models_dir t5-grammar-ct2]
     set vocab_path [file join $gec_dir vocab.txt]
     set homophones_path [file join $data_dir homophones.json]
 
-    # Verify files exist
+    # Verify files exist (grammar model is optional)
     foreach {name path} [list \
         "Punctcap model" $punctcap_model \
         "Homophone model" $homophone_model \
@@ -59,6 +62,12 @@ proc ::gec::init {} {
             puts stderr "GEC: Missing $name at $path"
             return 0
         }
+    }
+
+    # Check if grammar model exists (optional)
+    if {![file isdirectory $grammar_model]} {
+        puts stderr "GEC: Grammar model not found at $grammar_model (Stage 3 disabled)"
+        set grammar_model ""
     }
 
     # Load pipeline and gec package for device detection
@@ -77,6 +86,7 @@ proc ::gec::init {} {
         gec_pipeline::init \
             -punctcap_model $punctcap_model \
             -homophone_model $homophone_model \
+            -grammar_model $grammar_model \
             -vocab $vocab_path \
             -homophones $homophones_path \
             -device $use_device
@@ -90,6 +100,7 @@ proc ::gec::init {} {
                 gec_pipeline::init \
                     -punctcap_model $punctcap_model \
                     -homophone_model $homophone_model \
+                    -grammar_model $grammar_model \
                     -vocab $vocab_path \
                     -homophones $homophones_path \
                     -device CPU
@@ -106,7 +117,31 @@ proc ::gec::init {} {
 
     set initialized 1
     set ready 1
+
+    # Initialize log file
+    variable log_file
+    set log_file [file join $::env(HOME) .talkie-gec.log]
+
     return 1
+}
+
+# Write to GEC log file
+proc ::gec::log {input output} {
+    variable log_file
+    variable log_enabled
+
+    if {!$log_enabled || $log_file eq ""} return
+
+    set timestamp [clock format [clock seconds] -format "%Y-%m-%d %H:%M:%S"]
+    set entry "$timestamp | \"$input\" -> \"$output\""
+
+    if {[catch {
+        set fd [open $log_file a]
+        puts $fd $entry
+        close $fd
+    } err]} {
+        puts stderr "GEC log error: $err"
+    }
 }
 
 # Process text through GEC pipeline
@@ -128,6 +163,7 @@ proc ::gec::process {text} {
 
     if {$result ne $text} {
         puts stderr "GEC: '$text' -> '$result'"
+        log $text $result
     }
 
     return $result
@@ -146,19 +182,35 @@ proc ::gec::stats {} {
 proc ::gec::last_timing {} {
     variable initialized
     if {!$initialized} {
-        return {homo_ms 0 punct_ms 0 total_ms 0}
+        return {homo_ms 0 punct_ms 0 grammar_ms 0 total_ms 0}
     }
     return [gec_pipeline::last_timing]
 }
 
-# Enable/disable GEC
+# Enable/disable GEC and logging
 proc ::gec::configure {args} {
     variable enabled
+    variable log_enabled
     foreach {opt val} $args {
         switch -- $opt {
             -enabled { set enabled $val }
+            -log { set log_enabled $val }
             default { error "Unknown option: $opt" }
         }
+    }
+}
+
+# Get log file path
+proc ::gec::log_path {} {
+    variable log_file
+    return $log_file
+}
+
+# Clear the log file
+proc ::gec::log_clear {} {
+    variable log_file
+    if {$log_file ne "" && [file exists $log_file]} {
+        file delete $log_file
     }
 }
 
