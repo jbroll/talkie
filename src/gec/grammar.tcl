@@ -3,6 +3,9 @@
 # Stage 3 of GEC pipeline: fixes subject-verb agreement, tense, articles, contractions
 # Uses T5-efficient-tiny model via CTranslate2 for fast CPU inference
 #
+# NOTE: Disabled by default due to T5 hallucination issues (e.g., "tcl" -> "till").
+# Consider GECToR (tag-based) as an alternative that cannot hallucinate.
+#
 # Usage:
 #   grammar::init -model PATH
 #   set corrected [grammar::correct $text]
