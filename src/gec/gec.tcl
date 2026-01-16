@@ -426,6 +426,108 @@ static int InferObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *con
         Tcl_SetObjResult(interp, result);
         return TCL_OK;
 
+    } else if (strcmp(sub, "get_best_token") == 0) {
+        /* get_best_token output_idx position candidate_ids_list
+         * Returns: {best_id best_logit} - finds best token among candidates at position
+         * This avoids copying all 1.9M floats to Tcl for MLM models
+         */
+        if (objc != 5) {
+            Tcl_WrongNumArgs(interp, 2, objv, "output_idx position candidate_ids");
+            return TCL_ERROR;
+        }
+
+        int output_idx, position;
+        if (Tcl_GetIntFromObj(interp, objv[2], &output_idx) != TCL_OK ||
+            Tcl_GetIntFromObj(interp, objv[3], &position) != TCL_OK) {
+            return TCL_ERROR;
+        }
+
+        /* Get candidate token IDs */
+        Tcl_Size num_candidates;
+        if (Tcl_ListObjLength(interp, objv[4], &num_candidates) != TCL_OK) {
+            return TCL_ERROR;
+        }
+        if (num_candidates == 0) {
+            Tcl_AppendResult(interp, "empty candidate list", NULL);
+            return TCL_ERROR;
+        }
+
+        /* Get output tensor */
+        ov_tensor_t *output = NULL;
+        ov_status_e status = ov_infer_request_get_output_tensor_by_index(
+            ctx->request, output_idx, &output);
+        if (status != OK) {
+            return SetOVError(interp, "Failed to get output tensor", status);
+        }
+
+        /* Get shape to find vocab size (last dimension) */
+        ov_shape_t shape;
+        status = ov_tensor_get_shape(output, &shape);
+        if (status != OK) {
+            ov_tensor_free(output);
+            return SetOVError(interp, "Failed to get shape", status);
+        }
+
+        if (shape.rank < 2) {
+            ov_shape_free(&shape);
+            ov_tensor_free(output);
+            Tcl_AppendResult(interp, "Output must be at least 2D", NULL);
+            return TCL_ERROR;
+        }
+
+        int64_t vocab_size = shape.dims[shape.rank - 1];
+        int64_t seq_len = shape.dims[shape.rank - 2];
+
+        if (position < 0 || position >= seq_len) {
+            ov_shape_free(&shape);
+            ov_tensor_free(output);
+            Tcl_AppendResult(interp, "Position out of range", NULL);
+            return TCL_ERROR;
+        }
+
+        /* Get data pointer */
+        float *data = NULL;
+        status = ov_tensor_data(output, (void**)&data);
+        if (status != OK) {
+            ov_shape_free(&shape);
+            ov_tensor_free(output);
+            return SetOVError(interp, "Failed to get tensor data", status);
+        }
+
+        /* Find best candidate */
+        float *pos_logits = data + (position * vocab_size);
+        int best_id = -1;
+        float best_logit = -1e30f;
+
+        for (Tcl_Size i = 0; i < num_candidates; i++) {
+            Tcl_Obj *elem;
+            Tcl_ListObjIndex(interp, objv[4], i, &elem);
+            int token_id;
+            if (Tcl_GetIntFromObj(interp, elem, &token_id) != TCL_OK) {
+                ov_shape_free(&shape);
+                ov_tensor_free(output);
+                return TCL_ERROR;
+            }
+
+            if (token_id >= 0 && token_id < vocab_size) {
+                float logit = pos_logits[token_id];
+                if (logit > best_logit) {
+                    best_logit = logit;
+                    best_id = token_id;
+                }
+            }
+        }
+
+        ov_shape_free(&shape);
+        ov_tensor_free(output);
+
+        /* Return {best_id best_logit} */
+        Tcl_Obj *result = Tcl_NewListObj(0, NULL);
+        Tcl_ListObjAppendElement(interp, result, Tcl_NewIntObj(best_id));
+        Tcl_ListObjAppendElement(interp, result, Tcl_NewDoubleObj(best_logit));
+        Tcl_SetObjResult(interp, result);
+        return TCL_OK;
+
     } else if (strcmp(sub, "close") == 0) {
         Tcl_DeleteCommand(interp, Tcl_GetString(objv[0]));
         Tcl_SetObjResult(interp, Tcl_NewStringObj("ok", -1));
@@ -433,7 +535,7 @@ static int InferObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *con
     }
 
     Tcl_AppendResult(interp, "unknown subcommand \"", sub,
-                     "\": must be set_input, infer, get_output, or close", NULL);
+                     "\": must be set_input, infer, get_output, get_best_token, or close", NULL);
     return TCL_ERROR;
 }
 

@@ -285,30 +285,11 @@ proc homophone::find_multitoken_patterns {tokens} {
     return $patterns
 }
 
-# Score a token at a masked position
-proc homophone::score_at_position {tokens mask pos token_id} {
-    variable request
-
-    # Create masked input
-    set masked_tokens $tokens
-    lset masked_tokens $pos 103  ;# [MASK]
-
-    $request set_input 0 $masked_tokens
-    $request set_input 1 $mask
-    $request infer
-
-    set output [$request get_output 0]
-    set logits [dict get $output data]
-
-    set vocab_size 30522
-    set start_idx [expr {$pos * $vocab_size}]
-    return [lindex $logits [expr {$start_idx + $token_id}]]
-}
-
 # Correct multi-token homophones (contractions) in token sequence
 # Returns modified tokens list
 proc homophone::correct_multitoken {tokens mask} {
     variable multitoken_homophones
+    variable request
 
     set patterns [find_multitoken_patterns $tokens]
     if {[llength $patterns] == 0} {
@@ -323,7 +304,6 @@ proc homophone::correct_multitoken {tokens mask} {
         lassign $pattern start_pos length key alternatives
 
         # Create neutral context: mask position + pad remaining tokens
-        # This gives fair comparison between multi-token and single-token
         set neutral_tokens $result_tokens
         lset neutral_tokens $start_pos 103  ;# [MASK]
         for {set j 1} {$j < $length} {incr j} {
@@ -331,20 +311,19 @@ proc homophone::correct_multitoken {tokens mask} {
         }
         set neutral_mask [wordpiece::attention_mask $neutral_tokens]
 
-        # Score all candidates in the same neutral context
+        # Build candidate list: original token + all alternatives
         set t1 [lindex $result_tokens $start_pos]
-        set best_id $t1
-        set best_score [score_at_position $neutral_tokens $neutral_mask $start_pos $t1]
-
+        set candidate_ids [list $t1]
         foreach alt $alternatives {
             lassign $alt alt_word alt_id
-            set alt_score [score_at_position $neutral_tokens $neutral_mask $start_pos $alt_id]
-
-            if {$alt_score > $best_score} {
-                set best_score $alt_score
-                set best_id $alt_id
-            }
+            lappend candidate_ids $alt_id
         }
+
+        # Run inference and use get_best_token for efficient scoring
+        $request set_input 0 $neutral_tokens
+        $request set_input 1 $neutral_mask
+        $request infer
+        lassign [$request get_best_token 0 $start_pos $candidate_ids] best_id best_score
 
         # Apply if a single-token alternative wins
         if {$best_id != $t1} {
@@ -409,41 +388,32 @@ proc homophone::correct {text} {
             continue
         }
 
-        # Create masked input - replace this position with [MASK] (103)
+        # Build candidate list with token IDs
+        set candidate_ids {}
+        set id_to_word {}
+        foreach alt $alts {
+            set alt_id [wordpiece::token_to_id $alt]
+            if {$alt_id != 100} {
+                lappend candidate_ids $alt_id
+                dict set id_to_word $alt_id $alt
+            }
+        }
+
+        # Skip if no valid candidates
+        if {[llength $candidate_ids] <= 1} {
+            continue
+        }
+
+        # Create masked input and run inference
         set masked_tokens $tokens
         lset masked_tokens $pos 103
-
-        # Run inference
         $request set_input 0 $masked_tokens
         $request set_input 1 $mask
         $request infer
 
-        # Get output logits
-        set output [$request get_output 0]
-        set logits [dict get $output data]
-
-        # Extract logits for this position (shape is [1, 64, 30522])
-        # Position in flat array: pos * vocab_size
-        set vocab_size 30522
-        set start_idx [expr {$pos * $vocab_size}]
-
-        # Get logits for each alternative
-        set best_alt $token_str
-        set best_logit -1e30
-
-        foreach alt $alts {
-            set alt_id [wordpiece::token_to_id $alt]
-            if {$alt_id == 100} {
-                # [UNK] - skip alternatives not in vocab
-                continue
-            }
-            set logit [lindex $logits [expr {$start_idx + $alt_id}]]
-
-            if {$logit > $best_logit} {
-                set best_logit $logit
-                set best_alt $alt
-            }
-        }
+        # Use get_best_token for efficient scoring (avoids copying 1.9M floats)
+        lassign [$request get_best_token 0 $pos $candidate_ids] best_id best_logit
+        set best_alt [dict get $id_to_word $best_id]
 
         # Record correction if different
         if {$best_alt ne $token_str} {

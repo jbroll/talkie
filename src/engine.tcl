@@ -3,7 +3,7 @@
 
 package require Thread
 
-source coprocess.tcl
+source [file join [file dirname [info script]] coprocess.tcl]
 
 namespace eval ::engine {
     variable recognizer_cmd ""

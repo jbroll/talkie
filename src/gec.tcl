@@ -12,27 +12,37 @@ namespace eval ::gec {
     variable initialized 0
     variable enabled 1
     variable ready 0
+    variable script_dir
+}
+
+# Capture script directory at load time (before procs are called)
+# Falls back to src/ under current directory if [info script] is empty
+if {[info script] ne ""} {
+    set ::gec::script_dir [file dirname [file normalize [info script]]]
+} else {
+    set ::gec::script_dir [file normalize [file join [pwd] src]]
 }
 
 # Initialize the GEC system
 proc ::gec::init {} {
     variable initialized
     variable ready
+    variable script_dir
 
     if {$initialized} {
         return 1
     }
 
     # Find the GEC module directory
-    set gec_dir [file normalize [file join [file dirname [info script]] gec]]
+    set gec_dir [file normalize [file join $script_dir gec]]
 
     # Add required paths
     lappend ::auto_path [file join $gec_dir lib]
     lappend ::auto_path [file normalize [file join $gec_dir ../wordpiece/lib]]
 
     # Find model files
-    set models_dir [file normalize [file join [file dirname [info script]] ../models/gec]]
-    set data_dir [file normalize [file join [file dirname [info script]] ../data]]
+    set models_dir [file normalize [file join $script_dir ../models/gec]]
+    set data_dir [file normalize [file join $script_dir ../data]]
 
     set punctcap_model [file join $models_dir distilbert-punct-cap.onnx]
     set homophone_model [file join $models_dir electra-small-generator.onnx]
@@ -51,31 +61,45 @@ proc ::gec::init {} {
         }
     }
 
-    # Load pipeline
+    # Load pipeline and gec package for device detection
     source [file join $gec_dir pipeline.tcl]
+    package require gec
 
-    # Try NPU first, fall back to CPU
+    # Check available devices (like tests do)
+    set available_devices [gec::devices]
+    set use_device "CPU"
+    if {"NPU" in $available_devices} {
+        set use_device "NPU"
+    }
+
+    # Initialize on selected device
     if {[catch {
         gec_pipeline::init \
             -punctcap_model $punctcap_model \
             -homophone_model $homophone_model \
             -vocab $vocab_path \
             -homophones $homophones_path \
-            -device NPU
-        puts stderr "GEC: Initialized on NPU"
+            -device $use_device
+        puts stderr "GEC: Initialized on $use_device"
     } err]} {
-        puts stderr "GEC: NPU init failed: $err"
-        puts stderr "GEC: Trying CPU..."
-        if {[catch {
-            gec_pipeline::init \
-                -punctcap_model $punctcap_model \
-                -homophone_model $homophone_model \
-                -vocab $vocab_path \
-                -homophones $homophones_path \
-                -device CPU
-            puts stderr "GEC: Initialized on CPU"
-        } err2]} {
-            puts stderr "GEC: Failed to initialize: $err2"
+        # If NPU failed, try CPU as fallback
+        if {$use_device eq "NPU"} {
+            puts stderr "GEC: $use_device init failed: $err"
+            puts stderr "GEC: Trying CPU..."
+            if {[catch {
+                gec_pipeline::init \
+                    -punctcap_model $punctcap_model \
+                    -homophone_model $homophone_model \
+                    -vocab $vocab_path \
+                    -homophones $homophones_path \
+                    -device CPU
+                puts stderr "GEC: Initialized on CPU"
+            } err2]} {
+                puts stderr "GEC: Failed to initialize: $err2"
+                return 0
+            }
+        } else {
+            puts stderr "GEC: Failed to initialize: $err"
             return 0
         }
     }

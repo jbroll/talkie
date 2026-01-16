@@ -2,7 +2,8 @@
 
 cd "$(dirname "$(realpath "$0")")"
 
-export LD_LIBRARY_PATH="$HOME/.local/lib:$LD_LIBRARY_PATH"
+# OpenVINO and NPU driver libraries for GEC inference
+export LD_LIBRARY_PATH="$HOME/pkg/openvino-src/bin/intel64/Release:$HOME/pkg/linux-npu-driver/build/lib:$HOME/.local/lib:$LD_LIBRARY_PATH"
 export OPENBLAS_NUM_THREADS=4
 
 # Pin to P-cores (0-11) on Intel hybrid CPUs, fall back gracefully

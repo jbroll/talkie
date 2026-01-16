@@ -155,6 +155,29 @@ proc punctcap::restore {text} {
             }
         }
 
+        # Bias toward lowercase for mid-sentence words to reduce over-capitalization
+        # First word (pos 1) and words after punctuation should allow capitalization
+        # Classes with lowercase: 2, 6, 8, 10, 12, 14, 17, 20, 22, 23
+        set lowercase_classes {2 6 8 10 12 14 17 20 22 23}
+        set after_punct [expr {$pos == 1 || $prev_punct in {. ? !}}]
+
+        if {!$after_punct && $best_class ni $lowercase_classes} {
+            # Mid-sentence word with capitalization - find best lowercase alternative
+            set best_lower_score -1e30
+            set best_lower_class 2
+            foreach lc $lowercase_classes {
+                set lc_score [lindex $data [expr {$start + $lc}]]
+                if {$lc_score > $best_lower_score} {
+                    set best_lower_score $lc_score
+                    set best_lower_class $lc
+                }
+            }
+            # Use lowercase unless capitalized is clearly better (threshold 4.0 for mid-sentence)
+            if {$best_score - $best_lower_score < 4.0} {
+                set best_class $best_lower_class
+            }
+        }
+
         # Get capitalization and punctuation from class
         if {[info exists class_map($best_class)]} {
             lassign $class_map($best_class) cap_type punct
@@ -213,6 +236,9 @@ proc punctcap::restore {text} {
         }
 
         lappend result_words $word
+
+        # Track punctuation for next iteration
+        set prev_punct $punct
     }
 
     return [join $result_words " "]
