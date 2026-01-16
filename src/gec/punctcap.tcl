@@ -178,6 +178,32 @@ proc punctcap::restore {text} {
             }
         }
 
+        # Handle apostrophe - attach to previous word (contractions)
+        if {$token_str eq "'"} {
+            if {[llength $result_words] > 0} {
+                set last_idx [expr {[llength $result_words] - 1}]
+                set last_word [lindex $result_words $last_idx]
+                set result_words [lreplace $result_words $last_idx $last_idx "${last_word}'"]
+                continue
+            }
+        }
+
+        # Handle contraction suffixes after apostrophe (m, t, s, re, ve, ll, d)
+        if {[llength $result_words] > 0} {
+            set last_word [lindex $result_words end]
+            if {[string index $last_word end] eq "'" && [regexp {^(m|t|s|re|ve|ll|d)$} $token_str]} {
+                set last_idx [expr {[llength $result_words] - 1}]
+                # Apply capitalization to suffix
+                set suffix [apply_cap $token_str $cap_type]
+                # Add punctuation if any
+                if {$punct ne ""} {
+                    append suffix $punct
+                }
+                set result_words [lreplace $result_words $last_idx $last_idx "${last_word}${suffix}"]
+                continue
+            }
+        }
+
         # Apply capitalization
         set word [apply_cap $token_str $cap_type]
 

@@ -64,7 +64,8 @@ proc ::gec::init {} {
             -device NPU
         puts stderr "GEC: Initialized on NPU"
     } err]} {
-        puts stderr "GEC: NPU unavailable, trying CPU..."
+        puts stderr "GEC: NPU init failed: $err"
+        puts stderr "GEC: Trying CPU..."
         if {[catch {
             gec_pipeline::init \
                 -punctcap_model $punctcap_model \
