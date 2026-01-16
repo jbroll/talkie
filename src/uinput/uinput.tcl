@@ -4,6 +4,7 @@ package require critcl
 
 # Configure critcl
 critcl::cflags -DUINPUT_MAX_NAME_SIZE=80
+critcl::clibraries -L/usr/lib -ltclstub8.6
 
 # Namespace
 namespace eval uinput {}

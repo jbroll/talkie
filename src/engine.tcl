@@ -315,16 +315,18 @@ namespace eval ::engine {
                 variable engine_type
                 variable engine_name
                 variable main_tid
-                
+
                 try {
+                    set start_us [clock microseconds]
                     if {$engine_type eq "critcl"} {
                         set result [$recognizer final-result]
                     } else {
                         set result [::coprocess::final $engine_name]
                     }
-                    
+                    set vosk_ms [expr {([clock microseconds] - $start_us) / 1000.0}]
+
                     if {$result ne ""} {
-                        thread::send -async $main_tid [list ::audio::parse_and_display_result $result]
+                        thread::send -async $main_tid [list ::audio::parse_and_display_result $result $vosk_ms]
                     }
                 } on error {err info} {
                     puts stderr "Worker final error: $err"

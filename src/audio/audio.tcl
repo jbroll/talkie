@@ -3,6 +3,8 @@
 package require critcl 3.1
 package provide audio 1.0
 
+critcl::clibraries -L/usr/lib -ltclstub8.6
+
 # Namespace
 namespace eval audio {}
 

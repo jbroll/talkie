@@ -66,6 +66,7 @@ set ::buffer_health 0
 set ::buffer_overflows 0
 
 proc quit {} {
+    try { ::gec::shutdown } on error message {}
     try { ::output::cleanup } on error message {}
     try { ::engine::cleanup } on error message {}
     try { pa::terminate } on error message {}
@@ -98,18 +99,24 @@ source [file join $script_dir vosk.tcl]
 source [file join $script_dir engine.tcl]
 source [file join $script_dir output.tcl]
 source [file join $script_dir audio.tcl]
-source [file join $script_dir pos.tcl]
+source [file join $script_dir gec.tcl]
 
-# POS disambiguation - enable for testing
-set ::pos_enabled 1
+# GEC - Grammar Error Correction (homophone + punct/caps)
+# Enable GEC for neural network-based correction
+set ::gec_enabled 1
 
 # Model paths - see CLAUDE.md "Vosk Model Data" section
 set models_dir [file join [file dirname $::script_dir] models vosk]
 set base_model_dir [file join $models_dir vosk-model-en-us-0.22-lgraph]  ;# Base model (reference)
 set custom_model_dir [file join $models_dir lm-test]                     ;# Custom model with domain words
 
-# Initialize POS service (uses defaults from tools/ directory)
-::pos::init
+# Initialize GEC if enabled
+if {$::gec_enabled} {
+    if {![::gec::init]} {
+        puts stderr "GEC initialization failed"
+        set ::gec_enabled 0
+    }
+}
 
 proc get_model_path {modelfile} {
     # Generic model path lookup - delegates to engine.tcl
@@ -127,7 +134,7 @@ proc get_model_path {modelfile} {
 
 set ::final_text_count 0
 
-proc final_text {text confidence} {
+proc final_text {text confidence {vosk_ms 0} {gec_timing {}}} {
     set final_text_lines [$::final cget -height]
 
     set timestamp [clock format [clock seconds] -format "%H:%M:%S"]
@@ -138,9 +145,27 @@ proc final_text {text confidence} {
         incr ::final_text_count
     }
 
+    # Build timing string: V=vosk H=homophone P=punctcap (all in ms)
+    set timing_str ""
+    if {$vosk_ms > 0 || [dict size $gec_timing] > 0} {
+        set parts {}
+        if {$vosk_ms > 0} {
+            lappend parts "V:[format %.0f $vosk_ms]"
+        }
+        if {[dict exists $gec_timing homo_ms]} {
+            lappend parts "H:[format %.0f [dict get $gec_timing homo_ms]]"
+        }
+        if {[dict exists $gec_timing punct_ms]} {
+            lappend parts "P:[format %.0f [dict get $gec_timing punct_ms]]"
+        }
+        if {[llength $parts] > 0} {
+            set timing_str " \[[join $parts " "]\]"
+        }
+    }
+
     $::final config -state normal
     $::final insert end "$timestamp " "timestamp"
-    $::final insert end "([format "%.0f" $confidence]): $text\n"
+    $::final insert end "([format "%.0f" $confidence])$timing_str: $text\n"
     $::final see end
     $::final config -state disabled
 }

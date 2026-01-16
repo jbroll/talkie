@@ -5,6 +5,7 @@ package require critcl 3.1
 # Ensure PortAudio headers & library available at compile time
 critcl::cheaders /usr/include/portaudio.h
 critcl::clibraries -lportaudio
+critcl::clibraries -L/usr/lib -ltclstub8.6
 
 # Namespace
 namespace eval pa {}
@@ -375,8 +376,8 @@ static int PaOpenStreamCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj 
     /* Default params */
     const char *device_arg = "default";
     double rate = 44100.0;
-    Tcl_Size channels = 1;
-    Tcl_Size framesPerBuffer = 256;
+    int channels = 1;
+    int framesPerBuffer = 256;
     const char *fmt = "float32";
     Tcl_Obj *callback = NULL;
 

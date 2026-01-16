@@ -102,7 +102,7 @@ namespace eval ::audio {
 
     set ::killwords { "" "the" "hm" }
 
-    proc parse_and_display_result { result } {
+    proc parse_and_display_result { result {vosk_ms 0} } {
         if { $result eq "" } { return }
 
         set result_dict [json::json2dict $result]
@@ -145,18 +145,16 @@ namespace eval ::audio {
 
         if { [lsearch -exact $::killwords $text] < 0 } {
             if { [threshold::accept $conf] } {
-                # POS disambiguation first (on raw recognized text)
-                if {[info exists ::pos_enabled] && $::pos_enabled} {
-                    set pos_text [::pos::disambiguate $text]
-                    if {$pos_text ne $text} {
-                        puts stderr "POS: '$text' -> '$pos_text'"
-                        set text $pos_text
-                    }
+                # GEC processing (homophone correction + punct/caps)
+                set gec_timing {}
+                if {[info exists ::gec_enabled] && $::gec_enabled} {
+                    set text [::gec::process $text]
+                    set gec_timing [::gec::last_timing]
                 }
-                # Then textproc handles spacing, punctuation, etc.
+                # Then textproc handles spacing, voice commands (period->.), etc.
                 set text [textproc $text]
                 ::output::type_async $text
-                after idle [final_text $text $conf]
+                after idle [list final_text $text $conf $vosk_ms $gec_timing]
             }
             set ::confidence $conf
         }
