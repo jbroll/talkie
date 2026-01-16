@@ -11,9 +11,8 @@ namespace eval ::coprocess {
         # Convert sample rate to integer (no decimals)
         set sample_rate_int [expr {int($sample_rate)}]
 
-        # Launch with model path as argument
-        set full_cmd "$command $model_path $sample_rate_int"
-        set chan [open "|$full_cmd 2>@stderr" r+]
+        # Launch with model path as argument (use list to avoid command injection)
+        set chan [open |[list $command $model_path $sample_rate_int] r+]
         fconfigure $chan -buffering line -encoding utf-8
 
         # Read startup response (JSON)

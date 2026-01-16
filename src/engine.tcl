@@ -1,15 +1,13 @@
 # engine.tcl - Hybrid speech engine abstraction layer
 # Supports both in-process (critcl) and coprocess engines
 
-package require Thread
-
+source [file join [file dirname [info script]] worker.tcl]
 source [file join [file dirname [info script]] coprocess.tcl]
 
 namespace eval ::engine {
     variable recognizer_cmd ""
     variable engine_name ""
-    variable worker_tid ""
-    variable main_tid ""
+    variable worker_name "engine"
 
     # Engine registry - central configuration
     variable engine_registry
@@ -46,213 +44,24 @@ namespace eval ::engine {
         return ""
     }
 
-    # Worker thread procedures (executed in worker thread context)
-    namespace eval ::engine::worker {
-        variable engine_name ""
-        variable engine_type ""
-        variable recognizer ""
-        variable main_tid ""
-        variable script_dir ""
-        
-        proc init {main_tid_arg engine_name_arg engine_type_arg model_path sample_rate script_dir_arg} {
-            variable main_tid $main_tid_arg
-            variable engine_name $engine_name_arg
-            variable engine_type $engine_type_arg
-            variable recognizer
-            variable script_dir $script_dir_arg
-            
-            lappend auto_path "$::env(HOME)/.local/lib/tcllib2.0"
-            lappend auto_path [file join $script_dir pa lib pa]
-            lappend auto_path [file join $script_dir vosk lib vosk]
-            lappend auto_path [file join $script_dir audio lib audio]
-            lappend auto_path [file join $script_dir uinput lib uinput]
-            
-            package require json
-            
-            if {$engine_type eq "critcl"} {
-                package require vosk
-                if {[info commands vosk::set_log_level] ne ""} {
-                    vosk::set_log_level -1
-                }
-                
-                if {[file exists $model_path]} {
-                    set model [vosk::load_model -path $model_path]
-                    set recognizer [$model create_recognizer -rate $sample_rate -alternatives 1]
-                    return [json::dict2json {status ok message "Vosk worker initialized"}]
-                } else {
-                    return [json::dict2json [list status error error "Model not found: $model_path"]]
-                }
-            } elseif {$engine_type eq "coprocess"} {
-                source [file join $script_dir coprocess.tcl]
-                
-                set cmd_path [file join $script_dir [lindex $model_path 0]]
-                set model_path_only [lindex $model_path 1]
-                
-                set response [::coprocess::start $engine_name $cmd_path $model_path_only $sample_rate]
-                return $response
-            } else {
-                return [json::dict2json [list status error error "Unknown engine type: $engine_type"]]
-            }
-        }
-        
-        proc process {chunk} {
-            variable recognizer
-            variable engine_type
-            variable engine_name
-            variable main_tid
-            
-            try {
-                if {$engine_type eq "critcl"} {
-                    set result [$recognizer process $chunk]
-                } else {
-                    set result [::coprocess::process $engine_name $chunk]
-                }
-                
-                if {$result ne ""} {
-                    thread::send -async $main_tid [list ::audio::parse_and_display_result $result]
-                }
-            } on error {err info} {
-                puts stderr "Worker process error: $err"
-            }
-        }
-        
-        proc final {} {
-            variable recognizer
-            variable engine_type
-            variable engine_name
-            variable main_tid
-            
-            try {
-                if {$engine_type eq "critcl"} {
-                    set result [$recognizer final-result]
-                } else {
-                    set result [::coprocess::final $engine_name]
-                }
-                
-                if {$result ne ""} {
-                    thread::send -async $main_tid [list ::audio::parse_and_display_result $result]
-                }
-            } on error {err info} {
-                puts stderr "Worker final error: $err"
-            }
-        }
-        
-        proc reset {} {
-            variable recognizer
-            variable engine_type
-            variable engine_name
-            
-            try {
-                if {$engine_type eq "critcl"} {
-                    $recognizer reset
-                } else {
-                    ::coprocess::reset $engine_name
-                }
-            } on error {err info} {
-                puts stderr "Worker reset error: $err"
-            }
-        }
-        
-        proc close {} {
-            variable recognizer
-            variable engine_type
-            variable engine_name
-            
-            try {
-                if {$engine_type eq "critcl"} {
-                    if {$recognizer ne "" && [info commands $recognizer] ne ""} {
-                        catch {rename $recognizer ""}
-                    }
-                } else {
-                    ::coprocess::stop $engine_name
-                }
-            } on error {err info} {
-                puts stderr "Worker close error: $err"
-            }
-        }
-    }
-    
-    # Create async recognizer proxy command
-    proc create_async_recognizer_cmd {engine_name worker_tid} {
-        set cmd_name "::recognizer_async_${engine_name}"
-        
-        proc $cmd_name {method args} [format {
-            set worker_tid %s
-            
-            if {![catch {thread::exists $worker_tid} exists] && !$exists} {
-                return
-            }
-            
-            switch $method {
-                "process-async" {
-                    set chunk [lindex $args 0]
-                    catch {thread::send -async $worker_tid [list ::engine::worker::process $chunk]}
-                }
-                "final-async" {
-                    catch {thread::send -async $worker_tid {::engine::worker::final}}
-                }
-                "reset" {
-                    catch {thread::send -async $worker_tid {::engine::worker::reset}}
-                }
-                "close" {
-                    catch {thread::send $worker_tid {::engine::worker::close}}
-                    catch {thread::release $worker_tid}
-                    rename %s ""
-                }
-                default {
-                    error "Unknown method: $method"
-                }
-            }
-        } $worker_tid $cmd_name]
-        
-        return $cmd_name
-    }
+    # Worker namespace script (sent to worker thread)
+    variable worker_script {
+        package require Thread
 
-    # Initialize engine and return recognizer command
-    proc initialize {} {
-        variable recognizer_cmd
-        variable engine_name
-        variable worker_tid
-        variable main_tid
-
-        set engine_name $::config(speech_engine)
-
-        # Check if engine is registered
-        if {![is_registered $engine_name]} {
-            puts "ERROR: Unknown engine: $engine_name"
-            return false
-        }
-
-        set engine_type [get_property $engine_name type]
-        
-        # Save main thread ID
-        set main_tid [thread::id]
-        
-        puts "Initializing $engine_name engine (type: $engine_type) with worker thread..."
-
-        # Create worker thread and transfer the worker namespace code
-        set worker_tid [thread::create {
-            namespace eval ::engine::worker {}
-            thread::wait
-        }]
-        
-        # Send the worker procedures to the worker thread
-        thread::send $worker_tid [list namespace eval ::engine::worker {
+        namespace eval ::engine::worker {
             variable engine_name ""
             variable engine_type ""
             variable recognizer ""
             variable main_tid ""
             variable script_dir ""
-            
+
             proc init {main_tid_arg engine_name_arg engine_type_arg model_path sample_rate script_dir_arg} {
                 variable main_tid $main_tid_arg
                 variable engine_name $engine_name_arg
                 variable engine_type $engine_type_arg
                 variable recognizer
                 variable script_dir $script_dir_arg
-                
-                package require Thread
-                
+
                 if {[lsearch -exact $::auto_path "$::env(HOME)/.local/lib/tcllib2.0"] < 0} {
                     lappend ::auto_path "$::env(HOME)/.local/lib/tcllib2.0"
                 }
@@ -260,15 +69,15 @@ namespace eval ::engine {
                 lappend ::auto_path [file join $script_dir vosk lib vosk]
                 lappend ::auto_path [file join $script_dir audio lib audio]
                 lappend ::auto_path [file join $script_dir uinput lib uinput]
-                
+
                 package require json
-                
+
                 if {$engine_type eq "critcl"} {
                     package require vosk
                     if {[info commands vosk::set_log_level] ne ""} {
                         vosk::set_log_level -1
                     }
-                    
+
                     if {[file exists $model_path]} {
                         set model [vosk::load_model -path $model_path]
                         set recognizer [$model create_recognizer -rate $sample_rate -alternatives 1]
@@ -278,30 +87,30 @@ namespace eval ::engine {
                     }
                 } elseif {$engine_type eq "coprocess"} {
                     source [file join $script_dir coprocess.tcl]
-                    
+
                     set cmd_path [file join $script_dir [lindex $model_path 0]]
                     set model_path_only [lindex $model_path 1]
-                    
+
                     set response [::coprocess::start $engine_name $cmd_path $model_path_only $sample_rate]
                     return $response
                 } else {
                     return [json::dict2json [list status error error "Unknown engine type: $engine_type"]]
                 }
             }
-            
+
             proc process {chunk} {
                 variable recognizer
                 variable engine_type
                 variable engine_name
                 variable main_tid
-                
+
                 try {
                     if {$engine_type eq "critcl"} {
                         set result [$recognizer process $chunk]
                     } else {
                         set result [::coprocess::process $engine_name $chunk]
                     }
-                    
+
                     if {$result ne ""} {
                         thread::send -async $main_tid [list ::audio::parse_and_display_result $result]
                     }
@@ -309,7 +118,7 @@ namespace eval ::engine {
                     puts stderr "Worker process error: $err"
                 }
             }
-            
+
             proc final {} {
                 variable recognizer
                 variable engine_type
@@ -332,12 +141,12 @@ namespace eval ::engine {
                     puts stderr "Worker final error: $err"
                 }
             }
-            
+
             proc reset {} {
                 variable recognizer
                 variable engine_type
                 variable engine_name
-                
+
                 try {
                     if {$engine_type eq "critcl"} {
                         $recognizer reset
@@ -348,12 +157,12 @@ namespace eval ::engine {
                     puts stderr "Worker reset error: $err"
                 }
             }
-            
+
             proc close {} {
                 variable recognizer
                 variable engine_type
                 variable engine_name
-                
+
                 try {
                     if {$engine_type eq "critcl"} {
                         if {$recognizer ne "" && [info commands $recognizer] ne ""} {
@@ -366,22 +175,81 @@ namespace eval ::engine {
                     puts stderr "Worker close error: $err"
                 }
             }
-        }]
-        
+        }
+    }
+
+    # Create async recognizer proxy command using worker module
+    proc create_async_recognizer_cmd {engine_name} {
+        variable worker_name
+        set cmd_name "::recognizer_async_${engine_name}"
+
+        proc $cmd_name {method args} [format {
+            set worker_name %s
+
+            if {![::worker::exists $worker_name]} {
+                return
+            }
+
+            switch $method {
+                "process-async" {
+                    set chunk [lindex $args 0]
+                    ::worker::send_async $worker_name [list ::engine::worker::process $chunk]
+                }
+                "final-async" {
+                    ::worker::send_async $worker_name {::engine::worker::final}
+                }
+                "reset" {
+                    ::worker::send_async $worker_name {::engine::worker::reset}
+                }
+                "close" {
+                    ::worker::send $worker_name {::engine::worker::close}
+                    ::worker::destroy $worker_name
+                    rename %s ""
+                }
+                default {
+                    error "Unknown method: $method"
+                }
+            }
+        } $worker_name $cmd_name]
+
+        return $cmd_name
+    }
+
+    # Initialize engine and return recognizer command
+    proc initialize {} {
+        variable recognizer_cmd
+        variable engine_name
+        variable worker_name
+        variable worker_script
+
+        set engine_name $::config(speech_engine)
+
+        # Check if engine is registered
+        if {![is_registered $engine_name]} {
+            puts "ERROR: Unknown engine: $engine_name"
+            return false
+        }
+
+        set engine_type [get_property $engine_name type]
+        set main_tid [thread::id]
+
+        puts "Initializing $engine_name engine (type: $engine_type) with worker thread..."
+
+        # Create worker thread using worker module
+        set worker_tid [::worker::create $worker_name $worker_script]
+
         # Prepare model path based on engine type
         if {$engine_type eq "critcl"} {
             if {$engine_name eq "vosk"} {
                 set model_path [get_model_path $::config(vosk_modelfile)]
                 if {$model_path eq "" || ![file exists $model_path]} {
                     puts "ERROR: Vosk model not found"
-                    catch {thread::release $worker_tid}
-                    set worker_tid ""
+                    ::worker::destroy $worker_name
                     return false
                 }
             } else {
                 puts "ERROR: Unknown critcl engine: $engine_name"
-                catch {thread::release $worker_tid}
-                set worker_tid ""
+                ::worker::destroy $worker_name
                 return false
             }
         } elseif {$engine_type eq "coprocess"} {
@@ -395,46 +263,44 @@ namespace eval ::engine {
             } else {
                 set model_path_full [file join [file dirname $::script_dir] models $model_dir]
             }
-            
+
             set model_path [list $cmd $model_path_full]
         } else {
             puts "ERROR: Unknown engine type: $engine_type"
-            catch {thread::release $worker_tid}
-            set worker_tid ""
+            ::worker::destroy $worker_name
             return false
         }
-        
+
         puts "  Worker thread: $worker_tid"
         puts "  Main thread: $main_tid"
         puts "  Model path: $model_path"
         puts "  Sample rate: $::device_sample_rate"
-        
+
         # Initialize worker thread
-        set response [thread::send $worker_tid [list ::engine::worker::init \
+        set response [::worker::send $worker_name [list ::engine::worker::init \
             $main_tid $engine_name $engine_type $model_path $::device_sample_rate $::script_dir]]
-        
+
         # Parse response
         set response_dict [json::json2dict $response]
-        
+
         if {![dict exists $response_dict status] || [dict get $response_dict status] ne "ok"} {
             if {[dict exists $response_dict error]} {
                 puts "ERROR: Worker initialization failed: [dict get $response_dict error]"
             } else {
                 puts "ERROR: Worker initialization failed: $response"
             }
-            catch {thread::release $worker_tid}
-            set worker_tid ""
+            ::worker::destroy $worker_name
             return false
         }
-        
+
         puts "✓ Worker thread initialized successfully"
         if {[dict exists $response_dict message]} {
             puts "  [dict get $response_dict message]"
         }
-        
+
         # Create async recognizer proxy
-        set recognizer_cmd [create_async_recognizer_cmd $engine_name $worker_tid]
-        
+        set recognizer_cmd [create_async_recognizer_cmd $engine_name]
+
         return true
     }
 
@@ -442,7 +308,7 @@ namespace eval ::engine {
     proc cleanup {} {
         variable recognizer_cmd
         variable engine_name
-        variable worker_tid
+        variable worker_name
 
         # Safety check - if engine_name is empty, nothing to cleanup
         if {$engine_name eq ""} {
@@ -451,16 +317,15 @@ namespace eval ::engine {
 
         puts "Cleaning up $engine_name engine..."
 
-        # Close recognizer proxy (will send close to worker and release thread)
+        # Close recognizer proxy (will send close to worker and destroy it)
         if {$recognizer_cmd ne ""} {
             catch {$recognizer_cmd close}
             set recognizer_cmd ""
         }
 
-        # Extra safety: ensure worker thread is released
-        if {$worker_tid ne ""} {
-            catch {thread::release $worker_tid}
-            set worker_tid ""
+        # Extra safety: ensure worker is destroyed
+        if {[::worker::exists $worker_name]} {
+            ::worker::destroy $worker_name
         }
 
         set engine_name ""

@@ -26,10 +26,10 @@ namespace eval ::audio {
         variable last_callback_time
         variable last_audiolevel
         variable level_change_count
+        variable last_ui_update_time
 
         try {
             set audiolevel [audio::energy $data int16]
-            set ::audiolevel $audiolevel
 
             # Track significant level changes (variance > 1.0)
             if {abs($audiolevel - $last_audiolevel) > 1.0} {
@@ -40,10 +40,19 @@ namespace eval ::audio {
             set last_audiolevel $audiolevel
 
             set is_speech [threshold::is_speech $audiolevel $last_speech_time]
-            set ::is_speech $is_speech
+
+            # Throttle UI updates to ~10Hz (every 100ms) instead of every callback
+            set now [clock milliseconds]
+            if {![info exists last_ui_update_time] || $now - $last_ui_update_time >= 100} {
+                set ::audiolevel $audiolevel
+                set ::is_speech $is_speech
+                set last_ui_update_time $now
+            }
 
             if {$::transcribing} {
-                set lookback_frames [expr {int($::config(lookback_seconds) * 10 + 0.5)}]
+                # Calculate lookback frames based on actual chunk rate
+                set callbacks_per_sec [expr {1.0 / $::audio_chunk_seconds}]
+                set lookback_frames [expr {int($::config(lookback_seconds) * $callbacks_per_sec + 0.5)}]
                 lappend audio_buffer_list $data
                 set audio_buffer_list [lrange $audio_buffer_list end-$lookback_frames end]
 
@@ -55,29 +64,28 @@ namespace eval ::audio {
 
                 # Rising edge of speech - send lookback buffer
                 if {$is_speech && !$last_speech_time} {
-                set this_speech_time $timestamp
-                foreach chunk $audio_buffer_list {
-                $recognizer process-async $chunk
-                }
-                set last_speech_time $timestamp
+                    set this_speech_time $timestamp
+                    foreach chunk $audio_buffer_list {
+                        $recognizer process-async $chunk
+                    }
+                    set last_speech_time $timestamp
                 } elseif {$last_speech_time} {
-                # Ongoing speech - send current chunk
-                $recognizer process-async $data
+                    # Ongoing speech - send current chunk
+                    $recognizer process-async $data
 
                     if {$is_speech} {
-                    set last_speech_time $timestamp
-                } else {
-                # Check for silence timeout
+                        set last_speech_time $timestamp
+                    } else {
+                        # Check for silence timeout
                         if {$last_speech_time + $::config(silence_seconds) < $timestamp} {
-                    $recognizer final-async
+                            $recognizer final-async
 
-                set speech_duration [expr {$last_speech_time - $this_speech_time}]
-                if {$speech_duration <= $::config(min_duration)} {
-                        after idle [partial_text ""]
-                                # print THRS-SHORTS $speech_duration
-                    }
+                            set speech_duration [expr {$last_speech_time - $this_speech_time}]
+                            if {$speech_duration <= $::config(min_duration)} {
+                                after idle [partial_text ""]
+                            }
 
-                        set last_speech_time 0
+                            set last_speech_time 0
                             set audio_buffer_list {}
                         }
                     }
@@ -397,7 +405,9 @@ namespace eval ::audio {
             set ::device_info_map $device_info_map
             set ::device_sample_rate $device_sample_rate
 
-            # Calculate frames_per_buffer as ~100ms worth of frames
-            set ::device_frames_per_buffer [expr {int($device_sample_rate * 0.1)}]
+            # Calculate frames_per_buffer as ~25ms worth of frames (was 100ms)
+            # Smaller chunks = faster speech detection response
+            set ::audio_chunk_seconds 0.025
+            set ::device_frames_per_buffer [expr {int($device_sample_rate * $::audio_chunk_seconds)}]
     }
 }

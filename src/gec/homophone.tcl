@@ -8,6 +8,8 @@
 package require gec
 package require wordpiece
 
+source [file join [file dirname [info script]] tokens.tcl]
+
 namespace eval homophone {
     # Homophones loaded from pronunciation dictionary analysis
     # Format: word -> list of alternatives (words with same pronunciation)
@@ -129,7 +131,7 @@ proc homophone::load_homophones {path} {
 
             # Check if it's a single token (not UNK, not contraction)
             set alt_id [wordpiece::token_to_id $alt]
-            if {$alt_id != 100 && ![string match "*'*" $alt]} {
+            if {$alt_id != $::tokens::UNK && ![string match "*'*" $alt]} {
                 lappend single_token_alts $alt
             }
             set alt_start [expr {[lindex $alt_match_range 1] + 1}]
@@ -138,7 +140,7 @@ proc homophone::load_homophones {path} {
         # Store single-token homophones
         if {[llength $single_token_alts] >= 2} {
             set word_id [wordpiece::token_to_id $word]
-            if {$word_id != 100 && ![string match "*'*" $word]} {
+            if {$word_id != $::tokens::UNK && ![string match "*'*" $word]} {
                 set homophones($word) $single_token_alts
                 incr in_vocab
             }
@@ -146,13 +148,13 @@ proc homophone::load_homophones {path} {
 
         # Check if this word is multi-token with single-token alternatives
         set word_id [wordpiece::token_to_id $word]
-        if {$word_id == 100 || [string match "*'*" $word]} {
+        if {$word_id == $::tokens::UNK || [string match "*'*" $word]} {
             # Word is multi-token or has apostrophe - get its token sequence
             set tokens [wordpiece::encode $word 16]
             set token_ids {}
             for {set i 1} {$i < 16} {incr i} {
                 set tid [lindex $tokens $i]
-                if {$tid == 0 || $tid == 102} break
+                if {$tid == $::tokens::PAD || $tid == $::tokens::SEP} break
                 lappend token_ids $tid
             }
 
@@ -255,7 +257,7 @@ proc homophone::find_multitoken_patterns {tokens} {
         set t1 [lindex $tokens $i]
 
         # Skip if we hit special tokens or padding
-        if {$t1 == 0 || $t1 == 102} break
+        if {$t1 == $::tokens::PAD || $t1 == $::tokens::SEP} break
 
         # Try pattern lengths from longest to shortest (prefer longer matches)
         foreach pattern_len {4 3 2} {
@@ -264,7 +266,7 @@ proc homophone::find_multitoken_patterns {tokens} {
             set token_ids {}
             for {set j 0} {$j < $pattern_len} {incr j} {
                 set tid [lindex $tokens [expr {$i + $j}]]
-                if {$tid == 0 || $tid == 102} break
+                if {$tid == $::tokens::PAD || $tid == $::tokens::SEP} break
                 lappend token_ids $tid
             }
 
@@ -305,9 +307,9 @@ proc homophone::correct_multitoken {tokens mask} {
 
         # Create neutral context: mask position + pad remaining tokens
         set neutral_tokens $result_tokens
-        lset neutral_tokens $start_pos 103  ;# [MASK]
+        lset neutral_tokens $start_pos $::tokens::MASK
         for {set j 1} {$j < $length} {incr j} {
-            lset neutral_tokens [expr {$start_pos + $j}] 0
+            lset neutral_tokens [expr {$start_pos + $j}] $::tokens::PAD
         }
         set neutral_mask [wordpiece::attention_mask $neutral_tokens]
 
@@ -329,7 +331,7 @@ proc homophone::correct_multitoken {tokens mask} {
         if {$best_id != $t1} {
             lset result_tokens $start_pos $best_id
             for {set j 1} {$j < $length} {incr j} {
-                lset result_tokens [expr {$start_pos + $j}] 0
+                lset result_tokens [expr {$start_pos + $j}] $::tokens::PAD
             }
         }
     }
@@ -347,7 +349,7 @@ proc homophone::correct {text} {
     }
 
     # Tokenize the text
-    set tokens [wordpiece::encode $text 64]
+    set tokens [wordpiece::encode $text $::tokens::MAX_SEQ_LEN]
     set mask [wordpiece::attention_mask $tokens]
 
     # First pass: correct multi-token homophones (contractions)
@@ -363,7 +365,7 @@ proc homophone::correct {text} {
         set token_id [lindex $tokens $pos]
 
         # Skip padding and special tokens
-        if {$token_id == 0 || $token_id == 101 || $token_id == 102} {
+        if {$token_id == $::tokens::PAD || $token_id == $::tokens::CLS || $token_id == $::tokens::SEP} {
             continue
         }
 
@@ -393,7 +395,7 @@ proc homophone::correct {text} {
         set id_to_word {}
         foreach alt $alts {
             set alt_id [wordpiece::token_to_id $alt]
-            if {$alt_id != 100} {
+            if {$alt_id != $::tokens::UNK} {
                 lappend candidate_ids $alt_id
                 dict set id_to_word $alt_id $alt
             }
@@ -406,7 +408,7 @@ proc homophone::correct {text} {
 
         # Create masked input and run inference
         set masked_tokens $tokens
-        lset masked_tokens $pos 103
+        lset masked_tokens $pos $::tokens::MASK
         $request set_input 0 $masked_tokens
         $request set_input 1 $mask
         $request infer
@@ -442,7 +444,7 @@ proc homophone::correct_verbose {text} {
         error "homophone::init must be called first"
     }
 
-    set tokens [wordpiece::encode $text 64]
+    set tokens [wordpiece::encode $text $::tokens::MAX_SEQ_LEN]
     set mask [wordpiece::attention_mask $tokens]
 
     set results {}
@@ -451,7 +453,7 @@ proc homophone::correct_verbose {text} {
     for {set pos 1} {$pos < $seq_len - 1} {incr pos} {
         set token_id [lindex $tokens $pos]
 
-        if {$token_id == 0 || $token_id == 101 || $token_id == 102} {
+        if {$token_id == $::tokens::PAD || $token_id == $::tokens::CLS || $token_id == $::tokens::SEP} {
             continue
         }
 
@@ -469,7 +471,7 @@ proc homophone::correct_verbose {text} {
 
         # Create masked input
         set masked_tokens $tokens
-        lset masked_tokens $pos 103
+        lset masked_tokens $pos $::tokens::MASK
 
         $request set_input 0 $masked_tokens
         $request set_input 1 $mask
@@ -478,14 +480,13 @@ proc homophone::correct_verbose {text} {
         set output [$request get_output 0]
         set logits [dict get $output data]
 
-        set vocab_size 30522
-        set start_idx [expr {$pos * $vocab_size}]
+        set start_idx [expr {$pos * $::tokens::VOCAB_SIZE}]
 
         # Get all alternative scores
         set alt_scores {}
         foreach alt $alts {
             set alt_id [wordpiece::token_to_id $alt]
-            if {$alt_id != 100} {
+            if {$alt_id != $::tokens::UNK} {
                 set logit [lindex $logits [expr {$start_idx + $alt_id}]]
                 lappend alt_scores [list $alt $logit]
             }

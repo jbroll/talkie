@@ -6,6 +6,8 @@
 package require gec
 package require wordpiece
 
+source [file join [file dirname [info script]] tokens.tcl]
+
 namespace eval punctcap {
     # Model state
     variable model ""
@@ -117,7 +119,7 @@ proc punctcap::restore {text} {
     }
 
     # Tokenize the text
-    set tokens [wordpiece::encode $text 64]
+    set tokens [wordpiece::encode $text $::tokens::MAX_SEQ_LEN]
     set mask [wordpiece::attention_mask $tokens]
 
     # Run inference
@@ -133,12 +135,12 @@ proc punctcap::restore {text} {
     set result_words {}
     set prev_punct ""
 
-    for {set pos 1} {$pos < 64} {incr pos} {
+    for {set pos 1} {$pos < $::tokens::MAX_SEQ_LEN} {incr pos} {
         set tid [lindex $tokens $pos]
 
         # Skip padding and special tokens
-        if {$tid == 0 || $tid == 102} break
-        if {$tid == 101} continue  ;# Skip [CLS]
+        if {$tid == $::tokens::PAD || $tid == $::tokens::SEP} break
+        if {$tid == $::tokens::CLS} continue
 
         # Get the token string
         set token_str [wordpiece::id_to_token $tid]
@@ -254,7 +256,7 @@ proc punctcap::restore_verbose {text} {
         error "punctcap::init must be called first"
     }
 
-    set tokens [wordpiece::encode $text 64]
+    set tokens [wordpiece::encode $text $::tokens::MAX_SEQ_LEN]
     set mask [wordpiece::attention_mask $tokens]
 
     $request set_input 0 $tokens
@@ -266,10 +268,10 @@ proc punctcap::restore_verbose {text} {
 
     set results {}
 
-    for {set pos 1} {$pos < 64} {incr pos} {
+    for {set pos 1} {$pos < $::tokens::MAX_SEQ_LEN} {incr pos} {
         set tid [lindex $tokens $pos]
-        if {$tid == 0 || $tid == 102} break
-        if {$tid == 101} continue
+        if {$tid == $::tokens::PAD || $tid == $::tokens::SEP} break
+        if {$tid == $::tokens::CLS} continue
 
         set token_str [wordpiece::id_to_token $tid]
 
