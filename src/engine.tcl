@@ -1,5 +1,6 @@
-# engine.tcl - Hybrid speech engine abstraction layer
-# Supports both in-process (critcl) and coprocess engines
+# engine.tcl - Integrated speech engine with direct audio processing
+# Audio callbacks fire directly on the engine worker thread, eliminating
+# the main thread from the audio processing path.
 
 source [file join [file dirname [info script]] worker.tcl]
 source [file join [file dirname [info script]] coprocess.tcl]
@@ -44,23 +45,46 @@ namespace eval ::engine {
         return ""
     }
 
-    # Worker namespace script (sent to worker thread)
+    # Worker namespace script - now includes audio processing
     variable worker_script {
         package require Thread
 
         namespace eval ::engine::worker {
+            # Engine state
             variable engine_name ""
             variable engine_type ""
             variable recognizer ""
             variable main_tid ""
             variable script_dir ""
 
-            proc init {main_tid_arg engine_name_arg engine_type_arg model_path sample_rate script_dir_arg} {
+            # Audio state
+            variable audio_stream ""
+            variable audio_buffer_list {}
+            variable this_speech_time 0
+            variable last_speech_time 0
+            variable last_ui_update_time 0
+            variable transcribing 0
+
+            # Config (copied from main thread)
+            variable config
+            array set config {}
+
+            # Threshold state
+            variable energy_buffer {}
+            variable initialization_complete 0
+            variable noise_floor 0
+            variable noise_threshold 0
+
+            proc init {main_tid_arg engine_name_arg engine_type_arg model_path sample_rate script_dir_arg config_dict} {
                 variable main_tid $main_tid_arg
                 variable engine_name $engine_name_arg
                 variable engine_type $engine_type_arg
                 variable recognizer
                 variable script_dir $script_dir_arg
+                variable config
+
+                # Copy config from main thread
+                array set config $config_dict
 
                 if {[lsearch -exact $::auto_path "$::env(HOME)/.local/lib/tcllib2.0"] < 0} {
                     lappend ::auto_path "$::env(HOME)/.local/lib/tcllib2.0"
@@ -71,6 +95,8 @@ namespace eval ::engine {
                 lappend ::auto_path [file join $script_dir uinput lib uinput]
 
                 package require json
+                package require pa
+                package require audio
 
                 if {$engine_type eq "critcl"} {
                     package require vosk
@@ -98,7 +124,159 @@ namespace eval ::engine {
                 }
             }
 
-            proc process {chunk} {
+            # Start audio stream on this worker thread
+            proc start_audio {device sample_rate frames_per_buffer chunk_seconds} {
+                variable audio_stream
+                variable config
+
+                set config(audio_chunk_seconds) $chunk_seconds
+
+                try {
+                    set audio_stream [pa::open_stream \
+                        -device $device \
+                        -rate $sample_rate \
+                        -channels 1 \
+                        -frames $frames_per_buffer \
+                        -format int16 \
+                        -callback ::engine::worker::audio_callback]
+
+                    $audio_stream start
+                    return [list status ok]
+                } on error message {
+                    return [list status error message $message]
+                }
+            }
+
+            proc stop_audio {} {
+                variable audio_stream
+
+                if {$audio_stream ne ""} {
+                    try {
+                        $audio_stream stop
+                        $audio_stream close
+                    } on error message {
+                        puts stderr "stop audio stream: $message"
+                    }
+                    set audio_stream ""
+                }
+            }
+
+            # Threshold detection (simplified, runs on worker)
+            proc update_threshold {audiolevel} {
+                variable energy_buffer
+                variable initialization_complete
+                variable noise_floor
+                variable noise_threshold
+                variable config
+                variable main_tid
+
+                lappend energy_buffer $audiolevel
+                set energy_buffer [lrange $energy_buffer end-599 end]
+
+                set init_samples [expr {int($config(initialization_samples))}]
+                if {!$initialization_complete && [llength $energy_buffer] >= $init_samples} {
+                    # Calculate noise floor from percentile
+                    set sorted [lsort -real $energy_buffer]
+                    set idx [expr {int([llength $sorted] * $config(noise_floor_percentile) / 100.0)}]
+                    set noise_floor [lindex $sorted $idx]
+                    set noise_threshold [expr {$noise_floor * $config(audio_threshold_multiplier)}]
+                    set initialization_complete 1
+
+                    # Notify main thread calibration complete
+                    thread::send -async $main_tid [list after idle [list partial_text ""]]
+                }
+            }
+
+            proc is_speech {audiolevel} {
+                variable initialization_complete
+                variable noise_threshold
+                variable energy_buffer
+                variable config
+                variable main_tid
+
+                update_threshold $audiolevel
+
+                if {!$initialization_complete} {
+                    set progress [expr {[llength $energy_buffer] * 100 / int($config(initialization_samples))}]
+                    if {$progress % 20 == 0} {
+                        thread::send -async $main_tid [list after idle [list partial_text "Calibrating... ${progress}%"]]
+                    }
+                    return 0
+                }
+
+                return [expr {$audiolevel > $noise_threshold}]
+            }
+
+            # Audio callback - runs directly on this worker thread
+            proc audio_callback {stream_name timestamp data} {
+                variable this_speech_time
+                variable last_speech_time
+                variable audio_buffer_list
+                variable last_ui_update_time
+                variable transcribing
+                variable recognizer
+                variable engine_type
+                variable engine_name
+                variable main_tid
+                variable config
+
+                try {
+                    set audiolevel [audio::energy $data int16]
+                    set speech [is_speech $audiolevel]
+
+                    # Throttle UI updates to ~10Hz
+                    set now [clock milliseconds]
+                    if {$now - $last_ui_update_time >= 100} {
+                        thread::send -async $main_tid [list ::engine::update_ui $audiolevel $speech]
+                        set last_ui_update_time $now
+                    }
+
+                    if {$transcribing} {
+                        set callbacks_per_sec [expr {1.0 / $config(audio_chunk_seconds)}]
+                        set lookback_frames [expr {int($config(lookback_seconds) * $callbacks_per_sec + 0.5)}]
+                        lappend audio_buffer_list $data
+                        set audio_buffer_list [lrange $audio_buffer_list end-$lookback_frames end]
+
+                        if {$recognizer eq ""} {
+                            set audio_buffer_list {}
+                            return
+                        }
+
+                        # Rising edge of speech - send lookback buffer
+                        if {$speech && !$last_speech_time} {
+                            set this_speech_time $timestamp
+                            foreach chunk $audio_buffer_list {
+                                process_chunk $chunk
+                            }
+                            set last_speech_time $timestamp
+                        } elseif {$last_speech_time} {
+                            # Ongoing speech - process current chunk
+                            process_chunk $data
+
+                            if {$speech} {
+                                set last_speech_time $timestamp
+                            } else {
+                                # Check for silence timeout
+                                if {$last_speech_time + $config(silence_seconds) < $timestamp} {
+                                    process_final
+
+                                    set speech_duration [expr {$last_speech_time - $this_speech_time}]
+                                    if {$speech_duration <= $config(min_duration)} {
+                                        thread::send -async $main_tid [list after idle [list partial_text ""]]
+                                    }
+
+                                    set last_speech_time 0
+                                    set audio_buffer_list {}
+                                }
+                            }
+                        }
+                    }
+                } on error message {
+                    puts stderr "audio callback: $message"
+                }
+            }
+
+            proc process_chunk {chunk} {
                 variable recognizer
                 variable engine_type
                 variable engine_name
@@ -119,7 +297,7 @@ namespace eval ::engine {
                 }
             }
 
-            proc final {} {
+            proc process_final {} {
                 variable recognizer
                 variable engine_type
                 variable engine_name
@@ -142,10 +320,35 @@ namespace eval ::engine {
                 }
             }
 
+            proc set_transcribing {value} {
+                variable transcribing
+                variable last_speech_time
+                variable audio_buffer_list
+                variable recognizer
+
+                set transcribing $value
+                if {!$value} {
+                    set last_speech_time 0
+                    set audio_buffer_list {}
+                    if {$recognizer ne ""} {
+                        catch {
+                            if {[info commands $recognizer] ne ""} {
+                                $recognizer reset
+                            }
+                        }
+                    }
+                }
+            }
+
             proc reset {} {
                 variable recognizer
                 variable engine_type
                 variable engine_name
+                variable last_speech_time
+                variable audio_buffer_list
+
+                set last_speech_time 0
+                set audio_buffer_list {}
 
                 try {
                     if {$engine_type eq "critcl"} {
@@ -163,6 +366,8 @@ namespace eval ::engine {
                 variable engine_type
                 variable engine_name
 
+                stop_audio
+
                 try {
                     if {$engine_type eq "critcl"} {
                         if {$recognizer ne "" && [info commands $recognizer] ne ""} {
@@ -178,44 +383,13 @@ namespace eval ::engine {
         }
     }
 
-    # Create async recognizer proxy command using worker module
-    proc create_async_recognizer_cmd {engine_name} {
-        variable worker_name
-        set cmd_name "::recognizer_async_${engine_name}"
-
-        proc $cmd_name {method args} [format {
-            set worker_name %s
-
-            if {![::worker::exists $worker_name]} {
-                return
-            }
-
-            switch $method {
-                "process-async" {
-                    set chunk [lindex $args 0]
-                    ::worker::send_async $worker_name [list ::engine::worker::process $chunk]
-                }
-                "final-async" {
-                    ::worker::send_async $worker_name {::engine::worker::final}
-                }
-                "reset" {
-                    ::worker::send_async $worker_name {::engine::worker::reset}
-                }
-                "close" {
-                    ::worker::send $worker_name {::engine::worker::close}
-                    ::worker::destroy $worker_name
-                    rename %s ""
-                }
-                default {
-                    error "Unknown method: $method"
-                }
-            }
-        } $worker_name $cmd_name]
-
-        return $cmd_name
+    # Called from worker thread to update UI variables
+    proc update_ui {audiolevel is_speech} {
+        set ::audiolevel $audiolevel
+        set ::is_speech $is_speech
     }
 
-    # Initialize engine and return recognizer command
+    # Initialize engine with integrated audio
     proc initialize {} {
         variable recognizer_cmd
         variable engine_name
@@ -233,7 +407,7 @@ namespace eval ::engine {
         set engine_type [get_property $engine_name type]
         set main_tid [thread::id]
 
-        puts "Initializing $engine_name engine (type: $engine_type) with worker thread..."
+        puts "Initializing $engine_name engine (type: $engine_type) with integrated audio..."
 
         # Create worker thread using worker module
         set worker_tid [::worker::create $worker_name $worker_script]
@@ -276,9 +450,12 @@ namespace eval ::engine {
         puts "  Model path: $model_path"
         puts "  Sample rate: $::device_sample_rate"
 
-        # Initialize worker thread
+        # Convert config array to dict for passing to worker
+        set config_dict [array get ::config]
+
+        # Initialize worker thread with engine
         set response [::worker::send $worker_name [list ::engine::worker::init \
-            $main_tid $engine_name $engine_type $model_path $::device_sample_rate $::script_dir]]
+            $main_tid $engine_name $engine_type $model_path $::device_sample_rate $::script_dir $config_dict]]
 
         # Parse response
         set response_dict [json::json2dict $response]
@@ -293,20 +470,45 @@ namespace eval ::engine {
             return false
         }
 
-        puts "✓ Worker thread initialized successfully"
+        puts "✓ Engine initialized"
         if {[dict exists $response_dict message]} {
             puts "  [dict get $response_dict message]"
         }
 
-        # Create async recognizer proxy
-        set recognizer_cmd [create_async_recognizer_cmd $engine_name]
+        # Start audio stream on worker thread
+        puts "Starting audio stream on engine thread..."
+        set audio_response [::worker::send $worker_name [list ::engine::worker::start_audio \
+            $::config(input_device) $::device_sample_rate $::device_frames_per_buffer $::audio_chunk_seconds]]
+
+        if {[dict get $audio_response status] ne "ok"} {
+            puts "ERROR: Failed to start audio: [dict get $audio_response message]"
+            ::worker::destroy $worker_name
+            return false
+        }
+
+        puts "✓ Audio stream running on engine thread"
 
         return true
     }
 
+    # Set transcribing state on worker
+    proc set_transcribing {value} {
+        variable worker_name
+        if {[::worker::exists $worker_name]} {
+            ::worker::send_async $worker_name [list ::engine::worker::set_transcribing $value]
+        }
+    }
+
+    # Reset recognizer
+    proc reset {} {
+        variable worker_name
+        if {[::worker::exists $worker_name]} {
+            ::worker::send_async $worker_name {::engine::worker::reset}
+        }
+    }
+
     # Cleanup
     proc cleanup {} {
-        variable recognizer_cmd
         variable engine_name
         variable worker_name
 
@@ -317,14 +519,9 @@ namespace eval ::engine {
 
         puts "Cleaning up $engine_name engine..."
 
-        # Close recognizer proxy (will send close to worker and destroy it)
-        if {$recognizer_cmd ne ""} {
-            catch {$recognizer_cmd close}
-            set recognizer_cmd ""
-        }
-
-        # Extra safety: ensure worker is destroyed
+        # Close worker (will stop audio and release recognizer)
         if {[::worker::exists $worker_name]} {
+            ::worker::send $worker_name {::engine::worker::close}
             ::worker::destroy $worker_name
         }
 
@@ -332,10 +529,9 @@ namespace eval ::engine {
         puts "Cleanup complete"
     }
 
-    # Return the recognizer command (for audio.tcl)
+    # Legacy API - recognizer proxy (now returns empty, not needed)
     proc recognizer {} {
-        variable recognizer_cmd
-        return $recognizer_cmd
+        return ""
     }
 
     # Get current engine name
