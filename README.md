@@ -26,19 +26,70 @@ The application monitors microphone input, performs voice activity detection, tr
 src/
 ├── talkie.tcl          # Main application entry point
 ├── config.tcl          # Configuration management
-├── audio.tcl           # Audio processing and VAD
-├── engine.tcl          # Speech engine abstraction
-├── textproc.tcl        # Text preprocessing
-├── threshold.tcl       # Energy threshold management
-├── ui-layout.tcl       # Tk interface
-├── vosk.tcl            # Vosk engine bindings
-├── sherpa.tcl          # Sherpa-ONNX bindings
+├── engine.tcl          # Speech engine with integrated audio (worker thread)
+├── audio.tcl           # Result parsing and transcription state
+├── worker.tcl          # Reusable worker thread abstraction
+├── output.tcl          # Keyboard output (worker thread)
+├── threshold.tcl       # Confidence threshold management
+├── textproc.tcl        # Text preprocessing and voice commands
 ├── coprocess.tcl       # External engine communication
+├── ui-layout.tcl       # Tk interface
+├── display.tcl         # Text display and visualization
+├── vosk.tcl            # Vosk engine bindings
+├── gec/                # Grammar/Error Correction pipeline
+│   ├── gec.tcl         # GEC coordinator
+│   ├── pipeline.tcl    # ONNX inference pipeline
+│   ├── punctcap.tcl    # Punctuation and capitalization
+│   ├── homophone.tcl   # Homophone correction
+│   └── tokens.tcl      # BERT token constants
 ├── pa/                 # PortAudio critcl bindings
 ├── audio/              # Audio processing critcl bindings
+├── vosk/               # Vosk critcl bindings
 ├── uinput/             # uinput critcl bindings
 └── engines/            # External engine wrappers
 ```
+
+### Threading Architecture
+
+Audio processing runs on a dedicated worker thread, eliminating the main thread from the critical audio path:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Main Thread                               │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────────────────┐ │
+│  │   GUI   │  │  GEC    │  │ Display │  │ Result Processing   │ │
+│  │ (5Hz)   │  │Pipeline │  │         │  │ (parse_and_display) │ │
+│  └─────────┘  └─────────┘  └─────────┘  └─────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+        ▲                                          ▲
+        │ thread::send -async                      │
+        │ (UI updates)                             │ thread::send -async
+        │                                          │ (recognition results)
+┌───────┴─────────────────────────┐  ┌─────────────┴───────────────┐
+│      Engine Worker Thread       │  │     Output Worker Thread    │
+│  ┌──────────────────────────┐  │  │  ┌───────────────────────┐  │
+│  │   PortAudio Callbacks    │  │  │  │   uinput Keyboard     │  │
+│  │   (25ms chunks, 40Hz)    │  │  │  │   Simulation          │  │
+│  └────────────┬─────────────┘  │  │  └───────────────────────┘  │
+│               ▼                 │  │                             │
+│  ┌──────────────────────────┐  │  └─────────────────────────────┘
+│  │  Threshold Detection     │  │
+│  │  (adaptive noise floor)  │  │
+│  └────────────┬─────────────┘  │
+│               ▼                 │
+│  ┌──────────────────────────┐  │
+│  │  Vosk Recognition        │  │
+│  │  (or coprocess engine)   │  │
+│  └──────────────────────────┘  │
+└─────────────────────────────────┘
+```
+
+**Data Flow:**
+1. PortAudio delivers 25ms audio chunks directly to engine worker thread
+2. Worker performs threshold detection and Vosk processing
+3. Recognition results sent to main thread for GEC processing
+4. Processed text sent to output worker for keyboard simulation
+5. UI updates throttled to 5Hz to reduce overhead
 
 ### Component Overview
 
@@ -46,15 +97,19 @@ src/
 
 **config.tcl**: JSON configuration file management (~/.talkie.conf), file watching for external state changes (~/.talkie)
 
-**audio.tcl**: PortAudio stream management, circular buffer for audio lookback, voice activity detection
+**engine.tcl**: Integrates PortAudio stream on worker thread. Audio callbacks fire directly on worker, bypassing main thread. Handles threshold detection and speech recognition.
 
-**engine.tcl**: Hybrid architecture supporting in-process (critcl) and out-of-process (coprocess) speech engines
+**audio.tcl**: Parses recognition results (JSON from Vosk), coordinates GEC processing, manages transcription state, device enumeration.
+
+**worker.tcl**: Reusable worker thread abstraction using Tcl Thread package. Provides create, send, send_async, exists, destroy operations.
+
+**output.tcl**: Keyboard simulation via uinput on dedicated worker thread. Async text output to avoid blocking main thread.
+
+**gec/**: Grammar Error Correction pipeline using ONNX Runtime for BERT model inference. Adds punctuation, capitalization, and corrects homophones.
 
 **textproc.tcl**: Punctuation command processing, text normalization
 
-**ui-layout.tcl**: Tk GUI with transcription controls, real-time displays, parameter adjustment
-
-**uinput**: Keyboard event generation using Linux uinput kernel module
+**ui-layout.tcl**: Tk GUI with transcription controls, real-time displays (5Hz updates), parameter adjustment
 
 ## Dependencies
 
@@ -65,14 +120,15 @@ src/
 - User must be member of `input` group for uinput access
 
 ### Tcl Packages
-- Tk
-- json
-- jbr::unix
-- jbr::filewatch
-- pa (PortAudio bindings)
-- audio (audio processing)
-- uinput (keyboard simulation)
-- vosk (Vosk speech engine) *optional*
+- Tk - GUI framework
+- Thread - Worker thread management
+- json - JSON parsing/generation
+- jbr::unix - Unix utilities
+- jbr::filewatch - File monitoring
+- pa - PortAudio bindings (critcl)
+- audio - Audio energy calculation (critcl)
+- uinput - Keyboard simulation (critcl)
+- vosk - Vosk speech engine (critcl)
 
 ### Speech Engine Models
 Download and place in `models/` directory:
@@ -201,6 +257,21 @@ Configuration file: `~/.talkie.conf` (JSON format)
 **vosk_lattice_beam**: Lattice beam width for Vosk (1-20)
 
 All parameters can be adjusted via the GUI or by editing the configuration file directly.
+
+## Performance
+
+### Audio Processing
+- **Sample Rate**: 16kHz (device native rate)
+- **Chunk Size**: 25ms (~400 frames at 16kHz)
+- **Callback Rate**: 40Hz on engine worker thread
+- **Latency**: ~50-100ms speech detection response
+- **Lookback**: Configurable pre-speech audio buffering (default 1.0s)
+
+### Threading Benefits
+- **No Main Thread Blocking**: Audio processing on dedicated worker
+- **Reduced Latency**: Direct path from audio to recognition
+- **UI Responsiveness**: GUI never waits for audio processing
+- **Throttled Updates**: UI refreshes at 5Hz, not 40Hz
 
 ## Development
 
