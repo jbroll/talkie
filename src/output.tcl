@@ -131,6 +131,9 @@ namespace eval ::output {
             return
         }
 
+        # Log injection for feedback learning
+        ::feedback::inject $text
+
         # Check if worker thread exists
         if {![::worker::exists $worker_name]} {
             puts stderr "Output thread not available, text dropped: $text"

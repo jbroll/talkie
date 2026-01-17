@@ -95,6 +95,10 @@ source [file join $script_dir vosk.tcl]
 
 # All other engines (Sherpa, Faster-Whisper) are coprocess - no loading needed
 
+# Feedback logging (must load before gec.tcl and output.tcl)
+source [file join $script_dir feedback.tcl]
+::feedback::init
+
 # Load engine abstraction layer
 source [file join $script_dir engine.tcl]
 source [file join $script_dir output.tcl]

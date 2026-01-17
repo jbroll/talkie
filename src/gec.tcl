@@ -12,8 +12,6 @@ namespace eval ::gec {
     variable initialized 0
     variable ready 0
     variable script_dir
-    variable log_file ""
-    variable log_enabled 1
 }
 
 # Capture script directory at load time (before procs are called)
@@ -116,31 +114,7 @@ proc ::gec::init {} {
 
     set initialized 1
     set ready 1
-
-    # Initialize log file
-    variable log_file
-    set log_file [file join $::env(HOME) .talkie-gec.log]
-
     return 1
-}
-
-# Write to GEC log file
-proc ::gec::log {input output} {
-    variable log_file
-    variable log_enabled
-
-    if {!$log_enabled || $log_file eq ""} return
-
-    set timestamp [clock format [clock seconds] -format "%Y-%m-%d %H:%M:%S"]
-    set entry "$timestamp | \"$input\" -> \"$output\""
-
-    if {[catch {
-        set fd [open $log_file a]
-        puts $fd $entry
-        close $fd
-    } err]} {
-        puts stderr "GEC log error: $err"
-    }
 }
 
 # Process text through GEC pipeline
@@ -161,7 +135,7 @@ proc ::gec::process {text} {
 
     if {$result ne $text} {
         puts stderr "GEC: '$text' -> '$result'"
-        log $text $result
+        ::feedback::gec $text $result
     }
 
     return $result
@@ -183,31 +157,6 @@ proc ::gec::last_timing {} {
         return {homo_ms 0 punct_ms 0 grammar_ms 0 total_ms 0}
     }
     return [gec_pipeline::last_timing]
-}
-
-# Configure GEC logging
-proc ::gec::configure {args} {
-    variable log_enabled
-    foreach {opt val} $args {
-        switch -- $opt {
-            -log { set log_enabled $val }
-            default { error "Unknown option: $opt" }
-        }
-    }
-}
-
-# Get log file path
-proc ::gec::log_path {} {
-    variable log_file
-    return $log_file
-}
-
-# Clear the log file
-proc ::gec::log_clear {} {
-    variable log_file
-    if {$log_file ne "" && [file exists $log_file]} {
-        file delete $log_file
-    }
 }
 
 # Clean up resources
