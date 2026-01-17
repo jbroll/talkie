@@ -19,6 +19,7 @@ The application monitors microphone input, performs voice activity detection, tr
 - External control via file-based IPC
 - Persistent JSON configuration
 - Single-instance enforcement
+- Feedback logging for STT correction learning (with Claude Code hook support)
 
 ## Architecture
 
@@ -34,6 +35,7 @@ src/
 ├── textproc.tcl        # Text preprocessing and voice commands
 ├── coprocess.tcl       # External engine communication
 ├── ui-layout.tcl       # Tk interface
+├── feedback.tcl        # Unified feedback logging for correction learning
 ├── display.tcl         # Text display and visualization
 ├── vosk.tcl            # Vosk engine bindings
 ├── gec/                # Grammar/Error Correction pipeline
@@ -106,6 +108,8 @@ Audio processing runs on a dedicated worker thread, eliminating the main thread 
 **output.tcl**: Keyboard simulation via uinput on dedicated worker thread. Async text output to avoid blocking main thread.
 
 **gec/**: Grammar Error Correction pipeline using ONNX Runtime for BERT model inference. Adds punctuation, capitalization, and corrects homophones.
+
+**feedback.tcl**: Unified feedback logging to `~/.config/talkie/feedback.jsonl`. Captures GEC corrections, text injections, and user submissions for correction learning.
 
 **textproc.tcl**: Punctuation command processing, text normalization
 
@@ -257,6 +261,82 @@ Configuration file: `~/.talkie.conf` (JSON format)
 **vosk_lattice_beam**: Lattice beam width for Vosk (1-20)
 
 All parameters can be adjusted via the GUI or by editing the configuration file directly.
+
+## Feedback Logging
+
+Talkie includes a unified feedback logging system for capturing the STT pipeline and learning from user corrections.
+
+### Log Location
+
+All events are logged to `~/.config/talkie/feedback.jsonl` in JSON Lines format.
+
+### Event Types
+
+The feedback log captures three event types:
+
+| Type | Description | Fields |
+|------|-------------|--------|
+| `gec` | GEC correction applied | `input`, `output` |
+| `inject` | Text sent to uinput | `text` |
+| `submit` | User's final submission | `text`, `session_id` |
+
+### Example Log Entries
+
+```jsonl
+{"ts":1705500000000,"type":"gec","input":"their going","output":"they're going"}
+{"ts":1705500000050,"type":"inject","text":"they're going"}
+{"ts":1705500005000,"type":"submit","text":"they're going to the store","session_id":"abc123"}
+```
+
+### Claude Code Integration
+
+To capture user corrections in Claude Code, install the `UserPromptSubmit` hook:
+
+```bash
+# Install hook script
+mkdir -p ~/.config/talkie/hooks
+cp feedback/log-submission.sh ~/.config/talkie/hooks/
+chmod +x ~/.config/talkie/hooks/log-submission.sh
+```
+
+Add to `~/.claude/settings.json`:
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.config/talkie/hooks/log-submission.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Analyzing Corrections
+
+Find user edits (where injected text differs from submitted):
+```bash
+jq -s '
+  [.[] | select(.type == "inject")] as $injects |
+  [.[] | select(.type == "submit")] as $submits |
+  [$injects[] as $i |
+    ($submits[] | select(.ts > $i.ts and .ts < ($i.ts + 30000))) as $s |
+    select($i.text != $s.text) |
+    {injected: $i.text, submitted: $s.text, delay_ms: ($s.ts - $i.ts)}
+  ]
+' ~/.config/talkie/feedback.jsonl
+```
+
+### Disabling Feedback Logging
+
+```tcl
+::feedback::configure -enabled 0
+```
 
 ## Performance
 
