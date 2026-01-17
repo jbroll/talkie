@@ -15,9 +15,6 @@ package require wordpiece
 
 namespace eval gec_pipeline {
     variable initialized 0
-    variable punct_enabled 1
-    variable homo_enabled 1
-    variable grammar_enabled 1
     variable stats
     variable last_timing
     variable script_dir
@@ -104,9 +101,6 @@ proc gec_pipeline::init {args} {
 # Order: homophone (raw text) -> punctcap (formatting) -> grammar (T5 corrections)
 proc gec_pipeline::process {text} {
     variable initialized
-    variable punct_enabled
-    variable homo_enabled
-    variable grammar_enabled
     variable stats
     variable last_timing
 
@@ -124,7 +118,7 @@ proc gec_pipeline::process {text} {
 
     # Stage 1: Homophone correction (works on raw lowercase Vosk output)
     set homo_start [clock microseconds]
-    if {$homo_enabled} {
+    if {$::config(gec_homophone)} {
         set text [homophone::correct $text]
     }
     set homo_us [expr {[clock microseconds] - $homo_start}]
@@ -132,7 +126,7 @@ proc gec_pipeline::process {text} {
 
     # Stage 2: Punctuation and capitalization restoration
     set punct_start [clock microseconds]
-    if {$punct_enabled} {
+    if {$::config(gec_punctcap)} {
         set text [punctcap::restore $text]
     }
     set punct_us [expr {[clock microseconds] - $punct_start}]
@@ -140,7 +134,7 @@ proc gec_pipeline::process {text} {
 
     # Stage 3: Grammar correction (T5 on CPU)
     set grammar_start [clock microseconds]
-    if {$grammar_enabled && [info commands grammar::correct] ne ""} {
+    if {$::config(gec_grammar) && [info commands grammar::correct] ne ""} {
         set text [grammar::correct $text]
     }
     set grammar_us [expr {[clock microseconds] - $grammar_start}]
@@ -171,9 +165,6 @@ proc gec_pipeline::process {text} {
 # Process with verbose output for debugging
 proc gec_pipeline::process_verbose {text} {
     variable initialized
-    variable punct_enabled
-    variable homo_enabled
-    variable grammar_enabled
 
     if {!$initialized} {
         error "gec_pipeline::init must be called first"
@@ -183,7 +174,7 @@ proc gec_pipeline::process_verbose {text} {
     set current $text
 
     # Stage 1: Homophone correction (on raw text)
-    if {$homo_enabled} {
+    if {$::config(gec_homophone)} {
         set homo_result [homophone::correct $current]
         dict set result homo_output $homo_result
         dict set result homo_changed [expr {$homo_result ne $current}]
@@ -191,7 +182,7 @@ proc gec_pipeline::process_verbose {text} {
     }
 
     # Stage 2: Punctuation and capitalization
-    if {$punct_enabled} {
+    if {$::config(gec_punctcap)} {
         set punct_result [punctcap::restore $current]
         dict set result punct_output $punct_result
         dict set result punct_changed [expr {$punct_result ne $current}]
@@ -199,7 +190,7 @@ proc gec_pipeline::process_verbose {text} {
     }
 
     # Stage 3: Grammar correction (T5)
-    if {$grammar_enabled && [info commands grammar::correct] ne ""} {
+    if {$::config(gec_grammar) && [info commands grammar::correct] ne ""} {
         set grammar_result [grammar::correct $current]
         dict set result grammar_output $grammar_result
         dict set result grammar_changed [expr {$grammar_result ne $current}]
@@ -210,21 +201,6 @@ proc gec_pipeline::process_verbose {text} {
     return $result
 }
 
-# Enable/disable pipeline stages
-proc gec_pipeline::configure {args} {
-    variable punct_enabled
-    variable homo_enabled
-    variable grammar_enabled
-
-    foreach {opt val} $args {
-        switch -- $opt {
-            -punct { set punct_enabled $val }
-            -homophone { set homo_enabled $val }
-            -grammar { set grammar_enabled $val }
-            default { error "Unknown option: $opt" }
-        }
-    }
-}
 
 # Get pipeline statistics
 proc gec_pipeline::stats {} {

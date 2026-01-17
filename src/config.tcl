@@ -10,12 +10,6 @@ proc config_init {} {
     ::audio::initialize
 
     config_refresh_models
-
-    # Initial typing delay is set during output thread initialization
-    # No need to set it again here
-
-    # Apply initial GEC config (traces don't fire on initial load)
-    config_gec_change
 }
 
 proc config_file {} {
@@ -91,9 +85,6 @@ proc config_trace {} {
     trace add variable ::config(typing_delay_ms) write config_typing_delay_change
     trace add variable ::config(input_device) write config_input_device_change
     trace add variable ::transcribing write state_transcribing_change
-    trace add variable ::config(gec_homophone) write config_gec_change
-    trace add variable ::config(gec_punctcap) write config_gec_change
-    trace add variable ::config(gec_grammar) write config_gec_change
 }
 
 proc config_engine_change {args} {
@@ -153,15 +144,6 @@ proc config_input_device_change {args} {
     }
 }
 
-proc config_gec_change {args} {
-    # Update GEC pipeline stage settings
-    catch {
-        gec_pipeline::configure \
-            -homophone $::config(gec_homophone) \
-            -punct $::config(gec_punctcap) \
-            -grammar $::config(gec_grammar)
-    }
-}
 
 proc state_transcribing_change {args} {
     # Protect against errors during engine switching

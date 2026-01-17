@@ -176,7 +176,7 @@ proc build_config_spec {} {
 
     # GEC (Grammar Error Correction) options
     lappend config_spec @ "" - &
-    lappend config_spec @ "GEC Stages" ~ "Homophones" -variable config(gec_homophone) ~ "Punct/Caps" -variable config(gec_punctcap) ~ "Grammar" -variable config(gec_grammar)
+    lappend config_spec @ "GEC Stages" ~ "Homophones" -variable ::config(gec_homophone) ~ "Punct/Caps" -variable ::config(gec_punctcap) ~ "Grammar" -variable ::config(gec_grammar)
 
     return $config_spec
 }
