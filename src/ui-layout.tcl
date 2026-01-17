@@ -59,7 +59,6 @@ array set ::config {
     sherpa_max_active_paths   4
     sherpa_modelfile          sherpa-onnx-streaming-zipformer-en-2023-06-26
     faster_whisper_modelfile  ""
-    gec_enabled               1
     gec_homophone             1
     gec_punctcap              1
     gec_grammar               0

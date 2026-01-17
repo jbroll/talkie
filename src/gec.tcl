@@ -10,7 +10,6 @@
 
 namespace eval ::gec {
     variable initialized 0
-    variable enabled 1
     variable ready 0
     variable script_dir
     variable log_file ""
@@ -147,10 +146,9 @@ proc ::gec::log {input output} {
 # Process text through GEC pipeline
 proc ::gec::process {text} {
     variable initialized
-    variable enabled
     variable ready
 
-    if {!$initialized || !$enabled || !$ready} {
+    if {!$initialized || !$ready} {
         return $text
     }
 
@@ -187,13 +185,11 @@ proc ::gec::last_timing {} {
     return [gec_pipeline::last_timing]
 }
 
-# Enable/disable GEC and logging
+# Configure GEC logging
 proc ::gec::configure {args} {
-    variable enabled
     variable log_enabled
     foreach {opt val} $args {
         switch -- $opt {
-            -enabled { set enabled $val }
             -log { set log_enabled $val }
             default { error "Unknown option: $opt" }
         }

@@ -53,7 +53,6 @@ proc config_load {} {
         vosk_beam                  10
         input_device               default
         max_confidence_penalty     75
-        gec_enabled                1
         gec_homophone              1
         gec_punctcap               1
         gec_grammar                0
@@ -92,7 +91,6 @@ proc config_trace {} {
     trace add variable ::config(typing_delay_ms) write config_typing_delay_change
     trace add variable ::config(input_device) write config_input_device_change
     trace add variable ::transcribing write state_transcribing_change
-    trace add variable ::config(gec_enabled) write config_gec_change
     trace add variable ::config(gec_homophone) write config_gec_change
     trace add variable ::config(gec_punctcap) write config_gec_change
     trace add variable ::config(gec_grammar) write config_gec_change
@@ -157,17 +155,11 @@ proc config_input_device_change {args} {
 
 proc config_gec_change {args} {
     # Update GEC pipeline stage settings
-    if {[catch {
-        ::gec::configure -enabled $::config(gec_enabled)
-        # Configure individual stages via gec_pipeline if initialized
-        catch {
-            gec_pipeline::configure \
-                -homophone $::config(gec_homophone) \
-                -punct $::config(gec_punctcap) \
-                -grammar $::config(gec_grammar)
-        }
-    } err]} {
-        # GEC may not be initialized yet, ignore
+    catch {
+        gec_pipeline::configure \
+            -homophone $::config(gec_homophone) \
+            -punct $::config(gec_punctcap) \
+            -grammar $::config(gec_grammar)
     }
 }
 

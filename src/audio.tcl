@@ -64,9 +64,9 @@ namespace eval ::audio {
         if { [lsearch -exact $::killwords $text] < 0 } {
             if { [threshold::accept $conf] } {
                 # GEC processing (homophone correction + punct/caps)
-                # gec::process handles enabled check internally
+                # gec::process skips disabled stages internally
                 set gec_timing {}
-                if {[info exists ::gec_enabled] && $::gec_enabled && $::config(gec_enabled)} {
+                if {[info exists ::gec_enabled] && $::gec_enabled} {
                     set text [::gec::process $text]
                     set gec_timing [::gec::last_timing]
                 }
