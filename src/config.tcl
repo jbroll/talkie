@@ -13,6 +13,9 @@ proc config_init {} {
 
     # Initial typing delay is set during output thread initialization
     # No need to set it again here
+
+    # Apply initial GEC config (traces don't fire on initial load)
+    config_gec_change
 }
 
 proc config_file {} {
