@@ -55,6 +55,7 @@ namespace eval ::engine {
             variable engine_type ""
             variable recognizer ""
             variable main_tid ""
+            variable gec_tid ""
             variable script_dir ""
 
             # Audio state
@@ -283,14 +284,16 @@ namespace eval ::engine {
                 variable main_tid
 
                 try {
+                    set start_us [clock microseconds]
                     if {$engine_type eq "critcl"} {
                         set result [$recognizer process $chunk]
                     } else {
                         set result [::coprocess::process $engine_name $chunk]
                     }
+                    set vosk_ms [expr {([clock microseconds] - $start_us) / 1000.0}]
 
                     if {$result ne ""} {
-                        thread::send -async $main_tid [list ::audio::parse_and_display_result $result]
+                        thread::send -async $main_tid [list ::audio::parse_and_display_result $result $vosk_ms]
                     }
                 } on error {err info} {
                     puts stderr "Worker process error: $err"
@@ -302,6 +305,7 @@ namespace eval ::engine {
                 variable engine_type
                 variable engine_name
                 variable main_tid
+                variable gec_tid
 
                 try {
                     set start_us [clock microseconds]
@@ -313,11 +317,23 @@ namespace eval ::engine {
                     set vosk_ms [expr {([clock microseconds] - $start_us) / 1000.0}]
 
                     if {$result ne ""} {
-                        thread::send -async $main_tid [list ::audio::parse_and_display_result $result $vosk_ms]
+                        # Send final results to GEC thread (pipeline: Engine → GEC → Output)
+                        # GEC thread handles parsing, correction, output, and UI notification
+                        if {$gec_tid ne ""} {
+                            thread::send -async $gec_tid [list ::gec_worker::worker::process_json $result $vosk_ms]
+                        } else {
+                            # Fallback to main thread if GEC not available
+                            thread::send -async $main_tid [list ::audio::parse_and_display_result $result $vosk_ms]
+                        }
                     }
                 } on error {err info} {
                     puts stderr "Worker final error: $err"
                 }
+            }
+
+            proc set_gec_tid {tid} {
+                variable gec_tid
+                set gec_tid $tid
             }
 
             proc set_transcribing {value} {
@@ -496,6 +512,14 @@ namespace eval ::engine {
         variable worker_name
         if {[::worker::exists $worker_name]} {
             ::worker::send_async $worker_name [list ::engine::worker::set_transcribing $value]
+        }
+    }
+
+    # Set GEC worker thread ID (for pipeline: Engine → GEC → Output)
+    proc set_gec_tid {tid} {
+        variable worker_name
+        if {[::worker::exists $worker_name]} {
+            ::worker::send_async $worker_name [list ::engine::worker::set_gec_tid $tid]
         }
     }
 

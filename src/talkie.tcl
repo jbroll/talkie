@@ -66,7 +66,7 @@ set ::buffer_health 0
 set ::buffer_overflows 0
 
 proc quit {} {
-    try { ::gec::shutdown } on error message {}
+    try { ::gec_worker::cleanup } on error message {}
     try { ::output::cleanup } on error message {}
     try { ::engine::cleanup } on error message {}
     try { pa::terminate } on error message {}
@@ -103,24 +103,12 @@ source [file join $script_dir feedback.tcl]
 source [file join $script_dir engine.tcl]
 source [file join $script_dir output.tcl]
 source [file join $script_dir audio.tcl]
-source [file join $script_dir gec.tcl]
-
-# GEC - Grammar Error Correction (homophone + punct/caps)
-# Enable GEC for neural network-based correction
-set ::gec_enabled 1
+source [file join $script_dir gec_worker.tcl]
 
 # Model paths - see CLAUDE.md "Vosk Model Data" section
 set models_dir [file join [file dirname $::script_dir] models vosk]
 set base_model_dir [file join $models_dir vosk-model-en-us-0.22-lgraph]  ;# Base model (reference)
 set custom_model_dir [file join $models_dir lm-test]                     ;# Custom model with domain words
-
-# Initialize GEC if enabled
-if {$::gec_enabled} {
-    if {![::gec::init]} {
-        puts stderr "GEC initialization failed"
-        set ::gec_enabled 0
-    }
-}
 
 proc get_model_path {modelfile} {
     # Generic model path lookup - delegates to engine.tcl

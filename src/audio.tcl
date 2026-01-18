@@ -20,25 +20,26 @@ namespace eval ::audio {
 
     set ::killwords { "" "the" "hm" }
 
+    # Parse and display partial results from engine
+    # Final results now go through GEC worker pipeline
     proc parse_and_display_result { result {vosk_ms 0} } {
         if { $result eq "" } { return }
 
         set result_dict [json::json2dict $result]
 
+        # Handle partial results (real-time display during speech)
         if {[dict exists $result_dict partial]} {
             | { dict get $result_dict partial | textproc | partial_text }
             return
         }
 
-        # Handle both MBR format (alternatives=0) and N-best format (alternatives>0)
+        # Final results should go through GEC pipeline, but handle fallback
+        # This path is used when GEC worker is not available
         if {[dict exists $result_dict alternatives]} {
-            # N-best format: {"alternatives": [{"text": "...", "confidence": ...}]}
             set text [json-get $result_dict alternatives 0 text]
             set conf [json-get $result_dict alternatives 0 confidence]
         } elseif {[dict exists $result_dict text]} {
-            # MBR format: {"text": "...", "result": [{"word":..., "conf":...}, ...]}
             set text [dict get $result_dict text]
-            # Calculate average confidence from per-word results
             if {[dict exists $result_dict result]} {
                 set words [dict get $result_dict result]
                 set total_conf 0.0
@@ -49,11 +50,7 @@ namespace eval ::audio {
                         incr word_count
                     }
                 }
-                if {$word_count > 0} {
-                    set conf [expr {($total_conf / $word_count) * 100}]
-                } else {
-                    set conf 100
-                }
+                set conf [expr {$word_count > 0 ? ($total_conf / $word_count) * 100 : 100}]
             } else {
                 set conf 100
             }
@@ -61,23 +58,26 @@ namespace eval ::audio {
             return
         }
 
-        if { [lsearch -exact $::killwords $text] < 0 } {
-            if { [threshold::accept $conf] } {
-                # GEC processing (homophone correction + punct/caps)
-                # gec::process skips disabled stages internally
-                set gec_timing {}
-                if {[info exists ::gec_enabled] && $::gec_enabled} {
-                    set text [::gec::process $text]
-                    set gec_timing [::gec::last_timing]
-                }
-                # Then textproc handles spacing, voice commands (period->.), etc.
-                set text [textproc $text]
-                ::output::type_async $text
-                after idle [list final_text $text $conf $vosk_ms $gec_timing]
-            }
-            set ::confidence $conf
+        # Fallback processing (when GEC worker not available)
+        if { [lsearch -exact $::killwords $text] < 0 && [threshold::accept $conf] } {
+            set text [textproc $text]
+            ::output::type_async $text
+            after idle [list final_text $text $conf $vosk_ms {}]
         }
+        set ::confidence $conf
         after idle [partial_text ""]
+    }
+
+    # Display final result from GEC worker (UI notification callback)
+    proc display_final {text conf vosk_ms gec_timing} {
+        set ::confidence $conf
+        after idle [list final_text $text $conf $vosk_ms $gec_timing]
+        after idle [partial_text ""]
+    }
+
+    # Display partial text (UI notification callback)
+    proc display_partial {text} {
+        partial_text [textproc $text]
     }
 
     proc start_transcription {} {

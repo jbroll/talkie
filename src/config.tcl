@@ -6,8 +6,19 @@ proc config_init {} {
     state_file_watcher
 
     ::audio::refresh_devices
+
+    # Initialize pipeline: Output → GEC → Engine
+    # Order matters: each stage needs the next stage's thread ID
     ::output::initialize
+    ::gec_worker::initialize
     ::audio::initialize
+
+    # Connect engine to GEC worker (Engine → GEC → Output pipeline)
+    set gec_tid [::gec_worker::tid]
+    if {$gec_tid ne ""} {
+        ::engine::set_gec_tid $gec_tid
+        puts "Pipeline connected: Engine → GEC → Output"
+    }
 
     config_refresh_models
 }
@@ -84,7 +95,18 @@ proc config_trace {} {
     trace add variable ::config(sherpa_modelfile) write config_model_change
     trace add variable ::config(typing_delay_ms) write config_typing_delay_change
     trace add variable ::config(input_device) write config_input_device_change
+    trace add variable ::config(gec_homophone) write config_gec_change
+    trace add variable ::config(gec_punctcap) write config_gec_change
+    trace add variable ::config(gec_grammar) write config_gec_change
+    trace add variable ::config(confidence_threshold) write config_gec_change
     trace add variable ::transcribing write state_transcribing_change
+}
+
+proc config_gec_change {name1 name2 op} {
+    # Propagate GEC config changes to worker thread
+    if {$name2 ne ""} {
+        catch { ::gec_worker::on_config_change $name2 $::config($name2) }
+    }
 }
 
 proc config_engine_change {args} {
