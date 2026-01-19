@@ -13,17 +13,22 @@ namespace eval ::coprocess {
 
         # Launch with model path as argument (use list to avoid command injection)
         set chan [open |[list $command $model_path $sample_rate_int] r+]
-        fconfigure $chan -buffering line -encoding utf-8
 
-        # Read startup response (JSON)
-        set response [gets $chan]
-        if {$response eq ""} {
-            close $chan
-            error "Engine startup failed: no response"
+        try {
+            fconfigure $chan -buffering line -encoding utf-8
+
+            # Read startup response (JSON)
+            set response [gets $chan]
+            if {$response eq ""} {
+                error "Engine startup failed: no response"
+            }
+
+            dict set engines $name $chan
+            return $response
+        } on error {err} {
+            catch {close $chan}
+            error $err
         }
-
-        dict set engines $name $chan
-        return $response
     }
 
     # Send binary command: PROCESS byte_count + binary data

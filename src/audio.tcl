@@ -6,7 +6,7 @@ namespace eval ::audio {
     # Note: Audio stream is now managed by engine worker thread (engine.tcl)
     # This module handles result parsing, transcription state, and device enumeration
 
-    proc json-get {container args} {
+    proc json_get {container args} {
         set current $container
         foreach step $args {
             if {[string is integer -strict $step]} {
@@ -36,8 +36,8 @@ namespace eval ::audio {
         # Final results should go through GEC pipeline, but handle fallback
         # This path is used when GEC worker is not available
         if {[dict exists $result_dict alternatives]} {
-            set text [json-get $result_dict alternatives 0 text]
-            set conf [json-get $result_dict alternatives 0 confidence]
+            set text [json_get $result_dict alternatives 0 text]
+            set conf [json_get $result_dict alternatives 0 confidence]
         } elseif {[dict exists $result_dict text]} {
             set text [dict get $result_dict text]
             if {[dict exists $result_dict result]} {
@@ -142,7 +142,6 @@ namespace eval ::audio {
                     if {$name eq $preferred || [string match "*$preferred*" $name]} {
                         set input_device $name
                         set device_sample_rate $sample_rate
-                        set found_preferred true
                     }
                 }
             }

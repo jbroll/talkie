@@ -105,7 +105,9 @@ proc config_trace {} {
 proc config_gec_change {name1 name2 op} {
     # Propagate GEC config changes to worker thread
     if {$name2 ne ""} {
-        catch { ::gec_worker::on_config_change $name2 $::config($name2) }
+        if {[catch { ::gec_worker::on_config_change $name2 $::config($name2) } err]} {
+            puts stderr "config_gec_change: failed to propagate $name2: $err"
+        }
     }
 }
 

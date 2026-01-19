@@ -207,6 +207,13 @@ namespace eval ::gec_worker {
                     set conf [expr {$conf * 100}]
                 }
 
+                # Filter by confidence threshold
+                if {$conf < $::config(confidence_threshold)} {
+                    puts stderr "GEC-FILTER: conf $conf < threshold $::config(confidence_threshold)"
+                    thread::send -async $main_tid [list ::audio::display_partial ""]
+                    return
+                }
+
                 # Process through GEC pipeline
                 process_result $text $conf $vosk_ms
             }
