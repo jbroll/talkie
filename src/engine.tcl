@@ -765,6 +765,15 @@ namespace eval ::engine {
         }
     }
 
+    # Check if monitors are sleeping (DPMS) - if so, audio freeze is expected
+    proc monitors_sleeping {} {
+        if {[catch {exec xset q} output]} {
+            return 0  ;# Can't determine, assume awake
+        }
+        # Look for "Monitor is Off" or "Monitor is Standby" or "Monitor is Suspend"
+        return [regexp {Monitor is (Off|Standby|Suspend)} $output]
+    }
+
     proc check_stream_health {} {
         variable processing_worker_name
         variable health_timer
@@ -786,8 +795,13 @@ namespace eval ::engine {
         set time_since_change [expr {[clock seconds] - $last_time}]
 
         if {$last_time > 0 && $time_since_change > 30 && $change_count < 3} {
-            puts stderr "Audio stream appears frozen (${time_since_change}s since change, $change_count changes) - restarting"
-            ::audio::restart_audio_stream
+            # Don't restart if monitors are just sleeping - audio freeze is expected
+            if {[monitors_sleeping]} {
+                # Silent skip - monitors sleeping, audio freeze is normal
+            } else {
+                puts stderr "Audio stream appears frozen (${time_since_change}s since change, $change_count changes) - restarting"
+                ::audio::restart_audio_stream
+            }
         }
 
         # Schedule next check
