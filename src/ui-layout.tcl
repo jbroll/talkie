@@ -172,7 +172,7 @@ proc build_config_spec {} {
 
     # Threshold options
     lappend config_spec @ "Noise Floor Percentile" @ :config(noise_floor_percentile) -width 10 <--> config(noise_floor_percentile) -from 5 -to 25 &
-    lappend config_spec @ "Audio Threshold Multiplier" @ :config(audio_threshold_multiplier) -width 10 <--> config(audio_threshold_multiplier) -from 1.5 -to 5.0 -resolution 0.1 &
+    lappend config_spec @ "Audio Threshold Multiplier" @ :config(audio_threshold_multiplier) -width 10 <--> config(audio_threshold_multiplier) -from 1.0 -to 10.0 -resolution 0.1 &
     lappend config_spec @ "Min Threshold" @ :config(min_threshold) -width 10 <--> config(min_threshold) -from 1.0 -to 20.0 -resolution 0.5 &
     lappend config_spec @ "Speech Min Multiplier" @ :config(speech_min_multiplier) -width 10 <--> config(speech_min_multiplier) -from 0.0 -to 1.0 -resolution 0.1 &
     lappend config_spec @ "Speech Max Multiplier" @ :config(speech_max_multiplier) -width 10 <--> config(speech_max_multiplier) -from 1.0 -to 2.0 -resolution 0.1 &
