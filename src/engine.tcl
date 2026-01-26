@@ -145,6 +145,7 @@ namespace eval ::engine {
             variable noise_threshold 0
             variable last_is_speech_ms 0
             variable last_segment_end_ms 0
+            variable consecutive_speech 0
 
             # Health monitoring state
             variable last_callback_time 0
@@ -197,8 +198,8 @@ namespace eval ::engine {
                 }
             }
 
-            # Threshold detection
-            proc update_threshold {audiolevel} {
+            # Threshold detection - only track noise when NOT in a speech segment
+            proc update_threshold {audiolevel in_segment} {
                 variable energy_buffer
                 variable initialization_complete
                 variable noise_floor
@@ -206,8 +207,12 @@ namespace eval ::engine {
                 variable config
                 variable main_tid
 
-                lappend energy_buffer $audiolevel
-                set energy_buffer [lrange $energy_buffer end-599 end]
+                # Only add to buffer when not in speech segment
+                # This keeps the buffer representative of ambient noise, not speech
+                if {!$in_segment} {
+                    lappend energy_buffer $audiolevel
+                    set energy_buffer [lrange $energy_buffer end-599 end]
+                }
 
                 set buf_len [llength $energy_buffer]
                 set init_samples [expr {int($config(initialization_samples))}]
@@ -233,9 +238,15 @@ namespace eval ::engine {
                 set count [llength $sorted]
                 if {$count < 10} return
 
-                set idx [expr {int($count * $config(noise_floor_percentile) / 100.0)}]
-                set noise_floor [lindex $sorted $idx]
-                set noise_threshold [expr {$noise_floor * $config(audio_threshold_multiplier)}]
+                # Use low percentile for noise_floor (for UI display)
+                set idx_low [expr {int($count * $config(noise_floor_percentile) / 100.0)}]
+                set noise_floor [lindex $sorted $idx_low]
+
+                # Use HIGH percentile (90th) for threshold calculation
+                # This captures "loudest normal ambient noise" not "quietest moment"
+                set idx_high [expr {int($count * 0.90)}]
+                set noise_ceiling [lindex $sorted $idx_high]
+                set noise_threshold [expr {$noise_ceiling * $config(audio_threshold_multiplier)}]
             }
 
             proc is_speech {audiolevel} {
@@ -247,8 +258,10 @@ namespace eval ::engine {
                 variable last_speech_time
                 variable last_is_speech_ms
                 variable last_segment_end_ms
+                variable consecutive_speech
 
-                update_threshold $audiolevel
+                set in_segment [expr {$last_speech_time != 0}]
+                update_threshold $audiolevel $in_segment
 
                 if {!$initialization_complete} {
                     set progress [expr {[llength $energy_buffer] * 100 / int($config(initialization_samples))}]
@@ -258,7 +271,6 @@ namespace eval ::engine {
                     return 0
                 }
 
-                set in_segment [expr {$last_speech_time != 0}]
                 set current_ms [clock milliseconds]
 
                 # Track when segments transition from active to inactive
@@ -267,13 +279,29 @@ namespace eval ::engine {
                     set last_is_speech_ms 0
                 }
 
-                set raw_is_speech [expr {$audiolevel > $noise_threshold}]
-                set is_speech $raw_is_speech
+                # Apply minimum threshold floor to prevent false triggers in quiet environments
+                set effective_threshold [expr {max($noise_threshold, $config(min_threshold))}]
+                set raw_is_speech [expr {$audiolevel > $effective_threshold}]
+
+                # Track consecutive samples above threshold
+                if {$raw_is_speech} {
+                    incr consecutive_speech
+                } else {
+                    set consecutive_speech 0
+                }
+
+                # Require 3 consecutive samples (~75ms) above threshold to START a segment
+                # Once in a segment, single samples are enough to continue
+                if {$in_segment} {
+                    set is_speech $raw_is_speech
+                } else {
+                    # Need sustained speech to start a new segment
+                    set is_speech [expr {$consecutive_speech >= 3}]
+                }
 
                 # Spike suppression: Prevent noise spikes from starting new segments
                 # Only suppress spikes trying to START a new segment shortly after previous ended
-                # (Removed CASE 1 which incorrectly suppressed resumed speech mid-segment)
-                if {!$in_segment && $raw_is_speech && $last_segment_end_ms > 0} {
+                if {!$in_segment && $is_speech && $last_segment_end_ms > 0} {
                     set time_since_end [expr {($current_ms - $last_segment_end_ms) / 1000.0}]
                     if {$time_since_end < $config(spike_suppression_seconds)} {
                         set is_speech 0
@@ -323,8 +351,13 @@ namespace eval ::engine {
                     # Throttle UI updates to ~5Hz
                     set now [clock milliseconds]
                     if {$now - $last_ui_update_time >= 200} {
-                        thread::send -async $main_tid [list ::engine::update_ui $audiolevel $speech $noise_floor $noise_threshold]
+                        set effective_thresh [expr {max($noise_threshold, $config(min_threshold))}]
+                        thread::send -async $main_tid [list ::engine::update_ui $audiolevel $speech $noise_floor $noise_threshold $effective_thresh]
                         set last_ui_update_time $now
+                        # Debug: show VAD state periodically
+                        if {$last_speech_time != 0} {
+                            puts stderr "VAD: in_segment=1 level=$audiolevel thresh=$effective_thresh speech=$speech"
+                        }
                     }
 
                     if {$transcribing} {
@@ -340,7 +373,7 @@ namespace eval ::engine {
 
                         # Rising edge of speech - send lookback buffer
                         if {$speech && !$last_speech_time} {
-                            puts stderr "SEGMENT-START: timestamp=$timestamp"
+                            puts stderr "SEGMENT-START: level=$audiolevel threshold=[expr {max($noise_threshold, $config(min_threshold))}]"
                             set this_speech_time $timestamp
                             foreach chunk $audio_buffer_list {
                                 process_chunk $chunk
@@ -518,11 +551,12 @@ namespace eval ::engine {
     }
 
     # Called from worker thread to update UI variables
-    proc update_ui {audiolevel is_speech noise_floor noise_threshold} {
+    proc update_ui {audiolevel is_speech noise_floor noise_threshold effective_threshold} {
         set ::audiolevel $audiolevel
         set ::is_speech $is_speech
         set ::threshold_noise_floor $noise_floor
         set ::threshold_noise_threshold $noise_threshold
+        set ::effective_threshold $effective_threshold
         # Estimate speechlevel as 3x noise threshold (reasonable default)
         if {![info exists ::threshold_speechlevel] || $::threshold_speechlevel < $noise_threshold} {
             set ::threshold_speechlevel [expr {$noise_threshold * 3}]

@@ -57,6 +57,7 @@ proc config_load {} {
         spike_suppression_seconds  0.3
         lookback_seconds           0.5
         audio_threshold_multiplier 2.5
+        min_threshold              7.0
         vosk_beam                  10
         input_device               default
         max_confidence_penalty     75
@@ -111,6 +112,7 @@ proc config_trace {} {
     trace add variable ::config(audio_threshold_multiplier) write config_processing_change
     trace add variable ::config(spike_suppression_seconds) write config_processing_change
     trace add variable ::config(initialization_samples) write config_processing_change
+    trace add variable ::config(min_threshold) write config_processing_change
 }
 
 proc config_gec_change {name1 name2 op} {

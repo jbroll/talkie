@@ -49,6 +49,7 @@ array set ::config {
     noise_floor_percentile    10
     speech_floor_percentile   70
     audio_threshold_multiplier 2.5
+    min_threshold             7.0
     speech_min_multiplier     0.6
     speech_max_multiplier     1.3
     max_confidence_penalty    75
@@ -67,6 +68,7 @@ array set ::config {
 # UI initializaiton and callbacks -----------------------------------
 
 proc audiolevel { value } { return [format "Audio: %7.2f" $value] }
+proc threshold_label { value } { return [format "Thr: %5.2f" $value] }
 proc health_label { value } {
     upvar ::buffer_overflows overflows
     if {$value == 0} { return "OK" }
@@ -89,6 +91,7 @@ set SpeechStatusColor { lightblue #40C040 }
 set ::threshold_noise_floor 5.0
 set ::threshold_noise_threshold 12.5
 set ::threshold_speechlevel 15.0
+set ::effective_threshold 3.0
 
 # AudioRanges will be dynamically updated based on actual threshold values
 set AudioRanges { { 0    1.0       2.0        4.0 }
@@ -120,7 +123,7 @@ grid [row .w -sticky news {
 
     @ Transcribing -text :transcribing@TranscribingStateLabel  -bg :transcribing@TranscribingStateColor -width 15
     ! Start        -text :transcribing@TranscribingButtonLabel -command "if {\$::transcribing} { audio::stop_transcription } else { audio::start_transcription }"         -width 15
-    @ "" -bg :is_speech@SpeechStatusColor -width 6
+    @ Thr: -text :effective_threshold!threshold_label -bg :is_speech@SpeechStatusColor -width 10
     @ Audio: -text :audiolevel!audiolevel -bg :audiolevel&AudioRanges   -width 13
     @ Buf:   -text :buffer_health!health_label -bg :buffer_health&HealthColors -width 13
     @ "" -width 5
@@ -170,13 +173,14 @@ proc build_config_spec {} {
     # Threshold options
     lappend config_spec @ "Noise Floor Percentile" @ :config(noise_floor_percentile) -width 10 <--> config(noise_floor_percentile) -from 5 -to 25 &
     lappend config_spec @ "Audio Threshold Multiplier" @ :config(audio_threshold_multiplier) -width 10 <--> config(audio_threshold_multiplier) -from 1.5 -to 5.0 -resolution 0.1 &
+    lappend config_spec @ "Min Threshold" @ :config(min_threshold) -width 10 <--> config(min_threshold) -from 1.0 -to 20.0 -resolution 0.5 &
     lappend config_spec @ "Speech Min Multiplier" @ :config(speech_min_multiplier) -width 10 <--> config(speech_min_multiplier) -from 0.0 -to 1.0 -resolution 0.1 &
     lappend config_spec @ "Speech Max Multiplier" @ :config(speech_max_multiplier) -width 10 <--> config(speech_max_multiplier) -from 1.0 -to 2.0 -resolution 0.1 &
     lappend config_spec @ "Max Confidence Penalty" @ :config(max_confidence_penalty) -width 10 <--> config(max_confidence_penalty) -from 0 -to 200
 
     # GEC (Grammar Error Correction) options
     lappend config_spec @ "" - &
-    lappend config_spec @ "GEC Stages" ~ "Homophones" -variable ::config(gec_homophone) ~ "Punct/Caps" -variable ::config(gec_punctcap) ~ "Grammar" -variable ::config(gec_grammar)
+    lappend config_spec @ "GEC Stages" ~ "Homophones" -variable config(gec_homophone) ~ "Punct/Caps" -variable config(gec_punctcap) ~ "Grammar" -variable config(gec_grammar)
 
     return $config_spec
 }
