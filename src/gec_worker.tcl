@@ -284,6 +284,11 @@ namespace eval ::gec_worker {
                 set ::config($key) $value
             }
 
+            # Reset textproc state (called when starting new transcription)
+            proc reset_textproc {} {
+                textproc_reset
+            }
+
             proc cleanup {} {
                 variable initialized
                 variable gec_ready
@@ -379,6 +384,15 @@ namespace eval ::gec_worker {
         # Forward config change to worker
         ::worker::send_async $worker_name \
             [list ::gec_worker::worker::update_config $key $value]
+    }
+
+    # Reset textproc state in worker (called when starting new transcription)
+    proc reset_textproc {} {
+        variable worker_name
+
+        if {[::worker::exists $worker_name]} {
+            ::worker::send_async $worker_name {::gec_worker::worker::reset_textproc}
+        }
     }
 
     # Cleanup

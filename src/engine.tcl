@@ -1,6 +1,9 @@
-# engine.tcl - Integrated speech engine with direct audio processing
-# Audio callbacks fire directly on the engine worker thread, eliminating
-# the main thread from the audio processing path.
+# engine.tcl - Decoupled audio capture and speech processing
+# Two worker threads:
+#   1. Audio worker: captures audio, queues to processing (never blocks)
+#   2. Processing worker: VAD, Vosk, sends results to GEC
+#
+# This architecture ensures audio capture is never blocked by Vosk latency.
 
 source [file join [file dirname [info script]] worker.tcl]
 source [file join [file dirname [info script]] coprocess.tcl]
@@ -8,7 +11,8 @@ source [file join [file dirname [info script]] coprocess.tcl]
 namespace eval ::engine {
     variable recognizer_cmd ""
     variable engine_name ""
-    variable worker_name "engine"
+    variable audio_worker_name "audio"
+    variable processing_worker_name "processing"
 
     # Engine registry - central configuration
     variable engine_registry
@@ -45,11 +49,76 @@ namespace eval ::engine {
         return ""
     }
 
-    # Worker namespace script - now includes audio processing
-    variable worker_script {
+    # Audio worker script - minimal, just captures and queues
+    variable audio_worker_script {
         package require Thread
 
-        namespace eval ::engine::worker {
+        namespace eval ::audio::worker {
+            variable processing_tid ""
+            variable audio_stream ""
+            variable script_dir ""
+
+            proc init {processing_tid_arg script_dir_arg} {
+                variable processing_tid $processing_tid_arg
+                variable script_dir $script_dir_arg
+
+                lappend ::auto_path [file join $script_dir pa lib pa]
+                package require pa
+            }
+
+            proc start_audio {device sample_rate frames_per_buffer} {
+                variable audio_stream
+
+                try {
+                    set audio_stream [pa::open_stream \
+                        -device $device \
+                        -rate $sample_rate \
+                        -channels 1 \
+                        -frames $frames_per_buffer \
+                        -format int16 \
+                        -callback ::audio::worker::audio_callback]
+
+                    $audio_stream start
+                    return [list status ok]
+                } on error message {
+                    return [list status error message $message]
+                }
+            }
+
+            proc stop_audio {} {
+                variable audio_stream
+
+                if {$audio_stream ne ""} {
+                    try {
+                        $audio_stream stop
+                        $audio_stream close
+                    } on error message {
+                        puts stderr "stop audio stream: $message"
+                    }
+                    set audio_stream ""
+                }
+            }
+
+            # Audio callback - absolute minimum work
+            proc audio_callback {stream_name timestamp data} {
+                variable processing_tid
+
+                # ONE thing only: queue raw audio to processing thread
+                thread::send -async $processing_tid \
+                    [list ::processing::worker::process_audio $timestamp $data]
+            }
+
+            proc close {} {
+                stop_audio
+            }
+        }
+    }
+
+    # Processing worker script - VAD, Vosk, results
+    variable processing_worker_script {
+        package require Thread
+
+        namespace eval ::processing::worker {
             # Engine state
             variable engine_name ""
             variable engine_type ""
@@ -59,7 +128,6 @@ namespace eval ::engine {
             variable script_dir ""
 
             # Audio state
-            variable audio_stream ""
             variable audio_buffer_list {}
             variable this_speech_time 0
             variable last_speech_time 0
@@ -92,13 +160,10 @@ namespace eval ::engine {
                 if {[lsearch -exact $::auto_path "$::env(HOME)/.local/lib/tcllib2.0"] < 0} {
                     lappend ::auto_path "$::env(HOME)/.local/lib/tcllib2.0"
                 }
-                lappend ::auto_path [file join $script_dir pa lib pa]
                 lappend ::auto_path [file join $script_dir vosk lib vosk]
                 lappend ::auto_path [file join $script_dir audio lib audio]
-                lappend ::auto_path [file join $script_dir uinput lib uinput]
 
                 package require json
-                package require pa
                 package require audio
 
                 if {$engine_type eq "critcl"} {
@@ -110,7 +175,7 @@ namespace eval ::engine {
                     if {[file exists $model_path]} {
                         set model [vosk::load_model -path $model_path]
                         set recognizer [$model create_recognizer -rate $sample_rate -alternatives 1]
-                        return [json::dict2json {status ok message "Vosk worker initialized"}]
+                        return [json::dict2json {status ok message "Processing worker initialized"}]
                     } else {
                         return [json::dict2json [list status error error "Model not found: $model_path"]]
                     }
@@ -127,44 +192,7 @@ namespace eval ::engine {
                 }
             }
 
-            # Start audio stream on this worker thread
-            proc start_audio {device sample_rate frames_per_buffer chunk_seconds} {
-                variable audio_stream
-                variable config
-
-                set config(audio_chunk_seconds) $chunk_seconds
-
-                try {
-                    set audio_stream [pa::open_stream \
-                        -device $device \
-                        -rate $sample_rate \
-                        -channels 1 \
-                        -frames $frames_per_buffer \
-                        -format int16 \
-                        -callback ::engine::worker::audio_callback]
-
-                    $audio_stream start
-                    return [list status ok]
-                } on error message {
-                    return [list status error message $message]
-                }
-            }
-
-            proc stop_audio {} {
-                variable audio_stream
-
-                if {$audio_stream ne ""} {
-                    try {
-                        $audio_stream stop
-                        $audio_stream close
-                    } on error message {
-                        puts stderr "stop audio stream: $message"
-                    }
-                    set audio_stream ""
-                }
-            }
-
-            # Threshold detection (simplified, runs on worker)
+            # Threshold detection
             proc update_threshold {audiolevel} {
                 variable energy_buffer
                 variable initialization_complete
@@ -262,8 +290,8 @@ namespace eval ::engine {
                 return $is_speech
             }
 
-            # Audio callback - runs directly on this worker thread
-            proc audio_callback {stream_name timestamp data} {
+            # Process audio chunk from audio worker
+            proc process_audio {timestamp data} {
                 variable this_speech_time
                 variable last_speech_time
                 variable audio_buffer_list
@@ -274,16 +302,17 @@ namespace eval ::engine {
                 variable engine_name
                 variable main_tid
                 variable config
+                variable noise_floor
+                variable noise_threshold
 
                 try {
+                    # Compute energy here (not in audio thread)
                     set audiolevel [audio::energy $data int16]
                     set speech [is_speech $audiolevel]
 
                     # Throttle UI updates to ~5Hz
                     set now [clock milliseconds]
                     if {$now - $last_ui_update_time >= 200} {
-                        variable noise_floor
-                        variable noise_threshold
                         thread::send -async $main_tid [list ::engine::update_ui $audiolevel $speech $noise_floor $noise_threshold]
                         set last_ui_update_time $now
                     }
@@ -329,7 +358,7 @@ namespace eval ::engine {
                         }
                     }
                 } on error message {
-                    puts stderr "audio callback: $message"
+                    puts stderr "processing worker: $message"
                 }
             }
 
@@ -346,13 +375,17 @@ namespace eval ::engine {
                     } else {
                         set result [::coprocess::process $engine_name $chunk]
                     }
-                    set vosk_ms [expr {([clock microseconds] - $start_us) / 1000.0}]
 
+                    # Extract partial text and send to main thread for display
                     if {$result ne ""} {
-                        thread::send -async $main_tid [list ::audio::parse_and_display_result $result $vosk_ms]
+                        set result_dict [json::json2dict $result]
+                        if {[dict exists $result_dict partial]} {
+                            set partial_text [dict get $result_dict partial]
+                            thread::send -async $main_tid [list ::audio::display_partial $partial_text]
+                        }
                     }
                 } on error {err info} {
-                    puts stderr "Worker process error: $err"
+                    puts stderr "Processing worker process error: $err"
                 }
             }
 
@@ -373,17 +406,11 @@ namespace eval ::engine {
                     set vosk_ms [expr {([clock microseconds] - $start_us) / 1000.0}]
 
                     if {$result ne ""} {
-                        # Send final results to GEC thread (pipeline: Engine → GEC → Output)
-                        # GEC thread handles parsing, correction, output, and UI notification
-                        if {$gec_tid ne ""} {
-                            thread::send -async $gec_tid [list ::gec_worker::worker::process_json $result $vosk_ms]
-                        } else {
-                            # Fallback to main thread if GEC not available
-                            thread::send -async $main_tid [list ::audio::parse_and_display_result $result $vosk_ms]
-                        }
+                        # Send final results to GEC thread (required)
+                        thread::send -async $gec_tid [list ::gec_worker::worker::process_json $result $vosk_ms]
                     }
                 } on error {err info} {
-                    puts stderr "Worker final error: $err"
+                    puts stderr "Processing worker final error: $err"
                 }
             }
 
@@ -429,16 +456,19 @@ namespace eval ::engine {
                         ::coprocess::reset $engine_name
                     }
                 } on error {err info} {
-                    puts stderr "Worker reset error: $err"
+                    puts stderr "Processing worker reset error: $err"
                 }
+            }
+
+            proc update_config {key value} {
+                variable config
+                set config($key) $value
             }
 
             proc close {} {
                 variable recognizer
                 variable engine_type
                 variable engine_name
-
-                stop_audio
 
                 try {
                     if {$engine_type eq "critcl"} {
@@ -449,7 +479,7 @@ namespace eval ::engine {
                         ::coprocess::stop $engine_name
                     }
                 } on error {err info} {
-                    puts stderr "Worker close error: $err"
+                    puts stderr "Processing worker close error: $err"
                 }
             }
         }
@@ -471,12 +501,14 @@ namespace eval ::engine {
         }
     }
 
-    # Initialize engine with integrated audio
+    # Initialize engine with decoupled audio capture
     proc initialize {} {
         variable recognizer_cmd
         variable engine_name
-        variable worker_name
-        variable worker_script
+        variable audio_worker_name
+        variable processing_worker_name
+        variable audio_worker_script
+        variable processing_worker_script
 
         set engine_name $::config(speech_engine)
 
@@ -489,10 +521,7 @@ namespace eval ::engine {
         set engine_type [get_property $engine_name type]
         set main_tid [thread::id]
 
-        puts "Initializing $engine_name engine (type: $engine_type) with integrated audio..."
-
-        # Create worker thread using worker module
-        set worker_tid [::worker::create $worker_name $worker_script]
+        puts "Initializing $engine_name engine (type: $engine_type) with decoupled audio..."
 
         # Prepare model path based on engine type
         if {$engine_type eq "critcl"} {
@@ -500,12 +529,10 @@ namespace eval ::engine {
                 set model_path [get_model_path $::config(vosk_modelfile)]
                 if {$model_path eq "" || ![file exists $model_path]} {
                     puts "ERROR: Vosk model not found"
-                    ::worker::destroy $worker_name
                     return false
                 }
             } else {
                 puts "ERROR: Unknown critcl engine: $engine_name"
-                ::worker::destroy $worker_name
                 return false
             }
         } elseif {$engine_type eq "coprocess"} {
@@ -523,20 +550,21 @@ namespace eval ::engine {
             set model_path [list $cmd $model_path_full]
         } else {
             puts "ERROR: Unknown engine type: $engine_type"
-            ::worker::destroy $worker_name
             return false
         }
 
-        puts "  Worker thread: $worker_tid"
-        puts "  Main thread: $main_tid"
-        puts "  Model path: $model_path"
-        puts "  Sample rate: $::device_sample_rate"
+        # Step 1: Create processing worker (needs main TID, loads Vosk)
+        puts "Creating processing worker..."
+        set processing_tid [::worker::create $processing_worker_name $processing_worker_script]
+        puts "  Processing thread: $processing_tid"
 
         # Convert config array to dict for passing to worker
+        # Include audio_chunk_seconds which is a separate global
         set config_dict [array get ::config]
+        lappend config_dict audio_chunk_seconds $::audio_chunk_seconds
 
-        # Initialize worker thread with engine
-        set response [::worker::send $worker_name [list ::engine::worker::init \
+        # Initialize processing worker with engine
+        set response [::worker::send $processing_worker_name [list ::processing::worker::init \
             $main_tid $engine_name $engine_type $model_path $::device_sample_rate $::script_dir $config_dict]]
 
         # Parse response
@@ -544,63 +572,102 @@ namespace eval ::engine {
 
         if {![dict exists $response_dict status] || [dict get $response_dict status] ne "ok"} {
             if {[dict exists $response_dict error]} {
-                puts "ERROR: Worker initialization failed: [dict get $response_dict error]"
+                puts "ERROR: Processing worker initialization failed: [dict get $response_dict error]"
             } else {
-                puts "ERROR: Worker initialization failed: $response"
+                puts "ERROR: Processing worker initialization failed: $response"
             }
-            ::worker::destroy $worker_name
+            ::worker::destroy $processing_worker_name
             return false
         }
 
-        puts "✓ Engine initialized"
-        if {[dict exists $response_dict message]} {
-            puts "  [dict get $response_dict message]"
-        }
+        puts "  [dict get $response_dict message]"
 
-        # Start audio stream on worker thread
-        puts "Starting audio stream on engine thread..."
-        set audio_response [::worker::send $worker_name [list ::engine::worker::start_audio \
-            $::config(input_device) $::device_sample_rate $::device_frames_per_buffer $::audio_chunk_seconds]]
+        # Step 2: Create audio worker (needs processing TID)
+        puts "Creating audio worker..."
+        set audio_tid [::worker::create $audio_worker_name $audio_worker_script]
+        puts "  Audio thread: $audio_tid"
+
+        # Initialize audio worker with processing thread ID
+        ::worker::send $audio_worker_name [list ::audio::worker::init $processing_tid $::script_dir]
+
+        # Step 3: Start audio stream on audio worker
+        puts "Starting audio stream..."
+        set audio_response [::worker::send $audio_worker_name [list ::audio::worker::start_audio \
+            $::config(input_device) $::device_sample_rate $::device_frames_per_buffer]]
 
         if {[dict get $audio_response status] ne "ok"} {
             puts "ERROR: Failed to start audio: [dict get $audio_response message]"
-            ::worker::destroy $worker_name
+            ::worker::destroy $audio_worker_name
+            ::worker::destroy $processing_worker_name
             return false
         }
 
-        puts "✓ Audio stream running on engine thread"
+        puts "✓ Audio capture running (decoupled from processing)"
+        puts "  Main thread: $main_tid"
+        puts "  Model path: $model_path"
+        puts "  Sample rate: $::device_sample_rate"
 
         return true
     }
 
-    # Set transcribing state on worker
+    # Set transcribing state on processing worker
     proc set_transcribing {value} {
-        variable worker_name
-        if {[::worker::exists $worker_name]} {
-            ::worker::send_async $worker_name [list ::engine::worker::set_transcribing $value]
+        variable processing_worker_name
+        if {[::worker::exists $processing_worker_name]} {
+            ::worker::send_async $processing_worker_name [list ::processing::worker::set_transcribing $value]
         }
     }
 
-    # Set GEC worker thread ID (for pipeline: Engine → GEC → Output)
+    # Set GEC worker thread ID (for pipeline: Processing → GEC → Output)
     proc set_gec_tid {tid} {
-        variable worker_name
-        if {[::worker::exists $worker_name]} {
-            ::worker::send_async $worker_name [list ::engine::worker::set_gec_tid $tid]
+        variable processing_worker_name
+        if {[::worker::exists $processing_worker_name]} {
+            ::worker::send_async $processing_worker_name [list ::processing::worker::set_gec_tid $tid]
         }
     }
 
     # Reset recognizer
     proc reset {} {
-        variable worker_name
-        if {[::worker::exists $worker_name]} {
-            ::worker::send_async $worker_name {::engine::worker::reset}
+        variable processing_worker_name
+        if {[::worker::exists $processing_worker_name]} {
+            ::worker::send_async $processing_worker_name {::processing::worker::reset}
         }
+    }
+
+    # Propagate config change to processing worker
+    proc on_config_change {key value} {
+        variable processing_worker_name
+        if {[::worker::exists $processing_worker_name]} {
+            ::worker::send_async $processing_worker_name [list ::processing::worker::update_config $key $value]
+        }
+    }
+
+    # Restart audio stream with new device settings
+    proc restart_audio {device sample_rate frames_per_buffer} {
+        variable audio_worker_name
+
+        if {[::worker::exists $audio_worker_name]} {
+            # Stop current stream
+            ::worker::send $audio_worker_name {::audio::worker::stop_audio}
+
+            # Start new stream with updated settings
+            set response [::worker::send $audio_worker_name [list ::audio::worker::start_audio \
+                $device $sample_rate $frames_per_buffer]]
+
+            if {[dict get $response status] ne "ok"} {
+                puts stderr "Failed to restart audio: [dict get $response message]"
+                return false
+            }
+            puts "Audio stream restarted with device: $device"
+        }
+        return true
     }
 
     # Cleanup
     proc cleanup {} {
         variable engine_name
-        variable worker_name
+        variable audio_worker_name
+        variable processing_worker_name
 
         # Safety check - if engine_name is empty, nothing to cleanup
         if {$engine_name eq ""} {
@@ -609,10 +676,16 @@ namespace eval ::engine {
 
         puts "Cleaning up $engine_name engine..."
 
-        # Close worker (will stop audio and release recognizer)
-        if {[::worker::exists $worker_name]} {
-            ::worker::send $worker_name {::engine::worker::close}
-            ::worker::destroy $worker_name
+        # Stop audio first
+        if {[::worker::exists $audio_worker_name]} {
+            ::worker::send $audio_worker_name {::audio::worker::close}
+            ::worker::destroy $audio_worker_name
+        }
+
+        # Then stop processing
+        if {[::worker::exists $processing_worker_name]} {
+            ::worker::send $processing_worker_name {::processing::worker::close}
+            ::worker::destroy $processing_worker_name
         }
 
         set engine_name ""

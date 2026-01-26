@@ -10,15 +10,17 @@ proc config_init {} {
     # Initialize pipeline: Output → GEC → Engine
     # Order matters: each stage needs the next stage's thread ID
     ::output::initialize
-    ::gec_worker::initialize
+
+    if {![::gec_worker::initialize]} {
+        puts stderr "FATAL: GEC worker initialization failed"
+        exit 1
+    }
+
     ::audio::initialize
 
     # Connect engine to GEC worker (Engine → GEC → Output pipeline)
-    set gec_tid [::gec_worker::tid]
-    if {$gec_tid ne ""} {
-        ::engine::set_gec_tid $gec_tid
-        puts "Pipeline connected: Engine → GEC → Output"
-    }
+    ::engine::set_gec_tid [::gec_worker::tid]
+    puts "Pipeline connected: Processing → GEC → Output"
 
     config_refresh_models
 }
@@ -100,6 +102,15 @@ proc config_trace {} {
     trace add variable ::config(gec_grammar) write config_gec_change
     trace add variable ::config(confidence_threshold) write config_gec_change
     trace add variable ::transcribing write state_transcribing_change
+
+    # Processing worker config (VAD, timing parameters)
+    trace add variable ::config(lookback_seconds) write config_processing_change
+    trace add variable ::config(silence_seconds) write config_processing_change
+    trace add variable ::config(min_duration) write config_processing_change
+    trace add variable ::config(noise_floor_percentile) write config_processing_change
+    trace add variable ::config(audio_threshold_multiplier) write config_processing_change
+    trace add variable ::config(spike_suppression_seconds) write config_processing_change
+    trace add variable ::config(initialization_samples) write config_processing_change
 }
 
 proc config_gec_change {name1 name2 op} {
@@ -107,6 +118,15 @@ proc config_gec_change {name1 name2 op} {
     if {$name2 ne ""} {
         if {[catch { ::gec_worker::on_config_change $name2 $::config($name2) } err]} {
             puts stderr "config_gec_change: failed to propagate $name2: $err"
+        }
+    }
+}
+
+proc config_processing_change {name1 name2 op} {
+    # Propagate processing config changes to worker thread (VAD, timing)
+    if {$name2 ne ""} {
+        if {[catch { ::engine::on_config_change $name2 $::config($name2) } err]} {
+            puts stderr "config_processing_change: failed to propagate $name2: $err"
         }
     }
 }

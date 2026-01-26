@@ -75,8 +75,6 @@ proc quit {} {
 
 # Load config first to know which engine to use
 source [file join $script_dir config.tcl]
-source [file join $script_dir textproc.tcl]
-source [file join $script_dir threshold.tcl]
 source [file join $script_dir ui-layout.tcl]
 
 # Early load to get speech_engine setting
