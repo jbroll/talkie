@@ -152,10 +152,12 @@ namespace eval ::gec_worker {
                 variable main_tid
 
                 if {!$initialized} {
+                    puts stderr "GEC-DROP: not initialized"
                     return
                 }
 
                 if {$json_result eq ""} {
+                    puts stderr "GEC-DROP: empty json result"
                     return
                 }
 
@@ -167,6 +169,8 @@ namespace eval ::gec_worker {
                     thread::send -async $main_tid [list ::audio::display_partial [dict get $result_dict partial]]
                     return
                 }
+
+                puts stderr "GEC-RECV: final result (vosk ${vosk_ms}ms)"
 
                 # Extract text and confidence from final result
                 if {[dict exists $result_dict alternatives]} {
@@ -192,12 +196,14 @@ namespace eval ::gec_worker {
                         set conf 100
                     }
                 } else {
+                    puts stderr "GEC-DROP: no text/alternatives in result"
                     return
                 }
 
                 # Filter killwords
                 set killwords {"" "the" "hm"}
                 if {$text in $killwords} {
+                    puts stderr "GEC-DROP: killword '$text'"
                     thread::send -async $main_tid [list ::audio::display_partial ""]
                     return
                 }
@@ -209,10 +215,12 @@ namespace eval ::gec_worker {
 
                 # Filter by confidence threshold
                 if {$conf < $::config(confidence_threshold)} {
-                    puts stderr "GEC-FILTER: conf $conf < threshold $::config(confidence_threshold)"
+                    puts stderr "GEC-FILTER: conf $conf < threshold $::config(confidence_threshold) : $text"
                     thread::send -async $main_tid [list ::audio::display_partial ""]
                     return
                 }
+
+                puts stderr "GEC-PASS: '$text' (conf $conf)"
 
                 # Process through GEC pipeline
                 process_result $text $conf $vosk_ms

@@ -143,6 +143,9 @@ proc config_engine_change {args} {
     ::engine::cleanup
     ::engine::initialize
 
+    # Reconnect GEC worker to new processing thread
+    ::engine::set_gec_tid [::gec_worker::tid]
+
     # Restore transcription state if it was active
     if {$was_transcribing} {
         set ::transcribing true
@@ -159,6 +162,9 @@ proc config_model_change {args} {
 
     ::engine::cleanup
     ::engine::initialize
+
+    # Reconnect GEC worker to new processing thread
+    ::engine::set_gec_tid [::gec_worker::tid]
 
     # Restore transcription state
     if {$was_transcribing} {

@@ -146,6 +146,11 @@ namespace eval ::engine {
             variable last_is_speech_ms 0
             variable last_segment_end_ms 0
 
+            # Health monitoring state
+            variable last_callback_time 0
+            variable last_audiolevel 0.0
+            variable level_change_count 0
+
             proc init {main_tid_arg engine_name_arg engine_type_arg model_path sample_rate script_dir_arg config_dict} {
                 variable main_tid $main_tid_arg
                 variable engine_name $engine_name_arg
@@ -265,16 +270,9 @@ namespace eval ::engine {
                 set raw_is_speech [expr {$audiolevel > $noise_threshold}]
                 set is_speech $raw_is_speech
 
-                # Spike suppression: Prevent noise spikes from starting/continuing segments
-                # CASE 1: Spike during active segment (after silence has started within segment)
-                if {$in_segment && $raw_is_speech && $last_is_speech_ms > 0} {
-                    set time_since_last [expr {($current_ms - $last_is_speech_ms) / 1000.0}]
-                    if {$time_since_last > $config(spike_suppression_seconds)} {
-                        set is_speech 0
-                    }
-                }
-
-                # CASE 2: Spike trying to START a new segment shortly after previous ended
+                # Spike suppression: Prevent noise spikes from starting new segments
+                # Only suppress spikes trying to START a new segment shortly after previous ended
+                # (Removed CASE 1 which incorrectly suppressed resumed speech mid-segment)
                 if {!$in_segment && $raw_is_speech && $last_segment_end_ms > 0} {
                     set time_since_end [expr {($current_ms - $last_segment_end_ms) / 1000.0}]
                     if {$time_since_end < $config(spike_suppression_seconds)} {
@@ -304,10 +302,22 @@ namespace eval ::engine {
                 variable config
                 variable noise_floor
                 variable noise_threshold
+                variable last_callback_time
+                variable last_audiolevel
+                variable level_change_count
 
                 try {
                     # Compute energy here (not in audio thread)
                     set audiolevel [audio::energy $data int16]
+
+                    # Health monitoring: track audio level changes
+                    # Only count changes > 1.0 as "real" (filters out quiet room noise)
+                    if {abs($audiolevel - $last_audiolevel) > 1.0} {
+                        set last_callback_time [clock seconds]
+                        incr level_change_count
+                    }
+                    set last_audiolevel $audiolevel
+
                     set speech [is_speech $audiolevel]
 
                     # Throttle UI updates to ~5Hz
@@ -330,6 +340,7 @@ namespace eval ::engine {
 
                         # Rising edge of speech - send lookback buffer
                         if {$speech && !$last_speech_time} {
+                            puts stderr "SEGMENT-START: timestamp=$timestamp"
                             set this_speech_time $timestamp
                             foreach chunk $audio_buffer_list {
                                 process_chunk $chunk
@@ -342,12 +353,14 @@ namespace eval ::engine {
                             if {$speech} {
                                 set last_speech_time $timestamp
                             } else {
-                                # Check for silence timeout
-                                if {$last_speech_time + $config(silence_seconds) < $timestamp} {
+                                # In silence - check for timeout
+                                set silence_elapsed [expr {$timestamp - $last_speech_time}]
+                                if {$silence_elapsed > $config(silence_seconds)} {
                                     process_final
 
                                     set speech_duration [expr {$last_speech_time - $this_speech_time}]
                                     if {$speech_duration <= $config(min_duration)} {
+                                        puts stderr "SEGMENT-SHORT: duration=$speech_duration <= min=$config(min_duration), clearing"
                                         thread::send -async $main_tid [list after idle [list partial_text ""]]
                                     }
 
@@ -396,6 +409,8 @@ namespace eval ::engine {
                 variable main_tid
                 variable gec_tid
 
+                puts stderr "SEGMENT-END: calling final-result"
+
                 try {
                     set start_us [clock microseconds]
                     if {$engine_type eq "critcl"} {
@@ -408,6 +423,8 @@ namespace eval ::engine {
                     if {$result ne ""} {
                         # Send final results to GEC thread (required)
                         thread::send -async $gec_tid [list ::gec_worker::worker::process_json $result $vosk_ms]
+                    } else {
+                        puts stderr "SEGMENT-END: empty result from recognizer"
                     }
                 } on error {err info} {
                     puts stderr "Processing worker final error: $err"
@@ -463,6 +480,21 @@ namespace eval ::engine {
             proc update_config {key value} {
                 variable config
                 set config($key) $value
+            }
+
+            # Health monitoring: get status and reset counter
+            proc get_health_status {} {
+                variable last_callback_time
+                variable level_change_count
+
+                set status [list \
+                    last_callback_time $last_callback_time \
+                    level_change_count $level_change_count]
+
+                # Reset counter after check
+                set level_change_count 0
+
+                return $status
             }
 
             proc close {} {
@@ -607,6 +639,9 @@ namespace eval ::engine {
         puts "  Model path: $model_path"
         puts "  Sample rate: $::device_sample_rate"
 
+        # Start health monitoring for frozen stream detection
+        start_health_monitoring
+
         return true
     }
 
@@ -669,6 +704,9 @@ namespace eval ::engine {
         variable audio_worker_name
         variable processing_worker_name
 
+        # Stop health monitoring
+        stop_health_monitoring
+
         # Safety check - if engine_name is empty, nothing to cleanup
         if {$engine_name eq ""} {
             return
@@ -701,5 +739,58 @@ namespace eval ::engine {
     proc current {} {
         variable engine_name
         return $engine_name
+    }
+
+    # Health monitoring - detect frozen audio streams
+    variable health_timer ""
+    variable health_check_interval 30000  ;# 30 seconds
+
+    proc start_health_monitoring {} {
+        variable health_timer
+        variable health_check_interval
+
+        # Cancel any existing timer
+        stop_health_monitoring
+
+        # Schedule periodic health check
+        set health_timer [after $health_check_interval ::engine::check_stream_health]
+    }
+
+    proc stop_health_monitoring {} {
+        variable health_timer
+
+        if {$health_timer ne ""} {
+            after cancel $health_timer
+            set health_timer ""
+        }
+    }
+
+    proc check_stream_health {} {
+        variable processing_worker_name
+        variable health_timer
+        variable health_check_interval
+
+        # Get health status from processing worker
+        if {![::worker::exists $processing_worker_name]} {
+            set health_timer [after $health_check_interval ::engine::check_stream_health]
+            return
+        }
+
+        set status [::worker::send $processing_worker_name {::processing::worker::get_health_status}]
+        set last_time [dict get $status last_callback_time]
+        set change_count [dict get $status level_change_count]
+
+        # Check if stream appears frozen:
+        # - More than 30 seconds since last level change
+        # - AND fewer than 3 level changes in the check period
+        set time_since_change [expr {[clock seconds] - $last_time}]
+
+        if {$last_time > 0 && $time_since_change > 30 && $change_count < 3} {
+            puts stderr "Audio stream appears frozen (${time_since_change}s since change, $change_count changes) - restarting"
+            ::audio::restart_audio_stream
+        }
+
+        # Schedule next check
+        set health_timer [after $health_check_interval ::engine::check_stream_health]
     }
 }
