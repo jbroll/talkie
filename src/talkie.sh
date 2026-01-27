@@ -69,6 +69,7 @@ fi
 # Launch GUI and set WM_COMMAND for session management
 $TASKSET ./talkie.tcl "$@" &
 PID=$!
+trap 'kill $PID 2>/dev/null' INT TERM
 for i in $(seq 30); do
     WID=$(wmctrl -l -p | awk -v pid=$PID '$3 == pid {print $1; exit}')
     [ -n "$WID" ] && break
