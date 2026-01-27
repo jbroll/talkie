@@ -206,10 +206,16 @@ namespace eval ::engine {
                 variable noise_threshold
                 variable config
                 variable main_tid
+                variable last_segment_end_ms
 
-                # Only add to buffer when not in speech segment
-                # This keeps the buffer representative of ambient noise, not speech
-                if {!$in_segment} {
+                # Only add to buffer when not in speech segment AND not in cooldown
+                # Cooldown prevents residual speech/breath from contaminating noise buffer
+                set in_cooldown 0
+                if {$last_segment_end_ms > 0} {
+                    set ms_since_end [expr {[clock milliseconds] - $last_segment_end_ms}]
+                    set in_cooldown [expr {$ms_since_end < 1500}]
+                }
+                if {!$in_segment && !$in_cooldown} {
                     lappend energy_buffer $audiolevel
                     set energy_buffer [lrange $energy_buffer end-599 end]
                 }
