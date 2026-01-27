@@ -209,13 +209,16 @@ namespace eval ::engine {
                 variable last_segment_end_ms
 
                 # Only add to buffer when not in speech segment AND not in cooldown
+                # AND audio level is not above threshold (pre-speech detection)
                 # Cooldown prevents residual speech/breath from contaminating noise buffer
                 set in_cooldown 0
                 if {$last_segment_end_ms > 0} {
                     set ms_since_end [expr {[clock milliseconds] - $last_segment_end_ms}]
                     set in_cooldown [expr {$ms_since_end < 1500}]
                 }
-                if {!$in_segment && !$in_cooldown} {
+                # Block samples above threshold - these could be pre-speech ramping up
+                set above_threshold [expr {$initialization_complete && $noise_threshold > 0 && $audiolevel > $noise_threshold}]
+                if {!$in_segment && !$in_cooldown && !$above_threshold} {
                     lappend energy_buffer $audiolevel
                     set energy_buffer [lrange $energy_buffer end-599 end]
                 }
