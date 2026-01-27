@@ -139,10 +139,6 @@ namespace eval ::engine {
             array set config {}
 
             # Threshold state
-            variable energy_buffer {}
-            variable initialization_complete 0
-            variable noise_floor 0
-            variable noise_threshold 0
             variable last_is_speech_ms 0
             variable last_segment_end_ms 0
             variable consecutive_speech 0
@@ -198,88 +194,14 @@ namespace eval ::engine {
                 }
             }
 
-            # Threshold detection - only track noise when NOT in a speech segment
-            proc update_threshold {audiolevel in_segment} {
-                variable energy_buffer
-                variable initialization_complete
-                variable noise_floor
-                variable noise_threshold
-                variable config
-                variable main_tid
-                variable last_segment_end_ms
-
-                # Only add to buffer when not in speech segment AND not in cooldown
-                # AND audio level is not above threshold (pre-speech detection)
-                # Cooldown prevents residual speech/breath from contaminating noise buffer
-                set in_cooldown 0
-                if {$last_segment_end_ms > 0} {
-                    set ms_since_end [expr {[clock milliseconds] - $last_segment_end_ms}]
-                    set in_cooldown [expr {$ms_since_end < 1500}]
-                }
-                # Block samples above threshold - these could be pre-speech ramping up
-                set above_threshold [expr {$initialization_complete && $noise_threshold > 0 && $audiolevel > $noise_threshold}]
-                if {!$in_segment && !$in_cooldown && !$above_threshold} {
-                    lappend energy_buffer $audiolevel
-                    set energy_buffer [lrange $energy_buffer end-599 end]
-                }
-
-                set buf_len [llength $energy_buffer]
-                set init_samples [expr {int($config(initialization_samples))}]
-
-                if {!$initialization_complete && $buf_len >= $init_samples} {
-                    # Initial calibration
-                    calculate_noise_floor
-                    set initialization_complete 1
-                    thread::send -async $main_tid [list after idle [list partial_text ""]]
-                } elseif {$initialization_complete && $buf_len % 50 == 0} {
-                    # Continuous recalculation every 50 samples
-                    calculate_noise_floor
-                }
-            }
-
-            proc calculate_noise_floor {} {
-                variable energy_buffer
-                variable noise_floor
-                variable noise_threshold
-                variable config
-
-                set sorted [lsort -real $energy_buffer]
-                set count [llength $sorted]
-                if {$count < 10} return
-
-                # Use low percentile for noise_floor (for UI display)
-                set idx_low [expr {int($count * $config(noise_floor_percentile) / 100.0)}]
-                set noise_floor [lindex $sorted $idx_low]
-
-                # Use HIGH percentile (90th) for threshold calculation
-                # This captures "loudest normal ambient noise" not "quietest moment"
-                set idx_high [expr {int($count * 0.90)}]
-                set noise_ceiling [lindex $sorted $idx_high]
-                set noise_threshold [expr {$noise_ceiling * $config(audio_threshold_multiplier)}]
-            }
-
             proc is_speech {audiolevel} {
-                variable initialization_complete
-                variable noise_threshold
-                variable energy_buffer
                 variable config
-                variable main_tid
                 variable last_speech_time
                 variable last_is_speech_ms
                 variable last_segment_end_ms
                 variable consecutive_speech
 
                 set in_segment [expr {$last_speech_time != 0}]
-                update_threshold $audiolevel $in_segment
-
-                if {!$initialization_complete} {
-                    set progress [expr {[llength $energy_buffer] * 100 / int($config(initialization_samples))}]
-                    if {$progress % 20 == 0} {
-                        thread::send -async $main_tid [list after idle [list partial_text "Calibrating... ${progress}%"]]
-                    }
-                    return 0
-                }
-
                 set current_ms [clock milliseconds]
 
                 # Track when segments transition from active to inactive
@@ -288,9 +210,8 @@ namespace eval ::engine {
                     set last_is_speech_ms 0
                 }
 
-                # Apply minimum threshold floor to prevent false triggers in quiet environments
-                set effective_threshold [expr {max($noise_threshold, $config(min_threshold))}]
-                set raw_is_speech [expr {$audiolevel > $effective_threshold}]
+                # Simple fixed threshold from config
+                set raw_is_speech [expr {$audiolevel > $config(audio_threshold)}]
 
                 # Track consecutive samples above threshold
                 if {$raw_is_speech} {
@@ -337,8 +258,6 @@ namespace eval ::engine {
                 variable engine_name
                 variable main_tid
                 variable config
-                variable noise_floor
-                variable noise_threshold
                 variable last_callback_time
                 variable last_audiolevel
                 variable level_change_count
@@ -360,12 +279,12 @@ namespace eval ::engine {
                     # Throttle UI updates to ~5Hz
                     set now [clock milliseconds]
                     if {$now - $last_ui_update_time >= 200} {
-                        set effective_thresh [expr {max($noise_threshold, $config(min_threshold))}]
-                        thread::send -async $main_tid [list ::engine::update_ui $audiolevel $speech $noise_floor $noise_threshold $effective_thresh]
+                        set threshold $config(audio_threshold)
+                        thread::send -async $main_tid [list ::engine::update_ui $audiolevel $speech $threshold]
                         set last_ui_update_time $now
                         # Debug: show VAD state periodically
                         if {$last_speech_time != 0} {
-                            puts stderr "VAD: in_segment=1 level=$audiolevel thresh=$effective_thresh speech=$speech"
+                            puts stderr "VAD: in_segment=1 level=$audiolevel thresh=$threshold speech=$speech"
                         }
                     }
 
@@ -382,7 +301,7 @@ namespace eval ::engine {
 
                         # Rising edge of speech - send lookback buffer
                         if {$speech && !$last_speech_time} {
-                            puts stderr "SEGMENT-START: level=$audiolevel threshold=[expr {max($noise_threshold, $config(min_threshold))}]"
+                            puts stderr "SEGMENT-START: level=$audiolevel threshold=$config(audio_threshold)"
                             set this_speech_time $timestamp
                             foreach chunk $audio_buffer_list {
                                 process_chunk $chunk
@@ -560,20 +479,10 @@ namespace eval ::engine {
     }
 
     # Called from worker thread to update UI variables
-    proc update_ui {audiolevel is_speech noise_floor noise_threshold effective_threshold} {
+    proc update_ui {audiolevel is_speech threshold} {
         set ::audiolevel $audiolevel
         set ::is_speech $is_speech
-        set ::threshold_noise_floor $noise_floor
-        set ::threshold_noise_threshold $noise_threshold
-        set ::effective_threshold $effective_threshold
-        # Estimate speechlevel as 3x noise threshold (reasonable default)
-        if {![info exists ::threshold_speechlevel] || $::threshold_speechlevel < $noise_threshold} {
-            set ::threshold_speechlevel [expr {$noise_threshold * 3}]
-        }
-        # Update UI ranges if the proc exists
-        if {[info commands ::update_audio_ranges] ne ""} {
-            ::update_audio_ranges
-        }
+        set ::audio_threshold $threshold
     }
 
     # Initialize engine with decoupled audio capture

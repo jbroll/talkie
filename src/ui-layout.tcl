@@ -46,10 +46,7 @@ array set ::config {
     lookback_seconds          0.5
     silence_seconds           0.3
     min_duration              0.30
-    noise_floor_percentile    10
-    speech_floor_percentile   70
-    audio_threshold_multiplier 2.5
-    min_threshold             7.0
+    audio_threshold           25.0
     speech_min_multiplier     0.6
     speech_max_multiplier     1.3
     max_confidence_penalty    75
@@ -87,30 +84,12 @@ set TranscribingButtonLabel { Start "Stop " }
 set is_speech 0
 set SpeechStatusColor { lightblue #40C040 }
 
-# Initialize threshold globals with safe defaults
-set ::threshold_noise_floor 5.0
-set ::threshold_noise_threshold 12.5
-set ::threshold_speechlevel 15.0
-set ::effective_threshold 3.0
+# Initialize threshold global
+set ::audio_threshold 25.0
 
-# AudioRanges will be dynamically updated based on actual threshold values
-set AudioRanges { { 0    1.0       2.0        4.0 }
+# AudioRanges: below threshold (pink), near threshold (lightblue), above threshold (green)
+set AudioRanges { { 0 25.0 50.0 100.0 }
                   { pink lightblue lightgreen #40C040 } }
-
-proc update_audio_ranges {} {
-    global AudioRanges threshold_noise_floor threshold_noise_threshold threshold_speechlevel
-
-    # Build dynamic ranges based on actual thresholds
-    # Range 1: 0 to noise_floor (pink - very quiet)
-    # Range 2: noise_floor to noise_threshold (lightblue - background noise, not speech)
-    # Range 3: noise_threshold to speechlevel (lightgreen - speech detected)
-    # Range 4: speechlevel+ (bright green - strong speech)
-
-    set ranges [list 0 $threshold_noise_threshold $threshold_speechlevel [expr {$threshold_speechlevel * 2}]]
-    set colors {pink lightblue lightgreen #40C040}
-
-    set AudioRanges [list $ranges $colors]
-}
 
 proc toggle { x } {
     set $x [expr { ![set $x] }]
@@ -123,7 +102,7 @@ grid [row .w -sticky news {
 
     @ Transcribing -text :transcribing@TranscribingStateLabel  -bg :transcribing@TranscribingStateColor -width 15
     ! Start        -text :transcribing@TranscribingButtonLabel -command "if {\$::transcribing} { audio::stop_transcription } else { audio::start_transcription }"         -width 15
-    @ Thr: -text :effective_threshold!threshold_label -bg :is_speech@SpeechStatusColor -width 10
+    @ Thr: -text :audio_threshold!threshold_label -bg :is_speech@SpeechStatusColor -width 10
     @ Audio: -text :audiolevel!audiolevel -bg :audiolevel&AudioRanges   -width 13
     @ Buf:   -text :buffer_health!health_label -bg :buffer_health&HealthColors -width 13
     @ "" -width 5
@@ -171,9 +150,7 @@ proc build_config_spec {} {
     lappend config_spec @ "" - &
 
     # Threshold options
-    lappend config_spec @ "Noise Floor Percentile" @ :config(noise_floor_percentile) -width 10 <--> config(noise_floor_percentile) -from 5 -to 25 &
-    lappend config_spec @ "Audio Threshold Multiplier" @ :config(audio_threshold_multiplier) -width 10 <--> config(audio_threshold_multiplier) -from 1.0 -to 10.0 -resolution 0.1 &
-    lappend config_spec @ "Min Threshold" @ :config(min_threshold) -width 10 <--> config(min_threshold) -from 1.0 -to 20.0 -resolution 0.5 &
+    lappend config_spec @ "Audio Threshold" @ :config(audio_threshold) -width 10 <--> config(audio_threshold) -from 1.0 -to 100.0 -resolution 1.0 &
     lappend config_spec @ "Speech Min Multiplier" @ :config(speech_min_multiplier) -width 10 <--> config(speech_min_multiplier) -from 0.0 -to 1.0 -resolution 0.1 &
     lappend config_spec @ "Speech Max Multiplier" @ :config(speech_max_multiplier) -width 10 <--> config(speech_max_multiplier) -from 1.0 -to 2.0 -resolution 0.1 &
     lappend config_spec @ "Max Confidence Penalty" @ :config(max_confidence_penalty) -width 10 <--> config(max_confidence_penalty) -from 0 -to 200
