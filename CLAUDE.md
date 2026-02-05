@@ -9,15 +9,19 @@ Talkie is a modular speech-to-text application for Linux. See [README.md](README
 ## Quick Reference
 
 ### Key Files
-- `src/engine.tcl` - Audio processing on worker thread (PortAudio + Vosk)
-- `src/audio.tcl` - Result parsing, GEC coordination, transcription state
+- `src/engine.tcl` - Audio + Processing workers (PortAudio capture, VAD, Vosk)
+- `src/gec_worker.tcl` - GEC pipeline worker thread
+- `src/audio.tcl` - Result display, transcription state, device enumeration
 - `src/worker.tcl` - Reusable worker thread abstraction
-- `src/gec/` - Grammar error correction (punctuation, capitalization, homophones)
+- `src/gec/` - Grammar error correction (OpenVINO bindings, punctuation, homophones)
 
-### Threading Model
-- **Engine Worker**: Audio callbacks + speech recognition (40Hz)
+### Threading Model (4 threads)
+- **Audio Worker**: PortAudio callbacks, queues to Processing (never blocks)
+- **Processing Worker**: VAD + speech recognition (40Hz)
+- **GEC Worker**: Grammar correction via OpenVINO (Intel NPU)
 - **Output Worker**: Keyboard simulation via uinput
-- **Main Thread**: GUI (5Hz updates), GEC processing, result display
+- **Main Thread**: GUI (5Hz updates), result display
+- Pipeline: Audio → Processing → GEC → Output
 - Communication via `thread::send -async`
 
 ### State Management
@@ -51,7 +55,7 @@ Talkie is a modular speech-to-text application for Linux. See [README.md](README
 ```bash
 cd src
 make build          # Build all critcl packages
-./talkie.tcl        # Run application
+./talkie.sh         # Run application (sets up OpenVINO paths)
 ```
 
 ## Model Data
@@ -60,8 +64,9 @@ make build          # Build all critcl packages
 - Base model: `models/vosk/vosk-model-en-us-0.22-lgraph/`
 - Custom model: `models/vosk/lm-test/` (with domain vocabulary)
 
-### GEC Models
-- Punctuation/capitalization: ONNX BERT model via pipeline.tcl
-- Homophones: JSON dictionary at `data/homophones.json`
+### GEC Models (in `models/gec/`)
+- Punctuation/capitalization: `distilbert-punct-cap.onnx`
+- Homophone correction: `electra-small-generator.onnx`
+- Homophones dictionary: `data/homophones.json`
 
 See `tools/BUILD-CUSTOM-LGRAPH.md` for building custom language models.

@@ -1,4 +1,4 @@
-<h1 style="display: flex; align-items: center;"><img src="icon.svg" alt="Talkie Icon" width="64" height="64" style="margin-right: 15px;"/> Talkie - Chat with your Linux desktop</h1>
+<h1 style="display: flex; align-items: center;"><img src="icon.svg" alt="Talkie Icon" width="64" height="64" style="margin-right: 15px;"/> Talkie - Voice-to-keyboard for Linux</h1>
 Real-time speech-to-text transcription with keyboard simulation for Linux.
 
 ## Description
@@ -6,112 +6,129 @@ Real-time speech-to-text transcription with keyboard simulation for Linux.
 
 Talkie is a speech recognition application that transcribes audio input and simulates keyboard events to inject text into the active window. It runs continuously in the background with a Tk-based control interface.
 
-The application monitors microphone input, performs voice activity detection, transcribes speech using configurable recognition engines, and types the results via the Linux uinput subsystem.
+The application monitors microphone input, performs voice activity detection, transcribes speech using configurable recognition engines, applies grammar error correction (punctuation, capitalization, homophones), and types the results via the Linux uinput subsystem.
 <br clear="right"/>
 
 ## Features
 
 - Real-time audio transcription
 - Multiple speech recognition engines (Vosk, Sherpa-ONNX, Faster-Whisper)
-- Voice activity detection with configurable thresholds
+- Voice activity detection with configurable threshold
+- Grammar error correction (GEC) with Intel NPU acceleration
+  - Punctuation and capitalization restoration
+  - Homophone correction (their/there/they're, etc.)
 - Keyboard event simulation via uinput
 - Text preprocessing (punctuation commands, number conversion)
 - External control via file-based IPC
 - Persistent JSON configuration
 - Single-instance enforcement
-- Feedback logging for STT correction learning (with Claude Code hook support)
+- Feedback logging for STT correction learning
 
 ## Architecture
 
 ```
 src/
 ├── talkie.tcl          # Main application entry point
+├── talkie.sh           # Startup script (handles OpenVINO paths, CLI)
 ├── config.tcl          # Configuration management
-├── engine.tcl          # Speech engine with integrated audio (worker thread)
-├── audio.tcl           # Result parsing and transcription state
+├── engine.tcl          # Audio capture + speech processing workers
+├── audio.tcl           # Result display, transcription state, device enumeration
 ├── worker.tcl          # Reusable worker thread abstraction
 ├── output.tcl          # Keyboard output (worker thread)
-├── threshold.tcl       # Confidence threshold management
+├── gec_worker.tcl      # GEC pipeline (worker thread)
 ├── textproc.tcl        # Text preprocessing and voice commands
 ├── coprocess.tcl       # External engine communication
 ├── ui-layout.tcl       # Tk interface
 ├── feedback.tcl        # Unified feedback logging for correction learning
-├── display.tcl         # Text display and visualization
 ├── vosk.tcl            # Vosk engine bindings
-├── gec/                # Grammar/Error Correction pipeline
-│   ├── gec.tcl         # GEC coordinator
-│   ├── pipeline.tcl    # ONNX inference pipeline
-│   ├── punctcap.tcl    # Punctuation and capitalization
-│   ├── homophone.tcl   # Homophone correction
-│   └── tokens.tcl      # BERT token constants
+├── gec/                # Grammar Error Correction
+│   ├── gec.tcl         # OpenVINO critcl bindings (C code)
+│   ├── pipeline.tcl    # GEC pipeline orchestration
+│   ├── punctcap.tcl    # Punctuation and capitalization module
+│   ├── homophone.tcl   # Homophone correction module
+│   ├── grammar.tcl     # Grammar correction (T5-based)
+│   └── tokens.tcl      # BERT vocabulary constants
 ├── pa/                 # PortAudio critcl bindings
-├── audio/              # Audio processing critcl bindings
+├── audio/              # Audio energy calculation critcl bindings
 ├── vosk/               # Vosk critcl bindings
 ├── uinput/             # uinput critcl bindings
-└── engines/            # External engine wrappers
+└── engines/            # External engine wrappers (Sherpa, Faster-Whisper)
 ```
 
 ### Threading Architecture
 
-Audio processing runs on a dedicated worker thread, eliminating the main thread from the critical audio path:
+Audio processing is fully decoupled from the main thread through a multi-worker architecture:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        Main Thread                               │
-│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌─────────────────────┐ │
-│  │   GUI   │  │  GEC    │  │ Display │  │ Result Processing   │ │
-│  │ (5Hz)   │  │Pipeline │  │         │  │ (parse_and_display) │ │
-│  └─────────┘  └─────────┘  └─────────┘  └─────────────────────┘ │
+│  ┌──────────────────────┐  ┌─────────────────────────────────┐  │
+│  │   Tk GUI (5Hz)       │  │   Result Display                │  │
+│  │   - Controls         │  │   - final_text(), partial_text()│  │
+│  │   - Audio level bar  │  │   - Timing info display         │  │
+│  └──────────────────────┘  └─────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────┘
-        ▲                                          ▲
-        │ thread::send -async                      │
-        │ (UI updates)                             │ thread::send -async
-        │                                          │ (recognition results)
-┌───────┴─────────────────────────┐  ┌─────────────┴───────────────┐
-│      Engine Worker Thread       │  │     Output Worker Thread    │
-│  ┌──────────────────────────┐  │  │  ┌───────────────────────┐  │
-│  │   PortAudio Callbacks    │  │  │  │   uinput Keyboard     │  │
-│  │   (25ms chunks, 40Hz)    │  │  │  │   Simulation          │  │
-│  └────────────┬─────────────┘  │  │  └───────────────────────┘  │
-│               ▼                 │  │                             │
-│  ┌──────────────────────────┐  │  └─────────────────────────────┘
-│  │  Threshold Detection     │  │
-│  │  (adaptive noise floor)  │  │
-│  └────────────┬─────────────┘  │
-│               ▼                 │
-│  ┌──────────────────────────┐  │
-│  │  Vosk Recognition        │  │
-│  │  (or coprocess engine)   │  │
-│  └──────────────────────────┘  │
-└─────────────────────────────────┘
+        ▲                                ▲
+        │ thread::send -async            │ thread::send -async
+        │ (UI updates)                   │ (display notifications)
+        │                                │
+┌───────┴───────────────┐  ┌─────────────┴───────────────────────┐
+│   Audio Worker        │  │         GEC Worker                   │
+│  ┌─────────────────┐  │  │  ┌───────────────────────────────┐  │
+│  │ PortAudio       │──┼──│─▶│  Homophone Correction (ELECTRA)│  │
+│  │ Callbacks (40Hz)│  │  │  │  Punctuation/Caps (DistilBERT) │  │
+│  └─────────────────┘  │  │  │  Grammar (T5, optional)        │  │
+└───────────────────────┘  │  └───────────────┬───────────────┘  │
+        │                  └──────────────────┼───────────────────┘
+        │ thread::send -async                 │ thread::send -async
+        ▼                                     ▼
+┌───────────────────────────┐  ┌─────────────────────────────────┐
+│   Processing Worker       │  │      Output Worker              │
+│  ┌─────────────────────┐  │  │  ┌───────────────────────────┐  │
+│  │ VAD (fixed threshold)│  │  │  │   uinput Keyboard         │  │
+│  │ Vosk Recognition    │──┼──│  │   Simulation              │  │
+│  │ (or coprocess)      │  │  │  └───────────────────────────┘  │
+│  └─────────────────────┘  │  └─────────────────────────────────┘
+└───────────────────────────┘
+
+Pipeline: Audio → Processing → GEC → Output
+                                └──▶ Main (display)
 ```
 
 **Data Flow:**
-1. PortAudio delivers 25ms audio chunks directly to engine worker thread
-2. Worker performs threshold detection and Vosk processing
-3. Recognition results sent to main thread for GEC processing
-4. Processed text sent to output worker for keyboard simulation
-5. UI updates throttled to 5Hz to reduce overhead
+1. **Audio Worker**: PortAudio delivers 25ms chunks, queues to Processing (never blocks)
+2. **Processing Worker**: VAD threshold detection + speech recognition
+3. **GEC Worker**: Grammar correction via OpenVINO (Intel NPU accelerated)
+4. **Output Worker**: Keyboard simulation via uinput
+5. **Main Thread**: GUI updates throttled to 5Hz
 
 ### Component Overview
 
 **talkie.tcl**: Application initialization, single-instance enforcement, module loading
 
-**config.tcl**: JSON configuration file management (~/.talkie.conf), file watching for external state changes (~/.talkie)
+**talkie.sh**: Startup script that sets up OpenVINO/NPU library paths and provides CLI commands
 
-**engine.tcl**: Integrates PortAudio stream on worker thread. Audio callbacks fire directly on worker, bypassing main thread. Handles threshold detection and speech recognition.
+**config.tcl**: JSON configuration file management (~/.talkie.conf), file watching for external state changes (~/.talkie), variable traces for hot-swapping engines/devices
 
-**audio.tcl**: Parses recognition results (JSON from Vosk), coordinates GEC processing, manages transcription state, device enumeration.
+**engine.tcl**: Creates two worker threads - Audio Worker (captures audio, queues to processing) and Processing Worker (VAD, speech recognition). Includes health monitoring to detect frozen audio streams.
+
+**audio.tcl**: Display callbacks for results, transcription state management, audio device enumeration
+
+**gec_worker.tcl**: Dedicated worker thread for grammar error correction pipeline. Receives final results from Processing, sends corrected text to Output.
 
 **worker.tcl**: Reusable worker thread abstraction using Tcl Thread package. Provides create, send, send_async, exists, destroy operations.
 
-**output.tcl**: Keyboard simulation via uinput on dedicated worker thread. Async text output to avoid blocking main thread.
+**output.tcl**: Keyboard simulation via uinput on dedicated worker thread. Async text output to avoid blocking other threads.
 
-**gec/**: Grammar Error Correction pipeline using ONNX Runtime for BERT model inference. Adds punctuation, capitalization, and corrects homophones.
+**gec/**: Grammar Error Correction using OpenVINO for neural inference (Intel NPU accelerated):
+- `gec.tcl` - OpenVINO critcl bindings (C code)
+- `pipeline.tcl` - GEC orchestration
+- `punctcap.tcl` - DistilBERT for punctuation/capitalization
+- `homophone.tcl` - ELECTRA for homophone correction
 
-**feedback.tcl**: Unified feedback logging to `~/.config/talkie/feedback.jsonl`. Captures GEC corrections, text injections, and user submissions for correction learning.
+**feedback.tcl**: Unified feedback logging to `~/.config/talkie/feedback.jsonl`. Captures GEC corrections and text injections.
 
-**textproc.tcl**: Punctuation command processing, text normalization
+**textproc.tcl**: Punctuation command processing, number-to-digit conversion
 
 **ui-layout.tcl**: Tk GUI with transcription controls, real-time displays (5Hz updates), parameter adjustment
 
@@ -120,8 +137,13 @@ Audio processing runs on a dedicated worker thread, eliminating the main thread 
 ### System Requirements
 - Linux kernel with uinput support
 - Tcl/Tk 8.6 or later
-- PortAudio or PulseAudio
+- PortAudio
 - User must be member of `input` group for uinput access
+
+### For GEC (Grammar Error Correction)
+- Intel CPU with NPU (e.g., Core Ultra series) - optional but recommended
+- OpenVINO (built from source with NPU support)
+- Intel NPU driver (linux-npu-driver)
 
 ### Tcl Packages
 - Tk - GUI framework
@@ -133,12 +155,18 @@ Audio processing runs on a dedicated worker thread, eliminating the main thread 
 - audio - Audio energy calculation (critcl)
 - uinput - Keyboard simulation (critcl)
 - vosk - Vosk speech engine (critcl)
+- gec - OpenVINO inference bindings (critcl)
 
 ### Speech Engine Models
 Download and place in `models/` directory:
-- Vosk: vosk-model-en-us-0.22-lgraph
-- Sherpa-ONNX: compatible ONNX models
-- Faster-Whisper: CTranslate2 models
+- **Vosk**: `models/vosk/vosk-model-en-us-0.22-lgraph`
+- **Sherpa-ONNX**: `models/sherpa-onnx/` (streaming models)
+- **Faster-Whisper**: `models/faster-whisper/` (CTranslate2 models)
+
+### GEC Models
+Place in `models/gec/`:
+- `distilbert-punct-cap.onnx` - Punctuation and capitalization
+- `electra-small-generator.onnx` - Homophone correction
 
 ## Installation
 
@@ -185,12 +213,15 @@ cd src
 
 The GUI window will appear. Only one instance can run at a time; additional launches will raise the existing window.
 
+The startup script automatically configures OpenVINO library paths for GEC inference and pins to P-cores on Intel hybrid CPUs.
+
 ### Command-Line Interface
 ```bash
-./talkie.sh start       # Enable transcription
-./talkie.sh stop        # Disable transcription
+./talkie.sh start       # Enable transcription (and mute audio if slim available)
+./talkie.sh stop        # Disable transcription (and unmute audio)
 ./talkie.sh toggle      # Toggle transcription state
-./talkie.sh state       # Display current state
+./talkie.sh state       # Display current state as JSON
+./talkie.sh --help      # Show help
 ```
 
 ### External Control
@@ -222,149 +253,118 @@ Configuration file: `~/.talkie.conf` (JSON format)
 ### Default Settings
 ```json
 {
-    "sample_rate": 44100,
-    "frames_per_buffer": 4410,
-    "energy_threshold": 5.0,
-    "confidence_threshold": 200.0,
-    "device": "pulse",
     "speech_engine": "vosk",
-    "silence_trailing_duration": 0.5,
-    "lookback_seconds": 1.0,
-    "vosk_max_alternatives": 0,
-    "vosk_beam": 20,
-    "vosk_lattice_beam": 8
+    "input_device": "default",
+    "audio_threshold": 25.0,
+    "silence_seconds": 0.3,
+    "min_duration": 0.30,
+    "lookback_seconds": 0.5,
+    "spike_suppression_seconds": 0.3,
+    "confidence_threshold": 100,
+    "vosk_modelfile": "vosk-model-en-us-0.22-lgraph",
+    "vosk_beam": 10,
+    "vosk_lattice": 5,
+    "gec_homophone": 1,
+    "gec_punctcap": 1,
+    "gec_grammar": 0,
+    "typing_delay_ms": 5
 }
 ```
 
 ### Parameters
 
-**sample_rate**: Audio sample rate in Hz (typically 44100 or 16000)
-
-**frames_per_buffer**: Audio buffer size in frames
-
-**energy_threshold**: Voice activity detection threshold (0-100)
-
-**confidence_threshold**: Minimum recognition confidence for output (0-400)
-
-**device**: PortAudio device identifier ("pulse" or device name)
-
 **speech_engine**: Recognition engine ("vosk", "sherpa", or "faster-whisper")
 
-**silence_trailing_duration**: Silence duration before finalizing utterance (seconds)
+**input_device**: Audio input device name ("default" or specific device)
+
+**audio_threshold**: Voice activity detection threshold (0-100). Audio above this level triggers speech detection.
+
+**silence_seconds**: Silence duration before finalizing utterance (seconds)
+
+**min_duration**: Minimum speech duration to accept (seconds). Shorter segments are discarded.
 
 **lookback_seconds**: Pre-speech audio buffer duration (seconds)
 
-**vosk_max_alternatives**: Number of recognition alternatives (0-5)
+**spike_suppression_seconds**: Cooldown period after speech ends before accepting new segments (prevents noise spikes)
 
-**vosk_beam**: Beam search width for Vosk (5-50)
+**confidence_threshold**: Minimum recognition confidence for output (0-400)
 
-**vosk_lattice_beam**: Lattice beam width for Vosk (1-20)
+**vosk_beam**: Beam search width for Vosk (higher = more accurate, slower)
+
+**vosk_lattice**: Lattice beam width for Vosk
+
+**gec_homophone**: Enable homophone correction (0/1)
+
+**gec_punctcap**: Enable punctuation and capitalization (0/1)
+
+**gec_grammar**: Enable T5-based grammar correction (0/1, experimental)
+
+**typing_delay_ms**: Delay between keystrokes when simulating typing
+
+Sample rate and buffer size are automatically detected from the audio device (~16kHz, 25ms chunks).
 
 All parameters can be adjusted via the GUI or by editing the configuration file directly.
 
 ## Feedback Logging
 
-Talkie includes a unified feedback logging system for capturing the STT pipeline and learning from user corrections.
-
-### Log Location
-
-All events are logged to `~/.config/talkie/feedback.jsonl` in JSON Lines format.
+Talkie logs events to `~/.config/talkie/feedback.jsonl` in JSON Lines format for analyzing STT accuracy.
 
 ### Event Types
-
-The feedback log captures three event types:
 
 | Type | Description | Fields |
 |------|-------------|--------|
 | `gec` | GEC correction applied | `input`, `output` |
 | `inject` | Text sent to uinput | `text` |
-| `submit` | User's final submission | `text`, `session_id` |
 
 ### Example Log Entries
 
 ```jsonl
 {"ts":1705500000000,"type":"gec","input":"their going","output":"they're going"}
 {"ts":1705500000050,"type":"inject","text":"they're going"}
-{"ts":1705500005000,"type":"submit","text":"they're going to the store","session_id":"abc123"}
-```
-
-### Claude Code Integration
-
-To capture user corrections in Claude Code, install the `UserPromptSubmit` hook:
-
-```bash
-# Install hook script
-mkdir -p ~/.config/talkie/hooks
-cp feedback/log-submission.sh ~/.config/talkie/hooks/
-chmod +x ~/.config/talkie/hooks/log-submission.sh
-```
-
-Add to `~/.claude/settings.json`:
-```json
-{
-  "hooks": {
-    "UserPromptSubmit": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.config/talkie/hooks/log-submission.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
 ```
 
 ### Analyzing Corrections
 
-Find user edits (where injected text differs from submitted):
+View GEC corrections:
 ```bash
-jq -s '
-  [.[] | select(.type == "inject")] as $injects |
-  [.[] | select(.type == "submit")] as $submits |
-  [$injects[] as $i |
-    ($submits[] | select(.ts > $i.ts and .ts < ($i.ts + 30000))) as $s |
-    select($i.text != $s.text) |
-    {injected: $i.text, submitted: $s.text, delay_ms: ($s.ts - $i.ts)}
-  ]
-' ~/.config/talkie/feedback.jsonl
-```
-
-### Disabling Feedback Logging
-
-```tcl
-::feedback::configure -enabled 0
+jq 'select(.type == "gec")' ~/.config/talkie/feedback.jsonl
 ```
 
 ## Performance
 
 ### Audio Processing
-- **Sample Rate**: 16kHz (device native rate)
+- **Sample Rate**: 16kHz (detected from device)
 - **Chunk Size**: 25ms (~400 frames at 16kHz)
-- **Callback Rate**: 40Hz on engine worker thread
-- **Latency**: ~50-100ms speech detection response
-- **Lookback**: Configurable pre-speech audio buffering (default 1.0s)
+- **Callback Rate**: 40Hz on audio worker thread
+- **VAD**: Fixed threshold with spike suppression
+- **Lookback**: Configurable pre-speech audio buffering (default 0.5s)
+
+### GEC Processing (Intel NPU)
+- **Homophone correction**: 20-50ms per phrase
+- **Punctuation/capitalization**: 8-15ms per phrase
+- **Total GEC**: 30-65ms per phrase
 
 ### Threading Benefits
-- **No Main Thread Blocking**: Audio processing on dedicated worker
-- **Reduced Latency**: Direct path from audio to recognition
-- **UI Responsiveness**: GUI never waits for audio processing
-- **Throttled Updates**: UI refreshes at 5Hz, not 40Hz
+- **Decoupled Audio**: Audio capture never blocks on recognition
+- **Pipeline Architecture**: Audio → Processing → GEC → Output
+- **UI Responsiveness**: GUI updates throttled to 5Hz
+- **Health Monitoring**: Automatic restart of frozen audio streams
 
 ## Development
 
 ### Building Components
 ```bash
-# Build all critcl packages
-make build
+cd src
+make build    # Build all critcl packages
+```
 
-# Build specific package
-cd src/pa && make
-cd src/audio && make
-cd src/uinput && make
-cd src/vosk && make
+Individual packages:
+```bash
+cd src/pa && make       # PortAudio bindings
+cd src/audio && make    # Audio energy calculation
+cd src/uinput && make   # Keyboard simulation
+cd src/vosk && make     # Vosk speech recognition
+cd src/gec && make      # OpenVINO GEC inference
 ```
 
 ### Adding a Speech Engine
@@ -376,8 +376,10 @@ cd src/vosk && make
 Run the application with console output visible:
 ```bash
 cd src
-./talkie.tcl 2>&1 | tee talkie.log
+./talkie.sh 2>&1 | tee talkie.log
 ```
+
+Debug output shows VAD state, segment timing, and GEC processing times.
 
 ## Troubleshooting
 
