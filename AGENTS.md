@@ -2,7 +2,7 @@
 
 ## Build/Test Commands
 - **Build**: `make` or `make build` (builds C extensions in pa/, vosk/, audio/, uinput/)
-- **Run**: `cd src && ./talkie.tcl`
+- **Run**: `./src/talkie.sh`
 - **Test All**: `cd src/tests && ./all_tests.tcl`
 - **Test Single**: `cd src/tests && tclsh -c "package require tcltest; source <test_file>.test"`
 - **Clean**: `make clean`
