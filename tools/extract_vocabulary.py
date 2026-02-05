@@ -207,17 +207,22 @@ def process_files(md_files, vocab):
 
 def clean_sentence(sentence):
     """Clean sentence for language model training."""
-    # Remove markdown formatting
-    s = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', sentence)  # [text](url) -> text
-    s = re.sub(r'[`*_~#]', '', s)  # Remove markdown chars
-    s = re.sub(r'\\(.)', r'\1', s)  # Remove backslash escapes (e.g., \. -> .)
-    s = re.sub(r'\s+', ' ', s)  # Normalize whitespace
+    # Remove markdown link syntax [text](url) -> text
+    s = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', sentence)
+    # Remove bare URLs
+    s = re.sub(r'https?://\S+', '', s)
+    # Remove email addresses
+    s = re.sub(r'\S+@\S+\.\S+', '', s)
+    # Remove backslash escapes (e.g., \. -> .)
+    s = re.sub(r'\\(.)', r'\1', s)
+    # Remove all punctuation except apostrophes (keep contractions)
+    s = re.sub(r"[^a-zA-Z' ]", ' ', s)
+    # Normalize whitespace
+    s = re.sub(r'\s+', ' ', s)
     s = s.strip()
 
     # Skip if too short or looks like code
     if len(s) < 10:
-        return None
-    if re.search(r'[{}()\[\]=<>]', s):  # Likely code
         return None
 
     return s
