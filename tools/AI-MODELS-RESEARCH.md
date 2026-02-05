@@ -637,10 +637,99 @@ package provide gec 1.0
 1. ~~**Install faster-whisper** in venv~~ ✓ Done
 2. ~~**Download and convert** t5-efficient-tiny to CTranslate2 format~~ ✓ Done
 3. ~~**Benchmark latency** on Intel Core Ultra 7 155H~~ ✓ Done (3.7ms median)
-4. **Try GlossBERT or ELECTRA-Small** for homophone-specific scoring
-5. **Prototype CTranslate2 critcl wrapper** following sherpa-onnx pattern
-6. **Create GEC coprocess service** as fallback/comparison
+4. ~~**Try GlossBERT or ELECTRA-Small** for homophone-specific scoring~~ ✓ ELECTRA-Small implemented
+5. ~~**Prototype CTranslate2 critcl wrapper** following sherpa-onnx pattern~~ ✓ ct2.tcl implemented
+6. ~~**Create GEC coprocess service** as fallback/comparison~~ (skipped - native integration faster)
 7. **Test on logged homophone decisions** from `logs/homophone_decisions.jsonl`
 8. **Compare accuracy** to current bigram approach
-9. **Evaluate hybrid approach** - bigrams for homophones + T5 for grammar
-10. **Integrate into Talkie** as optional post-processing step
+9. ~~**Evaluate hybrid approach** - bigrams for homophones + T5 for grammar~~ ✓ Hybrid implemented
+10. ~~**Integrate into Talkie** as optional post-processing step~~ ✓ Done (grammar stage disabled due to hallucination)
+
+---
+
+## GECToR Investigation (Jan 2026)
+
+Investigation into using GECToR as a T5 replacement for grammar correction, motivated by T5's hallucination issues (e.g., "tcl" → "till").
+
+### Why GECToR Cannot Hallucinate
+
+GECToR uses a **tag-based approach** with ~5,000 predefined correction tags:
+- `$KEEP` - keep token unchanged
+- `$DELETE` - remove token
+- `$REPLACE_have` - replace with "have"
+- `$APPEND_the` - append "the" after token
+- etc.
+
+**Key insight**: GECToR can only apply operations from its fixed tag vocabulary. It cannot generate arbitrary text like T5's seq2seq approach.
+
+### Available Pre-trained Models
+
+From [Hugging Face](https://huggingface.co/models?search=gector):
+
+| Model | Base Encoder | Parameters | Size (FP32) |
+|-------|--------------|------------|-------------|
+| gector-bert-base-cased-5k | BERT-base | ~115M | ~440 MB |
+| gector-roberta-base-5k | RoBERTa-base | ~130M | ~500 MB |
+| gector-roberta-large-5k | RoBERTa-large | ~360M | ~1.4 GB |
+| gector-deberta-large-5k | DeBERTa-large | ~400M | ~1.5 GB |
+
+### No Lightweight GECToR Exists
+
+**Critical finding**: No pre-trained GECToR model exists with lightweight encoders:
+- ❌ No DistilBERT variant (~66M params, ~250 MB)
+- ❌ No ELECTRA-small variant (~14M params, ~50 MB)
+- ❌ No TinyBERT variant (~15M params, ~55 MB)
+
+The [gotutiyan/gector](https://github.com/gotutiyan/gector) implementation supports `bert-**`, `roberta-**`, `deberta-**`, `xlnet-**` but does not document DistilBERT or ELECTRA support.
+
+### Training a Custom Lightweight GECToR
+
+Would require:
+1. **GEC training data**: Synthetic data generation + real error corpora
+2. **Multi-stage fine-tuning**: Pre-training → Stage 1 (errorful) → Stage 2 (mixed)
+3. **Tag vocabulary**: 5,000 correction tags covering common errors
+4. **Compute**: Days of GPU training
+
+[Grammarly's knowledge distillation research](https://www.grammarly.com/blog/engineering/experimenting-with-gector/) focused on *performance* improvements (F0.5: 73.21), not model size reduction.
+
+### ONNX/OpenVINO Export
+
+**Not documented**. Would require:
+1. Manual `torch.onnx.export()` of the model
+2. Handle custom GECToR architecture (encoder + 2 linear layers)
+3. Export tag decoding logic
+
+### Size Comparison
+
+| Model | Size | Latency | Can Hallucinate? |
+|-------|------|---------|------------------|
+| **T5-efficient-tiny** | 16 MB | 3.7ms | ✓ Yes |
+| **ELECTRA-small MLM** | 50 MB | 7.6ms | ✗ No (MLM only) |
+| **GECToR-BERT-base** | ~440 MB | ~20-50ms est. | ✗ No |
+| **GECToR-RoBERTa-base** | ~500 MB | ~20-50ms est. | ✗ No |
+
+### Conclusion
+
+**GECToR is not viable for Talkie** due to model size:
+- Smallest available: ~440 MB (BERT-base)
+- Our T5-efficient-tiny: 16 MB (27x smaller)
+- No lightweight pre-trained variants exist
+- Training custom model requires significant effort
+
+### Recommendations
+
+1. **Keep T5-efficient-tiny disabled** - hallucination risk too high for production
+2. **Current pipeline is optimal**: ELECTRA-small (homophones) + DistilBERT (punct/caps)
+3. **Future options**:
+   - Wait for community to release lightweight GECToR
+   - Train custom ELECTRA-small GECToR (major effort)
+   - Use rule-based grammar fixes for common patterns (no hallucination risk)
+
+### Alternative: Rule-Based Grammar Fixes
+
+For specific high-value corrections without hallucination risk:
+- Subject-verb agreement patterns: "I has" → "I have"
+- Common contractions: "dont" → "don't"
+- Article corrections: "a apple" → "an apple"
+
+This could be implemented as a small lookup table + regex patterns.
