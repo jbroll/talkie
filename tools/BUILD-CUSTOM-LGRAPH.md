@@ -1,13 +1,13 @@
 # Building a Custom Vosk lgraph Model
 
-This document describes how to build a custom `vosk-model-en-us-0.22-lgraph` model with additional vocabulary words.
+This document describes how to rebuild the `vosk-model-en-us-0.22-lgraph` model with additional vocabulary words.
 
 ## Overview
 
 The lgraph (lookahead graph) model separates the language model (Gr.fst) from the lexicon/acoustic model (HCLr.fst), making it easier to add vocabulary. This process:
 
 1. Uses a **pruned vocabulary** (~232k words) matching the language model
-2. Adds custom domain vocabulary from `db/extra.txt`
+2. Adds custom domain vocabulary from `compile/db/extra.txt`
 3. Generates pronunciations for new words using Phonetisaurus G2P
 4. Rebuilds the graph with proper `olabel_lookahead` FST format
 
@@ -24,16 +24,48 @@ include words that appear in the language model:
 
 This reduces the vocabulary by ~37% and eliminates words that could never be output.
 
+## Model Structure
+
+The model is self-contained with all rebuild artifacts in `compile/`:
+
+```
+vosk-model-en-us-0.22-lgraph/
+├── README
+├── am/
+│   ├── final.mdl              # Acoustic model
+│   └── tree                   # Decision tree
+├── conf/                      # Decoder configuration
+├── graph/                     # Runtime graph (rebuild output)
+│   ├── Gr.fst                 # Language model FST
+│   ├── HCLr.fst               # Lexicon/acoustic graph
+│   ├── words.txt              # Vocabulary
+│   ├── phones.txt             # Phone symbols
+│   └── phones/                # Phone definitions
+├── ivector/                   # Speaker adaptation
+└── compile/                   # Rebuild artifacts (~115MB)
+    ├── README.md              # Quick reference
+    ├── compile-lgraph.sh      # Main build script
+    ├── dict-pruned.py         # Lexicon generator
+    ├── lgraph-base.lm.gz      # Base LM (extract once from Gr.fst)
+    ├── missing_pronunciations.txt  # G2P for LM words not in en.dic
+    └── db/
+        ├── en.dic             # Base pronunciation dictionary
+        ├── en-g2p/en.fst      # Phonetisaurus G2P model
+        ├── phone/             # Phone set definitions
+        ├── extra.txt          # Domain vocabulary (edit this)
+        └── extra.dic          # Manual pronunciations (optional)
+```
+
 ## Prerequisites
 
-### Remote GPU Host (john@gpu)
+### Build Host (GPU or high-memory machine)
 
-The build requires significant memory and is done on a remote host with:
+The build requires ~16GB RAM and is typically done on a remote host with:
 
 - **Conda/Miniconda** with OpenGRM and Phonetisaurus:
   ```bash
   conda install -c conda-forge openfst opengrm-ngram
-  $HOME/miniconda3/bin/pip install phonetisaurus
+  pip install phonetisaurus
   ```
 
 - **Podman** with Kaldi container:
@@ -41,307 +73,141 @@ The build requires significant memory and is done on a remote host with:
   podman pull docker.io/kaldiasr/kaldi:latest
   ```
 
-### Local Machine
+## One-Time Setup
 
-- Vosk compile package: `~/Downloads/vosk-model-en-us-0.22-compile/`
-- Original lgraph model: `~/Downloads/vosk-model-en-us-0.22-lgraph/`
+These steps only need to be done once to prepare the model for rebuilding.
 
-## Directory Structure on GPU Host
-
-```
-~/vosk-lgraph-compile/
-├── compile-lgraph.sh         # Main build script
-├── dict-pruned.py            # Lexicon generator (filters to LM words only)
-├── lgraph-base.arpa          # Extracted base LM (89MB)
-├── data/
-│   ├── lgraph-base.lm.gz     # Gzipped base LM
-│   └── ...                   # Build artifacts
-├── db/
-│   ├── en.dic                # Base pronunciation dictionary (312k words)
-│   ├── en-g2p/en.fst         # G2P model for new words
-│   ├── extra.txt             # Domain text (add your words here)
-│   ├── extra.dic             # Manual pronunciations (optional)
-│   └── phone/                # Phone set definitions
-├── exp/chain/tdnn/
-│   ├── final.mdl             # Acoustic model
-│   ├── tree                  # Decision tree
-│   └── lgraph/               # Output directory
-└── missing_pronunciations.txt # Generated pronunciations for 56k words
-```
-
-## Initial Setup (One-Time)
-
-### 1. Copy compile package to GPU host
+### 1. Copy model to build host
 
 ```bash
-scp -r ~/Downloads/vosk-model-en-us-0.22-compile john@gpu:~/vosk-lgraph-compile
+scp -r ~/Downloads/vosk-model-en-us-0.22-lgraph john@gpu:~/
 ```
 
-### 2. Extract base LM from original lgraph
+### 2. Extract base language model
 
-The original lgraph's Gr.fst contains a heavily pruned LM. Extract it:
+The `lgraph-base.lm.gz` file must be extracted from the original `Gr.fst`:
 
 ```bash
 ssh john@gpu
-cd ~/vosk-lgraph-compile
+cd ~/vosk-model-en-us-0.22-lgraph/compile
+
 export PATH=$HOME/miniconda3/bin:$PATH
 export LD_LIBRARY_PATH=$HOME/miniconda3/lib:$HOME/miniconda3/lib/fst:$LD_LIBRARY_PATH
 
-# Copy original Gr.fst (need to get from local machine first)
-# Then extract ARPA:
-ngramprint --ARPA path/to/original/Gr.fst > lgraph-base.arpa
-gzip -c lgraph-base.arpa > data/lgraph-base.lm.gz
+ngramprint --ARPA ../graph/Gr.fst | gzip > lgraph-base.lm.gz
 ```
 
-### 3. Generate pronunciations for missing vocabulary
+### 3. Generate missing pronunciations
 
-The original lgraph has 368k words but the compile package only has 312k. Generate pronunciations for the 56k missing words:
+Some words in the LM are not in en.dic. Generate pronunciations for them:
 
 ```bash
-# Extract words from original lgraph (on local machine)
-awk '{print $1}' ~/Downloads/vosk-model-en-us-0.22-lgraph/graph/words.txt | \
-    grep -vE "^(<|#)" | sort -u > /tmp/lgraph_words.txt
-
-# Extract words from compile package
-awk '{print $1}' ~/Downloads/vosk-model-en-us-0.22-compile/db/en.dic | \
-    sort -u > /tmp/compile_words.txt
-
-# Find missing words
-comm -23 /tmp/lgraph_words.txt /tmp/compile_words.txt > /tmp/missing_words.txt
-
-# Copy to GPU and generate pronunciations
-scp /tmp/missing_words.txt john@gpu:~/vosk-lgraph-compile/missing_real_words.txt
-
-ssh john@gpu "cd ~/vosk-lgraph-compile && \$HOME/miniconda3/bin/python3 -c \"
-import phonetisaurus
-words = set(open('missing_real_words.txt').read().split())
-with open('missing_pronunciations.txt', 'w') as out:
-    for word, phones in phonetisaurus.predict(words, 'db/en-g2p/en.fst'):
-        out.write(f'{word} {\\\" \\\".join(phones)}\\n')
-\""
-```
-
-### 4. Create dict-pruned.py
-
-This script builds the lexicon by filtering en.dic to only include words that
-appear in the language model. Words not in the LM would never be output anyway.
-
-```python
-#!/usr/bin/env python3
-"""
-Generate pruned lexicon from:
-1. Original en.dic filtered to only words in LM
-2. Generated pronunciations for LM words not in en.dic
-3. New domain words from extra.txt
-"""
-import phonetisaurus
-import sys
+# Find words in LM but not in dictionary
+python3 -c "
 import gzip
-
-# First, load LM vocabulary to know what words to keep
 lm_words = set()
-lm_file = 'data/lgraph-base.lm.gz'
-print(f'Loading LM vocabulary from {lm_file}...', file=sys.stderr, flush=True)
-
-with gzip.open(lm_file, 'rt') as f:
+with gzip.open('lgraph-base.lm.gz', 'rt') as f:
     in_unigrams = False
     for line in f:
         line = line.strip()
-        if line == '\\1-grams:':
+        if line == '\\\\1-grams:':
             in_unigrams = True
-            continue
-        elif line.startswith('\\') and line.endswith(':'):
-            if in_unigrams:
-                break
-            continue
-        if in_unigrams and line:
-            parts = line.split('\t')
-            if len(parts) >= 2:
-                word = parts[1]
-                if not word.startswith('<'):
-                    lm_words.add(word)
+        elif line.startswith('\\\\') and in_unigrams:
+            break
+        elif in_unigrams and line:
+            parts = line.split('\\t')
+            if len(parts) >= 2 and not parts[1].startswith('<'):
+                lm_words.add(parts[1])
 
-print(f'LM vocabulary: {len(lm_words)} words', file=sys.stderr, flush=True)
+dic_words = set(line.split()[0].split('(')[0] for line in open('db/en.dic'))
+missing = lm_words - dic_words
+print('\\n'.join(sorted(missing)))
+" > missing_words.txt
 
-words = {}
+# Generate pronunciations
+python3 -c "
+import phonetisaurus
+words = set(open('missing_words.txt').read().split())
+with open('missing_pronunciations.txt', 'w') as out:
+    for word, phones in phonetisaurus.predict(words, 'db/en-g2p/en.fst'):
+        out.write(f'{word} {\" \".join(phones)}\n')
+"
 
-# Load original lexicon, but only keep words in LM
-skipped = 0
-for line in open('db/en.dic'):
-    items = line.split()
-    word = items[0]
-    base_word = word.split('(')[0] if '(' in word else word
-
-    if base_word not in lm_words:
-        skipped += 1
-        continue
-
-    if word not in words:
-        words[word] = []
-    words[word].append(' '.join(items[1:]))
-
-print(f'Loaded {len(words)} words from en.dic (skipped {skipped} not in LM)', file=sys.stderr)
-
-# Load extra.dic if exists (domain-specific, always include)
-try:
-    for line in open('db/extra.dic'):
-        items = line.split()
-        if items[0] not in words:
-            words[items[0]] = []
-        words[items[0]].append(' '.join(items[1:]))
-except:
-    pass
-
-# Load generated pronunciations for LM words not in dictionary
-for line in open('missing_pronunciations.txt'):
-    items = line.split()
-    if items[0] not in words:
-        words[items[0]] = []
-    words[items[0]].append(' '.join(items[1:]))
-
-print(f'After adding missing words: {len(words)} words', file=sys.stderr)
-
-# Generate pronunciations for new domain words
-new_words = set()
-for line in open('db/extra.txt'):
-    for w in line.split():
-        if w not in words:
-            new_words.add(w)
-
-if new_words:
-    print(f'Generating pronunciations for {len(new_words)} new domain words', file=sys.stderr)
-    for w, phones in phonetisaurus.predict(new_words, 'db/en-g2p/en.fst'):
-        words[w] = []
-        words[w].append(' '.join(phones))
-
-print(f'Final lexicon: {len(words)} words', file=sys.stderr)
-
-for w, phones in sorted(words.items()):
-    for p in phones:
-        print(w, p)
+rm missing_words.txt
 ```
 
-### 5. Create compile-lgraph.sh
+### 4. Copy updated model back to local (optional)
+
+If you want the local copy to have the generated files:
 
 ```bash
-#!/bin/bash
-set -ex
-cd ~/vosk-lgraph-compile
-
-export PATH=$HOME/miniconda3/bin:$PATH
-export LD_LIBRARY_PATH=$HOME/miniconda3/lib:$HOME/miniconda3/lib/fst:$LD_LIBRARY_PATH
-
-rm -rf data/dict data/lang data/lang_local exp/chain/tdnn/lgraph
-
-echo "=== Step 1: Dictionary ==="
-mkdir -p data/dict
-cp db/phone/* data/dict/
-$HOME/miniconda3/bin/python3 dict-pruned.py > data/dict/lexicon.txt
-
-echo "=== Step 2: prepare_lang.sh ==="
-podman run --rm -v $HOME/vosk-lgraph-compile:/work -w /work docker.io/kaldiasr/kaldi:latest bash -c '
-    export PATH=/opt/kaldi/tools/openfst-1.8.4/bin:/opt/kaldi/src/fstbin:/opt/kaldi/src/bin:/opt/kaldi/egs/wsj/s5/utils:$PATH
-    export LD_LIBRARY_PATH=/opt/kaldi/tools/openfst-1.8.4/lib:/opt/kaldi/src/lib:$LD_LIBRARY_PATH
-    utils/prepare_lang.sh data/dict "[unk]" data/lang_local data/lang
-'
-
-echo "=== Step 3: Build Gr.fst ==="
-gunzip -c data/lgraph-base.lm.gz | \
-    ngramread --ARPA --symbols=data/lang/words.txt --OOV_symbol="[unk]" - | \
-    fstarcsort --sort_type=ilabel > data/Gr.fst
-
-echo "=== Step 4: HCLr.fst with lookahead ==="
-podman run --rm -v $HOME/vosk-lgraph-compile:/work -w /work docker.io/kaldiasr/kaldi:latest bash -c '
-    set -ex
-    export PATH=/opt/kaldi/tools/openfst-1.8.4/bin:/opt/kaldi/src/fstbin:/opt/kaldi/src/bin:/opt/kaldi/egs/wsj/s5/utils:$PATH
-    export LD_LIBRARY_PATH=/opt/kaldi/tools/openfst-1.8.4/lib:/opt/kaldi/tools/openfst-1.8.4/lib/fst:/opt/kaldi/src/lib:$LD_LIBRARY_PATH
-
-    tree=exp/chain/tdnn/tree
-    model=exp/chain/tdnn/final.mdl
-    lang=data/lang
-    dir=exp/chain/tdnn/lgraph
-
-    rm -rf $dir && mkdir -p $dir/phones
-    cp $lang/phones.txt $dir/
-    cp $lang/phones/* $dir/phones/
-
-    fstdeterminizestar --use-log=true < $lang/L_disambig.fst > $dir/L_disambig_det.fst
-
-    fstcomposecontext --context-size=2 --central-position=1 \
-        --read-disambig-syms=$lang/phones/disambig.int \
-        --write-disambig-syms=$dir/disambig_ilabels.int \
-        $dir/ilabels < $dir/L_disambig_det.fst | fstarcsort --sort_type=ilabel > $dir/CLG.fst
-
-    make-h-transducer --disambig-syms-out=$dir/disambig_tid.int \
-        --transition-scale=1.0 $dir/ilabels $tree $model > $dir/Ha.fst
-
-    fsttablecompose $dir/Ha.fst $dir/CLG.fst | \
-        fstdeterminizestar --use-log=true | \
-        fstrmsymbols $dir/disambig_tid.int | \
-        fstrmepslocal | \
-        fstminimizeencoded | \
-        add-self-loops --self-loop-scale=1.0 --reorder=true $model | \
-        fstarcsort --sort_type=olabel | \
-        fstconvert --fst_type=olabel_lookahead --save_relabel_opairs=$dir/relabel > $dir/HCLr.fst
-
-    rm -f $dir/Ha.fst $dir/CLG.fst $dir/L_disambig_det.fst $dir/ilabels
-
-    utils/apply_map.pl --permissive -f 2 $dir/relabel < $lang/words.txt > $dir/words.txt
-
-    fstrelabel --relabel_ipairs=$dir/relabel data/Gr.fst | \
-        fstarcsort --sort_type=ilabel | \
-        fstconvert --fst_type=const > $dir/Gr.fst
-'
-
-echo "=== Complete ==="
-ls -lh exp/chain/tdnn/lgraph/
+scp john@gpu:~/vosk-model-en-us-0.22-lgraph/compile/lgraph-base.lm.gz \
+    john@gpu:~/vosk-model-en-us-0.22-lgraph/compile/missing_pronunciations.txt \
+    ~/Downloads/vosk-model-en-us-0.22-lgraph/compile/
 ```
 
-## Adding New Domain Words
+## Adding Domain Vocabulary
 
-### 1. Edit db/extra.txt on GPU host
+### 1. Edit db/extra.txt
 
-Add your domain-specific text. Words not in the lexicon will have pronunciations generated automatically:
+Add domain-specific text containing words you want recognized:
 
 ```bash
-ssh john@gpu "cat >> ~/vosk-lgraph-compile/db/extra.txt << 'EOF'
+ssh john@gpu "cat >> ~/vosk-model-en-us-0.22-lgraph/compile/db/extra.txt << 'EOF'
 your domain specific words and phrases here
 technical terms product names etc
 EOF"
 ```
 
-### 2. (Optional) Add manual pronunciations
-
-For words where G2P might fail, add to `db/extra.dic`:
+Or edit locally and copy:
 
 ```bash
-ssh john@gpu "cat >> ~/vosk-lgraph-compile/db/extra.dic << 'EOF'
-myword m aI w 3` d
+echo "myterm anotherterm" >> ~/Downloads/vosk-model-en-us-0.22-lgraph/compile/db/extra.txt
+scp ~/Downloads/vosk-model-en-us-0.22-lgraph/compile/db/extra.txt \
+    john@gpu:~/vosk-model-en-us-0.22-lgraph/compile/db/
+```
+
+### 2. (Optional) Add manual pronunciations
+
+For words where G2P might produce incorrect results, add to `db/extra.dic`:
+
+```bash
+ssh john@gpu "cat >> ~/vosk-model-en-us-0.22-lgraph/compile/db/extra.dic << 'EOF'
+kubectl k UW b k T L
+nginx E N JH IH N EH K S
 EOF"
 ```
 
-### 3. Rebuild
+### 3. Rebuild the graph
 
 ```bash
-ssh john@gpu "cd ~/vosk-lgraph-compile && ./compile-lgraph.sh"
+ssh john@gpu "cd ~/vosk-model-en-us-0.22-lgraph/compile && ./compile-lgraph.sh"
 ```
 
-### 4. Copy to local machine
+The script:
+1. Generates the pruned lexicon (filters en.dic to LM words + domain words)
+2. Runs Kaldi's `prepare_lang.sh` to create language files
+3. Builds `Gr.fst` from the base LM
+4. Builds `HCLr.fst` with olabel_lookahead format
+5. Installs the new graph to `../graph/` (backs up previous to `../graph.bak/`)
+
+### 4. Copy updated model to local machine
 
 ```bash
-rm -rf ~/Downloads/vosk-model-en-us-0.22-lgraph-custom/graph
-mkdir -p ~/Downloads/vosk-model-en-us-0.22-lgraph-custom/graph
-scp -r john@gpu:~/vosk-lgraph-compile/exp/chain/tdnn/lgraph/* \
-    ~/Downloads/vosk-model-en-us-0.22-lgraph-custom/graph/
+scp -r john@gpu:~/vosk-model-en-us-0.22-lgraph/graph \
+    ~/Downloads/vosk-model-en-us-0.22-lgraph/
+```
 
-# Copy acoustic model files if not already present
-cp -r ~/Downloads/vosk-model-en-us-0.22-lgraph/{am,ivector,conf,README} \
-    ~/Downloads/vosk-model-en-us-0.22-lgraph-custom/
+Or sync the entire model:
+
+```bash
+rsync -av john@gpu:~/vosk-model-en-us-0.22-lgraph/ \
+    ~/Downloads/vosk-model-en-us-0.22-lgraph/
 ```
 
 ## Output Files
 
-The build produces:
+The build produces in `graph/`:
 
 | File | Size | Description |
 |------|------|-------------|
@@ -353,29 +219,42 @@ The build produces:
 
 ## Troubleshooting
 
+### "lgraph-base.lm.gz not found"
+
+Run the one-time extraction step (section above).
+
 ### Model produces garbage output
 
 Check that HCLr.fst has the correct FST type:
+
 ```bash
-file ~/Downloads/vosk-model-en-us-0.22-lgraph-custom/graph/HCLr.fst
+file ~/Downloads/vosk-model-en-us-0.22-lgraph/graph/HCLr.fst
 # Should show: fst type: olabel_lookahead
 ```
 
-If it shows `fst type: vector`, the lookahead conversion failed.
+If it shows `fst type: vector`, the lookahead conversion failed. Check that the Kaldi container has the lookahead library:
 
-### Missing words
-
-Check the lexicon was generated correctly:
-```bash
-grep "yourword" ~/Downloads/vosk-model-en-us-0.22-lgraph-custom/graph/words.txt
-```
-
-### Container errors
-
-Ensure the Kaldi container has the lookahead FST library:
 ```bash
 podman run --rm docker.io/kaldiasr/kaldi:latest \
     ls /opt/kaldi/tools/openfst-1.8.4/lib/fst/olabel_lookahead-fst.so
+```
+
+### Missing words
+
+Check the vocabulary includes your word:
+
+```bash
+grep "yourword" ~/Downloads/vosk-model-en-us-0.22-lgraph/graph/words.txt
+```
+
+If missing, ensure it's in `db/extra.txt` and rebuild.
+
+### Restore previous graph
+
+If the new graph has issues:
+
+```bash
+ssh john@gpu "cd ~/vosk-model-en-us-0.22-lgraph && rm -rf graph && mv graph.bak graph"
 ```
 
 ## References
