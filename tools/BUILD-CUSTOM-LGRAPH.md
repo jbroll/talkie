@@ -11,95 +11,84 @@ The lgraph (lookahead graph) model separates the language model (Gr.fst) from th
 3. Generates pronunciations for new words using Phonetisaurus G2P
 4. Rebuilds the graph with proper `olabel_lookahead` FST format
 
-## Vocabulary Pruning
-
-The pronunciation dictionary (en.dic) contains ~312k words including many archaic
-spellings and variants that are not in the language model. Since words without LM
-probability can never be selected by the decoder, we prune the vocabulary to only
-include words that appear in the language model:
-
-- **en.dic**: 312k words (includes archaic/unused words)
-- **Language model**: 231k words (from training corpus)
-- **Pruned vocabulary**: ~232k words (LM words + domain words)
-
-This reduces the vocabulary by ~37% and eliminates words that could never be output.
-
 ## Model Structure
 
 The model is self-contained with all rebuild artifacts in `compile/`:
 
 ```
 vosk-model-en-us-0.22-lgraph/
-├── README
-├── am/
-│   ├── final.mdl              # Acoustic model
-│   └── tree                   # Decision tree
-├── conf/                      # Decoder configuration
-├── graph/                     # Runtime graph (rebuild output)
-│   ├── Gr.fst                 # Language model FST
-│   ├── HCLr.fst               # Lexicon/acoustic graph
-│   ├── words.txt              # Vocabulary
-│   ├── phones.txt             # Phone symbols
-│   └── phones/                # Phone definitions
-├── ivector/                   # Speaker adaptation
-└── compile/                   # Rebuild artifacts (~115MB)
-    ├── README.md              # Quick reference
-    ├── compile-lgraph.sh      # Main build script
-    ├── dict-pruned.py         # Lexicon generator
-    ├── lgraph-base.lm.gz      # Base LM (extract once from Gr.fst)
+├── am/                       # Acoustic model (do not modify)
+│   ├── final.mdl
+│   └── tree
+├── conf/                     # Decoder configuration
+├── graph/                    # Runtime graph (rebuild output)
+│   ├── Gr.fst               # Language model FST
+│   ├── HCLr.fst             # Lexicon/acoustic graph (olabel_lookahead)
+│   ├── words.txt            # Vocabulary
+│   └── phones/              # Phone definitions
+├── ivector/                  # Speaker adaptation
+└── compile/                  # Rebuild artifacts
+    ├── compile-lgraph.sh    # Main build script
+    ├── dict-pruned.py       # Lexicon generator (filters to LM words)
+    ├── lgraph-base.lm.gz    # Base LM (extract once from Gr.fst)
     ├── missing_pronunciations.txt  # G2P for LM words not in en.dic
+    ├── README.md            # Quick reference
     └── db/
-        ├── en.dic             # Base pronunciation dictionary
-        ├── en-g2p/en.fst      # Phonetisaurus G2P model
-        ├── phone/             # Phone set definitions
-        ├── extra.txt          # Domain vocabulary (edit this)
-        └── extra.dic          # Manual pronunciations (optional)
+        ├── en.dic           # Base pronunciation dictionary (~312k words)
+        ├── en-g2p/en.fst    # Phonetisaurus G2P model
+        ├── phone/           # Phone set definitions
+        ├── extra.txt        # Domain vocabulary sentences (edit this)
+        └── extra.dic        # Manual pronunciations (optional)
 ```
 
 ## Prerequisites
 
-### Build Host (GPU or high-memory machine)
+### Build Host Requirements
 
-The build requires ~16GB RAM and is typically done on a remote host with:
+The build requires ~16GB RAM. Install these tools:
 
-- **Conda/Miniconda** with OpenGRM and Phonetisaurus:
-  ```bash
-  conda install -c conda-forge openfst opengrm-ngram
-  pip install phonetisaurus
-  ```
+1. **Miniforge** (or Miniconda) with OpenGRM NGram:
+   ```bash
+   # Install miniforge (recommended over miniconda - no ToS issues)
+   curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
+   bash Miniforge3-$(uname)-$(uname -m).sh
 
-- **Podman** with Kaldi container:
-  ```bash
-  podman pull docker.io/kaldiasr/kaldi:latest
-  ```
+   # Install ngram tools
+   conda install -c conda-forge ngram
+   pip install phonetisaurus
+   ```
+
+2. **Container Runtime** (Podman or Docker) with Kaldi:
+   ```bash
+   # Podman (preferred on Void Linux)
+   podman pull docker.io/kaldiasr/kaldi:latest
+
+   # Or Docker
+   docker pull docker.io/kaldiasr/kaldi:latest
+   ```
 
 ## One-Time Setup
 
-These steps only need to be done once to prepare the model for rebuilding.
+These steps only need to be done once per model to prepare for rebuilding.
 
-### 1. Copy model to build host
-
-```bash
-scp -r ~/Downloads/vosk-model-en-us-0.22-lgraph john@gpu:~/
-```
-
-### 2. Extract base language model
+### 1. Extract base language model
 
 The `lgraph-base.lm.gz` file must be extracted from the original `Gr.fst`:
 
 ```bash
-ssh john@gpu
-cd ~/vosk-model-en-us-0.22-lgraph/compile
+cd /path/to/vosk-model-en-us-0.22-lgraph/compile
 
-export PATH=$HOME/miniconda3/bin:$PATH
-export LD_LIBRARY_PATH=$HOME/miniconda3/lib:$HOME/miniconda3/lib/fst:$LD_LIBRARY_PATH
+# Set up conda paths
+export PATH=$HOME/miniforge3/bin:$PATH
+export LD_LIBRARY_PATH=$HOME/miniforge3/lib:$LD_LIBRARY_PATH
 
+# Extract ARPA from Gr.fst (takes ~1 minute)
 ngramprint --ARPA ../graph/Gr.fst | gzip > lgraph-base.lm.gz
 ```
 
-### 3. Generate missing pronunciations
+### 2. Generate missing pronunciations
 
-Some words in the LM are not in en.dic. Generate pronunciations for them:
+Some words in the language model are not in en.dic. Generate pronunciations:
 
 ```bash
 # Find words in LM but not in dictionary
@@ -115,16 +104,16 @@ with gzip.open('lgraph-base.lm.gz', 'rt') as f:
         elif line.startswith('\\\\') and in_unigrams:
             break
         elif in_unigrams and line:
-            parts = line.split('\\t')
+            parts = line.split('\t')
             if len(parts) >= 2 and not parts[1].startswith('<'):
                 lm_words.add(parts[1])
 
 dic_words = set(line.split()[0].split('(')[0] for line in open('db/en.dic'))
 missing = lm_words - dic_words
-print('\\n'.join(sorted(missing)))
+print('\n'.join(sorted(missing)))
 " > missing_words.txt
 
-# Generate pronunciations
+# Generate pronunciations with Phonetisaurus
 python3 -c "
 import phonetisaurus
 words = set(open('missing_words.txt').read().split())
@@ -136,113 +125,116 @@ with open('missing_pronunciations.txt', 'w') as out:
 rm missing_words.txt
 ```
 
-### 4. Copy updated model back to local (optional)
-
-If you want the local copy to have the generated files:
-
-```bash
-scp john@gpu:~/vosk-model-en-us-0.22-lgraph/compile/lgraph-base.lm.gz \
-    john@gpu:~/vosk-model-en-us-0.22-lgraph/compile/missing_pronunciations.txt \
-    ~/Downloads/vosk-model-en-us-0.22-lgraph/compile/
-```
-
 ## Adding Domain Vocabulary
 
-### 1. Edit db/extra.txt
+### Option A: Extract from corpus (recommended)
 
-Add domain-specific text containing words you want recognized:
+Use the `extract_vocabulary.py` tool to find missing words in your markdown files:
 
 ```bash
-ssh john@gpu "cat >> ~/vosk-model-en-us-0.22-lgraph/compile/db/extra.txt << 'EOF'
-your domain specific words and phrases here
-technical terms product names etc
-EOF"
+cd /path/to/talkie
+
+# Extract vocabulary from your source directories
+./tools/extract_vocabulary.py ~/src ~/Documents/notes \
+    --model ~/Downloads/vosk-model-en-us-0.22-lgraph \
+    --output ~/Downloads/vosk-model-en-us-0.22-lgraph/compile/db \
+    --top 500 \
+    --min-occurrences 3
+
+# This creates:
+#   db/extra.txt  - Context sentences containing missing words
+#   db/extra.dic  - G2P pronunciations for missing words
 ```
 
-Or edit locally and copy:
+### Option B: Manual vocabulary
+
+Add domain-specific words directly:
 
 ```bash
-echo "myterm anotherterm" >> ~/Downloads/vosk-model-en-us-0.22-lgraph/compile/db/extra.txt
-scp ~/Downloads/vosk-model-en-us-0.22-lgraph/compile/db/extra.txt \
-    john@gpu:~/vosk-model-en-us-0.22-lgraph/compile/db/
-```
+cd /path/to/vosk-model-en-us-0.22-lgraph/compile
 
-### 2. (Optional) Add manual pronunciations
+# Add sentences containing your words (for LM context)
+cat >> db/extra.txt << 'EOF'
+kubernetes kubectl pods deployments
+nginx reverse proxy configuration
+EOF
 
-For words where G2P might produce incorrect results, add to `db/extra.dic`:
-
-```bash
-ssh john@gpu "cat >> ~/vosk-model-en-us-0.22-lgraph/compile/db/extra.dic << 'EOF'
-kubectl k UW b k T L
+# Add manual pronunciations for tricky words
+cat >> db/extra.dic << 'EOF'
+kubectl K UW B K T L
 nginx E N JH IH N EH K S
-EOF"
+EOF
 ```
 
-### 3. Rebuild the graph
+### Rebuild the graph
 
 ```bash
-ssh john@gpu "cd ~/vosk-model-en-us-0.22-lgraph/compile && ./compile-lgraph.sh"
+cd /path/to/vosk-model-en-us-0.22-lgraph/compile
+./compile-lgraph.sh
 ```
 
 The script:
-1. Generates the pruned lexicon (filters en.dic to LM words + domain words)
+1. Generates pruned lexicon (LM words + domain words from extra.txt)
 2. Runs Kaldi's `prepare_lang.sh` to create language files
-3. Builds `Gr.fst` from the base LM
+3. Builds `Gr.fst` from the base language model
 4. Builds `HCLr.fst` with olabel_lookahead format
-5. Installs the new graph to `../graph/` (backs up previous to `../graph.bak/`)
+5. Installs to `../graph/` (backs up previous to `../graph.bak/`)
 
-### 4. Copy updated model to local machine
+## Remote Build Workflow
 
-```bash
-scp -r john@gpu:~/vosk-model-en-us-0.22-lgraph/graph \
-    ~/Downloads/vosk-model-en-us-0.22-lgraph/
-```
-
-Or sync the entire model:
+If building on a remote host (e.g., GPU server with more RAM):
 
 ```bash
-rsync -av john@gpu:~/vosk-model-en-us-0.22-lgraph/ \
+# Copy model to remote
+scp -r ~/Downloads/vosk-model-en-us-0.22-lgraph user@remote:~/
+
+# Run one-time setup on remote (if not done)
+ssh user@remote "cd ~/vosk-model-en-us-0.22-lgraph/compile && \
+    export PATH=\$HOME/miniforge3/bin:\$PATH && \
+    ngramprint --ARPA ../graph/Gr.fst | gzip > lgraph-base.lm.gz"
+
+# Copy vocabulary files to remote
+scp ~/Downloads/vosk-model-en-us-0.22-lgraph/compile/db/extra.* \
+    user@remote:~/vosk-model-en-us-0.22-lgraph/compile/db/
+
+# Build on remote
+ssh user@remote "cd ~/vosk-model-en-us-0.22-lgraph/compile && \
+    CONTAINER_CMD=docker ./compile-lgraph.sh"
+
+# Copy result back
+scp -r user@remote:~/vosk-model-en-us-0.22-lgraph/graph \
     ~/Downloads/vosk-model-en-us-0.22-lgraph/
 ```
 
 ## Output Files
 
-The build produces in `graph/`:
+After successful build:
 
 | File | Size | Description |
 |------|------|-------------|
-| HCLr.fst | ~27MB | Lexicon/acoustic graph (olabel_lookahead format) |
-| Gr.fst | ~80MB | Language model (const format) |
-| words.txt | ~3.5MB | Vocabulary (~232k words, pruned to LM) |
-| phones.txt | ~2KB | Phone symbols |
-| phones/ | - | Phone definitions |
+| graph/HCLr.fst | ~27MB | Lexicon/acoustic graph (olabel_lookahead) |
+| graph/Gr.fst | ~77MB | Language model (const format) |
+| graph/words.txt | ~3.6MB | Vocabulary (~239k words) |
 
 ## Troubleshooting
 
 ### "lgraph-base.lm.gz not found"
 
-Run the one-time extraction step (section above).
+Run the one-time extraction step above.
 
 ### Model produces garbage output
 
-Check that HCLr.fst has the correct FST type:
-
+Check HCLr.fst has correct type:
 ```bash
 file ~/Downloads/vosk-model-en-us-0.22-lgraph/graph/HCLr.fst
 # Should show: fst type: olabel_lookahead
 ```
 
-If it shows `fst type: vector`, the lookahead conversion failed. Check that the Kaldi container has the lookahead library:
-
-```bash
-podman run --rm docker.io/kaldiasr/kaldi:latest \
-    ls /opt/kaldi/tools/openfst-1.8.4/lib/fst/olabel_lookahead-fst.so
-```
+If it shows `fst type: vector`, the lookahead conversion failed.
 
 ### Missing words
 
-Check the vocabulary includes your word:
-
+Check vocabulary includes your word:
 ```bash
 grep "yourword" ~/Downloads/vosk-model-en-us-0.22-lgraph/graph/words.txt
 ```
@@ -251,10 +243,16 @@ If missing, ensure it's in `db/extra.txt` and rebuild.
 
 ### Restore previous graph
 
-If the new graph has issues:
-
 ```bash
-ssh john@gpu "cd ~/vosk-model-en-us-0.22-lgraph && rm -rf graph && mv graph.bak graph"
+cd ~/Downloads/vosk-model-en-us-0.22-lgraph
+rm -rf graph && mv graph.bak graph
+```
+
+### Container permission errors
+
+If files are created as root by container:
+```bash
+sudo chown -R $USER:$USER compile/data compile/build
 ```
 
 ## References
