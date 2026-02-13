@@ -103,9 +103,11 @@ namespace eval ::engine {
             proc audio_callback {stream_name timestamp data} {
                 variable processing_tid
 
-                # ONE thing only: queue raw audio to processing thread
+                # Tag with wall-clock time for staleness detection
+                set submit_ms [clock milliseconds]
+
                 thread::send -async $processing_tid \
-                    [list ::processing::worker::process_audio $timestamp $data]
+                    [list ::processing::worker::process_audio $timestamp $data $submit_ms]
             }
 
             proc close {} {
@@ -147,6 +149,9 @@ namespace eval ::engine {
             variable last_callback_time 0
             variable last_audiolevel 0.0
             variable level_change_count 0
+
+            # Backlog detection state
+            variable backlog_skip_count 0
 
             proc init {main_tid_arg engine_name_arg engine_type_arg model_path sample_rate script_dir_arg config_dict} {
                 variable main_tid $main_tid_arg
@@ -247,7 +252,7 @@ namespace eval ::engine {
             }
 
             # Process audio chunk from audio worker
-            proc process_audio {timestamp data} {
+            proc process_audio {timestamp data {submit_ms 0}} {
                 variable this_speech_time
                 variable last_speech_time
                 variable audio_buffer_list
@@ -261,8 +266,24 @@ namespace eval ::engine {
                 variable last_callback_time
                 variable last_audiolevel
                 variable level_change_count
+                variable backlog_skip_count
 
                 try {
+                    # Skip stale audio chunks (>500ms old)
+                    if {$submit_ms > 0} {
+                        set age_ms [expr {[clock milliseconds] - $submit_ms}]
+                        if {$age_ms > 500} {
+                            incr backlog_skip_count
+                            if {$backlog_skip_count % 100 == 0} {
+                                puts stderr "BACKLOG: skipped $backlog_skip_count stale chunks (age=${age_ms}ms)"
+                            }
+                            return
+                        } elseif {$backlog_skip_count > 0} {
+                            puts stderr "BACKLOG-CLEARED: skipped $backlog_skip_count stale chunks"
+                            set backlog_skip_count 0
+                        }
+                    }
+
                     # Compute energy here (not in audio thread)
                     set audiolevel [audio::energy $data int16]
 
@@ -402,8 +423,11 @@ namespace eval ::engine {
                 variable last_speech_time
                 variable audio_buffer_list
                 variable recognizer
+                variable backlog_skip_count
 
                 set transcribing $value
+                set backlog_skip_count 0
+
                 if {!$value} {
                     set last_speech_time 0
                     set audio_buffer_list {}
@@ -423,9 +447,11 @@ namespace eval ::engine {
                 variable engine_name
                 variable last_speech_time
                 variable audio_buffer_list
+                variable backlog_skip_count
 
                 set last_speech_time 0
                 set audio_buffer_list {}
+                set backlog_skip_count 0
 
                 try {
                     if {$engine_type eq "critcl"} {
