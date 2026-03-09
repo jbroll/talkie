@@ -3,7 +3,7 @@
 
 # Setup paths
 set script_dir [file dirname [info script]]
-lappend auto_path [file normalize $script_dir/lib]
+lappend auto_path [file normalize $script_dir/../ov/lib]
 lappend auto_path [file normalize $script_dir/../wordpiece/lib]
 
 # Load pipeline

@@ -2,6 +2,9 @@
 
 cd "$(dirname "$(realpath "$0")")"
 
+# Ensure user binaries (tclsh9.1, etc.) are in PATH for desktop launches
+export PATH="$HOME/bin:$HOME/.local/bin:$PATH"
+
 # OpenVINO and NPU driver libraries for GEC inference
 export LD_LIBRARY_PATH="$HOME/pkg/openvino-src/bin/intel64/Release:$HOME/pkg/linux-npu-driver/build/lib:$HOME/.local/lib:$LD_LIBRARY_PATH"
 export OPENBLAS_NUM_THREADS=4

@@ -5,7 +5,7 @@ package require critcl 3.1
 # Ensure PortAudio headers & library available at compile time
 critcl::cheaders /usr/include/portaudio.h
 critcl::clibraries -lportaudio
-critcl::clibraries -L/usr/lib -ltclstub8.6
+critcl::clibraries -L/home/john/pkg/install/lib -ltclstub
 
 # Namespace
 namespace eval pa {}

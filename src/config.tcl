@@ -61,6 +61,11 @@ proc config_load {} {
         gec_homophone              1
         gec_punctcap               1
         gec_grammar                0
+        vad_engine                 threshold
+        vad_device                 CPU
+        vad_threshold              0.5
+        vad_end_threshold          0.35
+        vad_silence_seconds        0.15
     } {*}[array get ::config]]
 
     set file [config_file]
@@ -107,6 +112,13 @@ proc config_trace {} {
     trace add variable ::config(min_duration) write config_processing_change
     trace add variable ::config(audio_threshold) write config_processing_change
     trace add variable ::config(spike_suppression_seconds) write config_processing_change
+    trace add variable ::config(vad_threshold) write config_processing_change
+    trace add variable ::config(vad_end_threshold) write config_processing_change
+    trace add variable ::config(vad_silence_seconds) write config_processing_change
+
+    # VAD engine/device changes require engine restart (like speech engine change)
+    trace add variable ::config(vad_engine) write config_vad_change
+    trace add variable ::config(vad_device) write config_vad_change
 }
 
 proc config_gec_change {name1 name2 op} {
@@ -116,6 +128,11 @@ proc config_gec_change {name1 name2 op} {
             puts stderr "config_gec_change: failed to propagate $name2: $err"
         }
     }
+}
+
+proc config_vad_change {args} {
+    # VAD engine or device change requires processing worker restart
+    config_engine_change
 }
 
 proc config_processing_change {name1 name2 op} {

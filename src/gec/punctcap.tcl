@@ -3,7 +3,7 @@
 # Uses token classification to predict punctuation and capitalization
 # for each word in lowercase, unpunctuated text from speech recognition.
 
-package require gec
+package require ov
 package require wordpiece
 
 source [file join [file dirname [info script]] tokens.tcl]
@@ -78,7 +78,7 @@ proc punctcap::init {args} {
     wordpiece::load $vocab_path
 
     # Load DistilBERT model
-    set model [gec::load_model -path $model_path -device $device]
+    set model [ov::load_model -path $model_path -device $device]
     set request [$model create_request]
 
     set initialized 1

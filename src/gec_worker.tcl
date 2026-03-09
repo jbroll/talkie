@@ -43,6 +43,7 @@ namespace eval ::gec_worker {
 
                 # Set up auto_path for packages
                 set gec_dir [file join $script_dir gec]
+                lappend ::auto_path [file join $script_dir ov lib]
                 lappend ::auto_path [file join $gec_dir lib]
                 lappend ::auto_path [file join $script_dir wordpiece lib]
                 if {[lsearch -exact $::auto_path "$::env(HOME)/.local/lib/tcllib2.0"] < 0} {
@@ -111,10 +112,10 @@ namespace eval ::gec_worker {
 
                 # Load pipeline
                 source [file join $gec_dir pipeline.tcl]
-                package require gec
+                package require ov
 
                 # Detect device
-                set available_devices [gec::devices]
+                set available_devices [ov::devices]
                 set use_device "CPU"
                 if {"NPU" in $available_devices} {
                     set use_device "NPU"

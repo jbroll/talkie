@@ -1,5 +1,5 @@
-# gec.tcl - Critcl OpenVINO bindings for Grammar Error Correction
-# Provides inference on Intel NPU using OpenVINO C API
+# ov.tcl - Critcl OpenVINO bindings (generic inference engine)
+# Provides inference on any OpenVINO device using the OpenVINO C API
 package require critcl 3.1
 
 # OpenVINO paths
@@ -10,17 +10,19 @@ set ov_lib /home/john/pkg/openvino-src/bin/intel64/Release
 critcl::cheaders -I$ov_include
 critcl::clibraries -L$ov_lib -lopenvino_c -lopenvino
 
-# Link against Tcl stubs library (required for Tcl 9)
-critcl::clibraries -L/usr/lib -ltclstub8.6
+# Link against Tcl 9 stubs library
+critcl::clibraries -L/home/john/pkg/install/lib -ltclstub
+
 
 # Namespace
-namespace eval gec {}
+namespace eval ov {}
 
 ########################
 # C core: OpenVINO model management
 critcl::ccode {
 #include <tcl.h>
 #include <openvino/c/openvino.h>
+#include <inttypes.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -220,7 +222,7 @@ static int ModelObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *con
         /* Create unique command name */
         static int infer_counter = 0;
         char namebuf[64];
-        sprintf(namebuf, "gec_infer%d", ++infer_counter);
+        sprintf(namebuf, "ov_infer%d", ++infer_counter);
         Tcl_Obj *nameObj = Tcl_NewStringObj(namebuf, -1);
         Tcl_IncrRefCount(nameObj);
         inf_ctx->cmdname = nameObj;
@@ -259,9 +261,10 @@ static int InferObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *con
     const char *sub = Tcl_GetString(objv[1]);
 
     if (strcmp(sub, "set_input") == 0) {
-        /* set_input index data_list */
-        if (objc != 4) {
-            Tcl_WrongNumArgs(interp, 2, objv, "index data_list");
+        /* set_input index data_list ?-type f32|i64|i32? ?-shape {dims...}? */
+        if (objc < 4) {
+            Tcl_WrongNumArgs(interp, 2, objv,
+                "index data_list ?-type f32|i64|i32? ?-shape {dims...}?");
             return TCL_ERROR;
         }
 
@@ -270,44 +273,149 @@ static int InferObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *con
             return TCL_ERROR;
         }
 
-        /* Get the list of int64 values */
+        /* Get the list of values */
         Tcl_Size list_len;
         if (Tcl_ListObjLength(interp, objv[3], &list_len) != TCL_OK) {
             return TCL_ERROR;
         }
 
-        /* Create tensor with shape [1, list_len] for typical BERT-style input */
-        int64_t dims[2] = {1, (int64_t)list_len};
+        /* Default type and shape */
+        ov_element_type_e elem_type = I64;
+        int64_t default_dims[2] = {1, (int64_t)list_len};
+        int64_t custom_dims[16];
+        int64_t *shape_dims = default_dims;
+        int shape_rank = 2;
+        int has_custom_shape = 0;
+
+        /* Parse optional flags */
+        int i = 4;
+        while (i < objc) {
+            const char *opt = Tcl_GetString(objv[i]);
+            if (strcmp(opt, "-type") == 0 && i+1 < objc) {
+                const char *type_str = Tcl_GetString(objv[++i]);
+                if (strcmp(type_str, "f32") == 0) {
+                    elem_type = F32;
+                } else if (strcmp(type_str, "i64") == 0) {
+                    elem_type = I64;
+                } else if (strcmp(type_str, "i32") == 0) {
+                    elem_type = I32;
+                } else {
+                    Tcl_AppendResult(interp, "unknown type \"", type_str,
+                                     "\": must be f32, i64, or i32", NULL);
+                    return TCL_ERROR;
+                }
+            } else if (strcmp(opt, "-shape") == 0 && i+1 < objc) {
+                Tcl_Obj *shape_obj = objv[++i];
+                Tcl_Size rank;
+                if (Tcl_ListObjLength(interp, shape_obj, &rank) != TCL_OK) {
+                    return TCL_ERROR;
+                }
+                if (rank == 0 || rank > 16) {
+                    Tcl_AppendResult(interp, "shape must have 1-16 dimensions", NULL);
+                    return TCL_ERROR;
+                }
+                for (Tcl_Size j = 0; j < rank; j++) {
+                    Tcl_Obj *dim_obj;
+                    Tcl_ListObjIndex(interp, shape_obj, j, &dim_obj);
+                    Tcl_WideInt dim_val;
+                    if (Tcl_GetWideIntFromObj(interp, dim_obj, &dim_val) != TCL_OK) {
+                        return TCL_ERROR;
+                    }
+                    custom_dims[j] = (int64_t)dim_val;
+                }
+                shape_rank = (int)rank;
+                shape_dims = custom_dims;
+                has_custom_shape = 1;
+            } else {
+                Tcl_AppendResult(interp, "unknown option \"", opt,
+                                 "\": must be -type or -shape", NULL);
+                return TCL_ERROR;
+            }
+            i++;
+        }
+
+        /* Update default shape dims in case list_len changed */
+        if (!has_custom_shape) {
+            default_dims[0] = 1;
+            default_dims[1] = (int64_t)list_len;
+            shape_dims = default_dims;
+            shape_rank = 2;
+        }
+
+        /* Validate: product(shape) == list_len */
+        int64_t product = 1;
+        for (int j = 0; j < shape_rank; j++) {
+            product *= shape_dims[j];
+        }
+        if (product != (int64_t)list_len) {
+            char buf[256];
+            snprintf(buf, sizeof(buf),
+                     "shape product %" PRId64 " != data length %" PRId64,
+                     product, (int64_t)list_len);
+            Tcl_SetObjResult(interp, Tcl_NewStringObj(buf, -1));
+            return TCL_ERROR;
+        }
+
+        /* Create tensor with specified type and shape */
         ov_shape_t shape;
-        ov_status_e status = ov_shape_create(2, dims, &shape);
+        ov_status_e status = ov_shape_create(shape_rank, shape_dims, &shape);
         if (status != OK) {
             return SetOVError(interp, "Failed to create shape", status);
         }
 
         ov_tensor_t *tensor = NULL;
-        status = ov_tensor_create(I64, shape, &tensor);
+        status = ov_tensor_create(elem_type, shape, &tensor);
         ov_shape_free(&shape);
         if (status != OK) {
             return SetOVError(interp, "Failed to create tensor", status);
         }
 
-        /* Fill tensor data */
-        int64_t *data = NULL;
-        status = ov_tensor_data(tensor, (void**)&data);
+        /* Get tensor data pointer */
+        void *data_ptr = NULL;
+        status = ov_tensor_data(tensor, &data_ptr);
         if (status != OK) {
             ov_tensor_free(tensor);
             return SetOVError(interp, "Failed to get tensor data", status);
         }
 
-        for (Tcl_Size i = 0; i < list_len; i++) {
-            Tcl_Obj *elem;
-            Tcl_ListObjIndex(interp, objv[3], i, &elem);
-            Tcl_WideInt val;
-            if (Tcl_GetWideIntFromObj(interp, elem, &val) != TCL_OK) {
-                ov_tensor_free(tensor);
-                return TCL_ERROR;
+        /* Fill tensor data based on type */
+        if (elem_type == F32) {
+            float *fdata = (float*)data_ptr;
+            for (Tcl_Size k = 0; k < list_len; k++) {
+                Tcl_Obj *elem;
+                Tcl_ListObjIndex(interp, objv[3], k, &elem);
+                double dval;
+                if (Tcl_GetDoubleFromObj(interp, elem, &dval) != TCL_OK) {
+                    ov_tensor_free(tensor);
+                    return TCL_ERROR;
+                }
+                fdata[k] = (float)dval;
             }
-            data[i] = (int64_t)val;
+        } else if (elem_type == I32) {
+            int32_t *idata = (int32_t*)data_ptr;
+            for (Tcl_Size k = 0; k < list_len; k++) {
+                Tcl_Obj *elem;
+                Tcl_ListObjIndex(interp, objv[3], k, &elem);
+                int ival;
+                if (Tcl_GetIntFromObj(interp, elem, &ival) != TCL_OK) {
+                    ov_tensor_free(tensor);
+                    return TCL_ERROR;
+                }
+                idata[k] = (int32_t)ival;
+            }
+        } else {
+            /* I64 (default) */
+            int64_t *idata = (int64_t*)data_ptr;
+            for (Tcl_Size k = 0; k < list_len; k++) {
+                Tcl_Obj *elem;
+                Tcl_ListObjIndex(interp, objv[3], k, &elem);
+                Tcl_WideInt val;
+                if (Tcl_GetWideIntFromObj(interp, elem, &val) != TCL_OK) {
+                    ov_tensor_free(tensor);
+                    return TCL_ERROR;
+                }
+                idata[k] = (int64_t)val;
+            }
         }
 
         /* Set the tensor as input */
@@ -539,8 +647,8 @@ static int InferObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *con
     return TCL_ERROR;
 }
 
-/* Tcl command: gec::load_model -path <path> ?-device <device>? */
-static int GecLoadModelCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+/* Tcl command: ov::load_model -path <path> ?-device <device>? */
+static int OvLoadModelCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     (void)cd;
 
     const char *model_path = NULL;
@@ -621,7 +729,7 @@ static int GecLoadModelCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj 
     /* Create unique Tcl command name */
     static int model_counter = 0;
     char namebuf[64];
-    sprintf(namebuf, "gec_model%d", ++model_counter);
+    sprintf(namebuf, "ov_model%d", ++model_counter);
     Tcl_Obj *nameObj = Tcl_NewStringObj(namebuf, -1);
     Tcl_IncrRefCount(nameObj);
     ctx->cmdname = nameObj;
@@ -634,8 +742,8 @@ static int GecLoadModelCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj 
     return TCL_OK;
 }
 
-/* Tcl command: gec::version */
-static int GecVersionCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+/* Tcl command: ov::version */
+static int OvVersionCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     (void)cd;
     (void)objc;
     (void)objv;
@@ -658,8 +766,8 @@ static int GecVersionCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *c
     return TCL_OK;
 }
 
-/* Tcl command: gec::devices */
-static int GecDevicesCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+/* Tcl command: ov::devices */
+static int OvDevicesCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     (void)cd;
     (void)objc;
     (void)objv;
@@ -693,9 +801,9 @@ static int GecDevicesCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *c
 
 critcl::cinit {
     /* Create package commands */
-    Tcl_CreateObjCommand(interp, "gec::load_model", GecLoadModelCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "gec::version", GecVersionCmd, NULL, NULL);
-    Tcl_CreateObjCommand(interp, "gec::devices", GecDevicesCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "ov::load_model", OvLoadModelCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "ov::version", OvVersionCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "ov::devices", OvDevicesCmd, NULL, NULL);
 } ""
 
-package provide gec 1.0
+package provide ov 1.0

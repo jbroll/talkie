@@ -33,9 +33,14 @@ set transcribing 0
 set audiolevel   0
 set buffer_health 0
 set buffer_overflows 0
+set vad_prob -1.0
 
 # Available speech engines (global list for config dialog)
 set ::speech_engines {vosk sherpa faster-whisper}
+
+# Available VAD engines and devices
+set ::vad_engines {threshold silero}
+set ::vad_devices {CPU NPU}
 
 # The global configuration array with the defaults
 #
@@ -60,12 +65,21 @@ array set ::config {
     gec_homophone             1
     gec_punctcap              1
     gec_grammar               0
+    vad_engine                threshold
+    vad_device                CPU
+    vad_threshold             0.5
+    vad_end_threshold         0.35
+    vad_silence_seconds       0.15
 }
 
 # UI initializaiton and callbacks -----------------------------------
 
 proc audiolevel { value } { return [format "Audio: %7.2f" $value] }
 proc threshold_label { value } { return [format "Thr: %5.2f" $value] }
+proc vad_prob_label { value } {
+    if {$value < 0} { return "VAD:    ---" }
+    return [format "VAD:  %.3f" $value]
+}
 proc health_label { value } {
     upvar ::buffer_overflows overflows
     if {$value == 0} { return "OK" }
@@ -104,6 +118,7 @@ grid [row .w -sticky news {
     ! Start        -text :transcribing@TranscribingButtonLabel -command "if {\$::transcribing} { audio::stop_transcription } else { audio::start_transcription }"         -width 15
     @ Thr: -text :audio_threshold!threshold_label -bg :is_speech@SpeechStatusColor -width 10
     @ Audio: -text :audiolevel!audiolevel -bg :audiolevel&AudioRanges   -width 13
+    @ "" -text :vad_prob!vad_prob_label -bg :is_speech@SpeechStatusColor -width 11
     @ Buf:   -text :buffer_health!health_label -bg :buffer_health&HealthColors -width 13
     @ "" -width 5
     ! Config -command config
@@ -159,6 +174,19 @@ proc build_config_spec {} {
     lappend config_spec @ "" - &
     lappend config_spec @ "GEC Stages" ~ "Homophones" -variable config(gec_homophone) ~ "Punct/Caps" -variable config(gec_punctcap) ~ "Grammar" -variable config(gec_grammar)
 
+    # VAD Engine options
+    lappend config_spec @ "" - &
+    lappend config_spec @ "VAD Engine" x ? config(vad_engine) -listvariable vad_engines &
+    if {[info exists ::config(vad_engine)] && $::config(vad_engine) eq "silero"} {
+        lappend config_spec @ "VAD Device" x ? config(vad_device) -listvariable vad_devices &
+        lappend config_spec @ "VAD Start Threshold" @ :config(vad_threshold) -width 10 \
+            <--> config(vad_threshold) -from 0.0 -to 1.0 -resolution 0.05 &
+        lappend config_spec @ "VAD End Threshold" @ :config(vad_end_threshold) -width 10 \
+            <--> config(vad_end_threshold) -from 0.0 -to 1.0 -resolution 0.05 &
+        lappend config_spec @ "VAD Silence (s)" @ :config(vad_silence_seconds) -width 10 \
+            <--> config(vad_silence_seconds) -from 0.05 -to 1.0 -resolution 0.05
+    }
+
     return $config_spec
 }
 
@@ -177,9 +205,10 @@ proc config_dialog_refresh {args} {
 }
 
 proc config {} {
-    # Set up trace to rebuild dialog when engine changes
+    # Set up trace to rebuild dialog when engine or VAD engine changes
     if {![info exists ::config_dialog_trace_set]} {
         trace add variable ::config(speech_engine) write config_dialog_refresh
+        trace add variable ::config(vad_engine) write config_dialog_refresh
         set ::config_dialog_trace_set 1
     }
 

@@ -2,8 +2,8 @@
 # Provides fast tokenization using critcl C implementation
 package require critcl 3.1
 
-# Link against Tcl stubs library
-critcl::clibraries -L/usr/lib -ltclstub8.6
+# Link against Tcl 9 stubs library
+critcl::clibraries -L/home/john/pkg/install/lib -ltclstub
 
 namespace eval wordpiece {}
 

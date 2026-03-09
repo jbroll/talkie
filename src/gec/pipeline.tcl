@@ -10,7 +10,7 @@
 #   set corrected [gec_pipeline::process $text]
 #   gec_pipeline::cleanup
 
-package require gec
+package require ov
 package require wordpiece
 
 namespace eval gec_pipeline {

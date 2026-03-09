@@ -5,7 +5,7 @@ package require critcl 3.1
 # Ensure Vosk headers & library available at compile time
 critcl::cheaders $::env(HOME)/.local/include/vosk_api.h
 critcl::clibraries -L$::env(HOME)/.local/lib -lvosk -lm -lstdc++
-critcl::clibraries -L/usr/lib -ltclstub8.6
+critcl::clibraries -L/home/john/pkg/install/lib -ltclstub
 
 # Namespace
 namespace eval vosk {}

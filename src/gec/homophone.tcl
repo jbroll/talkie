@@ -5,7 +5,7 @@
 # src/pos_disambiguate.py from the pronunciation dictionary (en.dic).
 # See data/HOMOPHONES.md for generation instructions.
 
-package require gec
+package require ov
 package require wordpiece
 
 source [file join [file dirname [info script]] tokens.tcl]
@@ -77,7 +77,7 @@ proc homophone::init {args} {
     set count [load_homophones $homophones_path]
 
     # Load ELECTRA model
-    set model [gec::load_model -path $model_path -device $device]
+    set model [ov::load_model -path $model_path -device $device]
     set request [$model create_request]
 
     # Initialize multi-token homophones

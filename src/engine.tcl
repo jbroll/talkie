@@ -153,6 +153,9 @@ namespace eval ::engine {
             # Backlog detection state
             variable backlog_skip_count 0
 
+            # Last Silero VAD probability (-1.0 = not using Silero)
+            variable last_vad_prob -1.0
+
             proc init {main_tid_arg engine_name_arg engine_type_arg model_path sample_rate script_dir_arg config_dict} {
                 variable main_tid $main_tid_arg
                 variable engine_name $engine_name_arg
@@ -169,9 +172,34 @@ namespace eval ::engine {
                 }
                 lappend ::auto_path [file join $script_dir vosk lib vosk]
                 lappend ::auto_path [file join $script_dir audio lib audio]
+                lappend ::auto_path [file join $script_dir ov lib ov]
 
                 package require json
                 package require audio
+
+                # Load ov and Silero VAD if configured
+                if {[info exists config(vad_engine)] && $config(vad_engine) eq "silero"} {
+                    package require ov
+                    source [file join $script_dir vad_silero.tcl]
+                    set vad_model [file join $script_dir .. models vad silero_vad_ifless.onnx]
+                    set vad_device [expr {[info exists config(vad_device)] ? $config(vad_device) : "CPU"}]
+                    set vad_thresh [expr {[info exists config(vad_threshold)] ? $config(vad_threshold) : 0.5}]
+                    if {[catch {::vad::silero::init $vad_model $vad_device $vad_thresh} err]} {
+                        puts stderr "Silero VAD init failed on $vad_device: $err"
+                        if {$vad_device ne "CPU"} {
+                            puts stderr "Retrying Silero VAD on CPU..."
+                            if {[catch {::vad::silero::init $vad_model CPU $vad_thresh} err2]} {
+                                puts stderr "Silero VAD CPU fallback failed: $err2 — falling back to energy threshold"
+                                set config(vad_engine) threshold
+                            } else {
+                                set config(vad_device) CPU
+                            }
+                        } else {
+                            puts stderr "Silero VAD failed — falling back to energy threshold"
+                            set config(vad_engine) threshold
+                        }
+                    }
+                }
 
                 if {$engine_type eq "critcl"} {
                     package require vosk
@@ -199,12 +227,13 @@ namespace eval ::engine {
                 }
             }
 
-            proc is_speech {audiolevel} {
+            proc is_speech {audiolevel {data ""}} {
                 variable config
                 variable last_speech_time
                 variable last_is_speech_ms
                 variable last_segment_end_ms
                 variable consecutive_speech
+                variable last_vad_prob
 
                 set in_segment [expr {$last_speech_time != 0}]
                 set current_ms [clock milliseconds]
@@ -215,8 +244,30 @@ namespace eval ::engine {
                     set last_is_speech_ms 0
                 }
 
-                # Simple fixed threshold from config
-                set raw_is_speech [expr {$audiolevel > $config(audio_threshold)}]
+                # VAD dispatch: Silero or energy threshold
+                if {[info exists config(vad_engine)] && $config(vad_engine) eq "silero" && $data ne ""} {
+                    set prob [::vad::silero::process $data]
+                    if {$prob < 0} {
+                        # Not enough data accumulated yet — use previous speech state
+                        return [expr {$last_is_speech_ms > 0}]
+                    }
+                    set last_vad_prob $prob
+                    # Schmitt trigger (hysteresis): higher threshold to START, lower to END
+                    # Prevents oscillation when prob hovers near the threshold mid-utterance
+                    # Fast end detection comes from shorter vad_silence_seconds, not a higher exit threshold
+                    if {$in_segment} {
+                        set exit_thresh [expr {[info exists config(vad_end_threshold)]
+                                               ? $config(vad_end_threshold)
+                                               : $::vad::silero::threshold * 0.7}]
+                        set raw_is_speech [expr {$prob > $exit_thresh}]
+                    } else {
+                        set raw_is_speech [expr {$prob > $::vad::silero::threshold}]
+                    }
+                } else {
+                    set last_vad_prob -1.0
+                    # Simple fixed threshold from config
+                    set raw_is_speech [expr {$audiolevel > $config(audio_threshold)}]
+                }
 
                 # Track consecutive samples above threshold
                 if {$raw_is_speech} {
@@ -226,8 +277,10 @@ namespace eval ::engine {
                 }
 
                 # Require 3 consecutive samples (~75ms) above threshold to START a segment
+                # (energy threshold only — Silero already handles noise internally)
                 # Once in a segment, single samples are enough to continue
-                if {$in_segment} {
+                set using_silero [expr {[info exists config(vad_engine)] && $config(vad_engine) eq "silero"}]
+                if {$in_segment || $using_silero} {
                     set is_speech $raw_is_speech
                 } else {
                     # Need sustained speech to start a new segment
@@ -267,6 +320,7 @@ namespace eval ::engine {
                 variable last_audiolevel
                 variable level_change_count
                 variable backlog_skip_count
+                variable last_vad_prob
 
                 try {
                     # Skip stale audio chunks (>500ms old)
@@ -295,16 +349,19 @@ namespace eval ::engine {
                     }
                     set last_audiolevel $audiolevel
 
-                    set speech [is_speech $audiolevel]
+                    set speech [is_speech $audiolevel $data]
 
                     # Throttle UI updates to ~5Hz
                     set now [clock milliseconds]
                     if {$now - $last_ui_update_time >= 200} {
                         set threshold $config(audio_threshold)
-                        thread::send -async $main_tid [list ::engine::update_ui $audiolevel $speech $threshold]
+                        thread::send -async $main_tid [list ::engine::update_ui $audiolevel $speech $threshold $last_vad_prob]
                         set last_ui_update_time $now
-                        # Debug: show VAD state periodically
-                        if {$last_speech_time != 0} {
+                        # Debug: show Silero probability when active
+                        if {[info exists config(vad_engine)] && $config(vad_engine) eq "silero"} {
+                            set seg [expr {$last_speech_time != 0 ? "IN" : "out"}]
+                            puts stderr "VAD prob=[format %.3f $last_vad_prob] energy=[format %.1f $audiolevel] speech=$speech seg=$seg"
+                        } elseif {$last_speech_time != 0} {
                             puts stderr "VAD: in_segment=1 level=$audiolevel thresh=$threshold speech=$speech"
                         }
                     }
@@ -336,8 +393,13 @@ namespace eval ::engine {
                                 set last_speech_time $timestamp
                             } else {
                                 # In silence - check for timeout
+                                # Silero uses shorter vad_silence_seconds; energy VAD uses silence_seconds
+                                set using_silero [expr {[info exists config(vad_engine)] && $config(vad_engine) eq "silero"}]
+                                set sil_timeout [expr {$using_silero && [info exists config(vad_silence_seconds)]
+                                                       ? $config(vad_silence_seconds)
+                                                       : $config(silence_seconds)}]
                                 set silence_elapsed [expr {$timestamp - $last_speech_time}]
-                                if {$silence_elapsed > $config(silence_seconds)} {
+                                if {$silence_elapsed > $sil_timeout} {
                                     process_final
 
                                     set speech_duration [expr {$last_speech_time - $this_speech_time}]
@@ -408,6 +470,11 @@ namespace eval ::engine {
                     } else {
                         puts stderr "SEGMENT-END: empty result from recognizer"
                     }
+
+                    # Reset Silero state at utterance boundary
+                    if {[namespace exists ::vad::silero] && $::vad::silero::initialized} {
+                        ::vad::silero::reset
+                    }
                 } on error {err info} {
                     puts stderr "Processing worker final error: $err"
                 }
@@ -431,6 +498,10 @@ namespace eval ::engine {
                 if {!$value} {
                     set last_speech_time 0
                     set audio_buffer_list {}
+                    # Reset Silero state when stopping transcription
+                    if {[namespace exists ::vad::silero] && $::vad::silero::initialized} {
+                        ::vad::silero::reset
+                    }
                     if {$recognizer ne ""} {
                         catch {
                             if {[info commands $recognizer] ne ""} {
@@ -467,6 +538,10 @@ namespace eval ::engine {
             proc update_config {key value} {
                 variable config
                 set config($key) $value
+                # Propagate threshold to Silero VAD immediately
+                if {$key eq "vad_threshold" && [namespace exists ::vad::silero] && $::vad::silero::initialized} {
+                    set ::vad::silero::threshold $value
+                }
             }
 
             # Health monitoring: get status and reset counter
@@ -505,10 +580,11 @@ namespace eval ::engine {
     }
 
     # Called from worker thread to update UI variables
-    proc update_ui {audiolevel is_speech threshold} {
+    proc update_ui {audiolevel is_speech threshold {vad_prob -1.0}} {
         set ::audiolevel $audiolevel
         set ::is_speech $is_speech
         set ::audio_threshold $threshold
+        set ::vad_prob $vad_prob
     }
 
     # Initialize engine with decoupled audio capture

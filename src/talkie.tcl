@@ -1,4 +1,4 @@
-#!/usr/bin/env tclsh8.6
+#!/usr/bin/env tclsh
 # talkie.tcl - Tcl version of Talkie
 
 # Redefine bgerror to show errors on stderr instead of dialog
@@ -35,6 +35,7 @@ proc handle_instance_request {sock addr port} {
 check_single_instance
 
 lappend auto_path "$::env(HOME)/.local/lib/tcllib2.0"
+lappend auto_path "$::env(HOME)/pkg/install/lib/thread3.0.5"
 ::tcl::tm::path add "$::env(HOME)/lib/tcl8/site-tcl"
 
 package require Tk
@@ -64,6 +65,7 @@ set ::audiolevel 0
 set ::confidence 0
 set ::buffer_health 0
 set ::buffer_overflows 0
+set ::vad_prob -1.0
 
 proc quit {} {
     try { ::gec_worker::cleanup } on error message {}

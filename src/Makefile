@@ -10,6 +10,7 @@ build:
 	$(MAKE) -C audio
 	$(MAKE) -C uinput
 	$(MAKE) -C wordpiece
+	$(MAKE) -C ov
 	$(MAKE) -C gec
 
 clean:
@@ -18,6 +19,7 @@ clean:
 	$(MAKE) -C audio clean
 	$(MAKE) -C uinput clean
 	$(MAKE) -C wordpiece clean
+	$(MAKE) -C ov clean
 	$(MAKE) -C gec clean
 
 run: build

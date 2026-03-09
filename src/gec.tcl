@@ -36,6 +36,7 @@ proc ::gec::init {} {
     set gec_dir [file normalize [file join $script_dir gec]]
 
     # Add required paths
+    lappend ::auto_path [file normalize [file join $gec_dir ../ov/lib]]
     lappend ::auto_path [file join $gec_dir lib]
     lappend ::auto_path [file normalize [file join $gec_dir ../wordpiece/lib]]
 
@@ -67,12 +68,12 @@ proc ::gec::init {} {
         set grammar_model ""
     }
 
-    # Load pipeline and gec package for device detection
+    # Load pipeline and ov package for device detection
     source [file join $gec_dir pipeline.tcl]
-    package require gec
+    package require ov
 
     # Check available devices (like tests do)
-    set available_devices [gec::devices]
+    set available_devices [ov::devices]
     set use_device "CPU"
     if {"NPU" in $available_devices} {
         set use_device "NPU"
