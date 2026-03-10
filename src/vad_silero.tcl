@@ -9,30 +9,51 @@
 #   output 1: "stateN" f32 [2,1,128] - updated LSTM state
 #
 # Frame accumulation: PortAudio delivers 400 samples/callback (25ms).
-# Silero needs 512 samples (32ms). Accumulate int16 bytes until enough.
+# Silero needs 512 samples (32ms) at 16kHz. If audio is at a higher rate
+# (e.g. 44100 or 48000), samples are decimated by factor N = round(rate/16000).
+# Accumulator holds raw (pre-decimation) samples; window_bytes reflects this.
 
 namespace eval ::vad::silero {
     variable model ""
     variable request ""
-    variable state {}           ;# [2,1,128] = 256 floats, zeros init
-    variable accumulator ""     ;# binary int16 accumulator
+    variable state {}           ;# [2,1,128] = 256 floats, frozen during silence
+    variable accumulator ""     ;# binary int16 accumulator (raw sample rate)
     variable initialized 0
     variable threshold 0.5
+    variable end_threshold 0.35 ;# min prob to commit LSTM state update
 
-    # Window size in samples (must be >= 160 for this model)
+    # Fixed model input: 512 samples at 16kHz = 32ms
     variable window_samples 512
-    variable window_bytes   1024 ;# 512 * 2 bytes per int16
 
-    proc init {model_path {device CPU} {threshold_val 0.5}} {
+    # Set by init based on actual sample rate
+    variable decimate   1       ;# decimation factor (1 = no decimation)
+    variable window_bytes 1024  ;# window_samples * decimate * 2 bytes
+
+    # Last actual inference result; returned during accumulation so callers
+    # see a stable probability and don't mistake "not ready yet" for speech.
+    variable last_prob -1.0
+
+    proc init {model_path {device CPU} {threshold_val 0.5} {sample_rate 16000} {end_threshold_val 0.35}} {
         variable model
         variable request
         variable state
         variable accumulator
         variable initialized
         variable threshold
+        variable end_threshold
         variable window_samples
+        variable decimate
+        variable window_bytes
 
         set threshold $threshold_val
+        set end_threshold $end_threshold_val
+
+        # Compute decimation factor so we always feed 32ms worth of audio
+        set decimate [expr {max(1, round($sample_rate / 16000.0))}]
+        set window_bytes [expr {$window_samples * $decimate * 2}]
+        if {$decimate > 1} {
+            puts stderr "vad::silero: ${sample_rate}Hz input, decimating by $decimate → 16kHz"
+        }
 
         if {[catch {
             set model [ov::load_model -path $model_path -device $device]
@@ -47,10 +68,20 @@ namespace eval ::vad::silero {
         set initialized 1
     }
 
-    # Convert binary int16 PCM bytes to list of normalized f32 values [-1,1]
-    proc _to_float {bytes} {
+    # Convert binary int16 PCM bytes to list of normalized f32 values [-1,1],
+    # decimating by factor N (keeping every Nth sample).
+    proc _to_float {bytes {N 1}} {
         binary scan $bytes s* samples
-        return [lmap s $samples {expr {$s / 32768.0}}]
+        if {$N == 1} {
+            return [lmap s $samples {expr {$s / 32768.0}}]
+        }
+        set out {}
+        set i 0
+        foreach s $samples {
+            if {$i % $N == 0} { lappend out [expr {$s / 32768.0}] }
+            incr i
+        }
+        return $out
     }
 
     # Process a chunk of int16 audio data (binary bytes).
@@ -63,22 +94,27 @@ namespace eval ::vad::silero {
         variable initialized
         variable window_bytes
         variable window_samples
+        variable decimate
+        variable last_prob
+        variable end_threshold
 
         if {!$initialized} { return -1.0 }
 
         append accumulator $int16_data
 
-        # Not enough data yet
+        # Not enough data yet — return last known prob so callers see a stable
+        # decision rather than -1, which would be misread as "speech" and reset
+        # the silence timer. Only -1.0 on the very first window before any result.
         if {[string length $accumulator] < $window_bytes} {
-            return -1.0
+            return $last_prob
         }
 
         # Extract one window, keep remainder
         set window [string range $accumulator 0 [expr {$window_bytes - 1}]]
         set accumulator [string range $accumulator $window_bytes end]
 
-        # Convert int16 → float list
-        set audio_floats [_to_float $window]
+        # Convert int16 → float list, decimating to 16kHz
+        set audio_floats [_to_float $window $decimate]
 
         # Run inference
         $request set_input 0 $audio_floats -type f32 -shape [list 1 $window_samples]
@@ -89,19 +125,36 @@ namespace eval ::vad::silero {
         set out [$request get_output 0]
         set prob [lindex [dict get $out data] 0]
 
-        # Carry state forward
-        set state_out [$request get_output 1]
-        set state [dict get $state_out data]
+        # Only commit LSTM state when speech is present (prob >= end_threshold).
+        # During silence, state is frozen so it can't drift toward silence-bias
+        # over long quiet periods between utterances.
+        if {$prob >= $end_threshold} {
+            set state_out [$request get_output 1]
+            set state [dict get $state_out data]
+        }
 
+        set last_prob $prob
         return $prob
+    }
+
+    # Clear the sample accumulator and last_prob without touching LSTM state.
+    # Call when audio has been discontinuous (e.g. after backlog skip) to avoid
+    # feeding a window that mixes old and new audio to the model.
+    proc flush_accumulator {} {
+        variable accumulator
+        variable last_prob
+        set accumulator ""
+        set last_prob -1.0
     }
 
     # Reset LSTM state and accumulator (call at utterance boundaries)
     proc reset {} {
         variable state
         variable accumulator
+        variable last_prob
         set state [lrepeat 256 0.0]
         set accumulator ""
+        set last_prob -1.0
     }
 
     proc cleanup {} {

@@ -65,7 +65,6 @@ proc config_load {} {
         vad_device                 CPU
         vad_threshold              0.5
         vad_end_threshold          0.35
-        vad_silence_seconds        0.15
     } {*}[array get ::config]]
 
     set file [config_file]
@@ -114,7 +113,6 @@ proc config_trace {} {
     trace add variable ::config(spike_suppression_seconds) write config_processing_change
     trace add variable ::config(vad_threshold) write config_processing_change
     trace add variable ::config(vad_end_threshold) write config_processing_change
-    trace add variable ::config(vad_silence_seconds) write config_processing_change
 
     # VAD engine/device changes require engine restart (like speech engine change)
     trace add variable ::config(vad_engine) write config_vad_change

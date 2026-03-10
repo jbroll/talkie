@@ -182,13 +182,14 @@ namespace eval ::engine {
                     package require ov
                     source [file join $script_dir vad_silero.tcl]
                     set vad_model [file join $script_dir .. models vad silero_vad_ifless.onnx]
-                    set vad_device [expr {[info exists config(vad_device)] ? $config(vad_device) : "CPU"}]
-                    set vad_thresh [expr {[info exists config(vad_threshold)] ? $config(vad_threshold) : 0.5}]
-                    if {[catch {::vad::silero::init $vad_model $vad_device $vad_thresh} err]} {
+                    set vad_device     [expr {[info exists config(vad_device)]        ? $config(vad_device)        : "CPU"}]
+                    set vad_thresh     [expr {[info exists config(vad_threshold)]     ? $config(vad_threshold)     : 0.5}]
+                    set vad_end_thresh [expr {[info exists config(vad_end_threshold)] ? $config(vad_end_threshold) : 0.35}]
+                    if {[catch {::vad::silero::init $vad_model $vad_device $vad_thresh $sample_rate $vad_end_thresh} err]} {
                         puts stderr "Silero VAD init failed on $vad_device: $err"
                         if {$vad_device ne "CPU"} {
                             puts stderr "Retrying Silero VAD on CPU..."
-                            if {[catch {::vad::silero::init $vad_model CPU $vad_thresh} err2]} {
+                            if {[catch {::vad::silero::init $vad_model CPU $vad_thresh $sample_rate $vad_end_thresh} err2]} {
                                 puts stderr "Silero VAD CPU fallback failed: $err2 — falling back to energy threshold"
                                 set config(vad_engine) threshold
                             } else {
@@ -252,9 +253,8 @@ namespace eval ::engine {
                         return [expr {$last_is_speech_ms > 0}]
                     }
                     set last_vad_prob $prob
-                    # Schmitt trigger (hysteresis): higher threshold to START, lower to END
-                    # Prevents oscillation when prob hovers near the threshold mid-utterance
-                    # Fast end detection comes from shorter vad_silence_seconds, not a higher exit threshold
+                    # Schmitt trigger: higher threshold to START, lower to END
+                    # Prevents oscillation when prob hovers near threshold mid-utterance
                     if {$in_segment} {
                         set exit_thresh [expr {[info exists config(vad_end_threshold)]
                                                ? $config(vad_end_threshold)
@@ -327,6 +327,13 @@ namespace eval ::engine {
                     if {$submit_ms > 0} {
                         set age_ms [expr {[clock milliseconds] - $submit_ms}]
                         if {$age_ms > 500} {
+                            # On first skip, flush Silero accumulator so stale audio
+                            # doesn't contaminate the next inference window
+                            if {$backlog_skip_count == 0} {
+                                if {[namespace exists ::vad::silero] && $::vad::silero::initialized} {
+                                    ::vad::silero::flush_accumulator
+                                }
+                            }
                             incr backlog_skip_count
                             if {$backlog_skip_count % 100 == 0} {
                                 puts stderr "BACKLOG: skipped $backlog_skip_count stale chunks (age=${age_ms}ms)"
@@ -393,13 +400,8 @@ namespace eval ::engine {
                                 set last_speech_time $timestamp
                             } else {
                                 # In silence - check for timeout
-                                # Silero uses shorter vad_silence_seconds; energy VAD uses silence_seconds
-                                set using_silero [expr {[info exists config(vad_engine)] && $config(vad_engine) eq "silero"}]
-                                set sil_timeout [expr {$using_silero && [info exists config(vad_silence_seconds)]
-                                                       ? $config(vad_silence_seconds)
-                                                       : $config(silence_seconds)}]
                                 set silence_elapsed [expr {$timestamp - $last_speech_time}]
-                                if {$silence_elapsed > $sil_timeout} {
+                                if {$silence_elapsed > $config(silence_seconds)} {
                                     process_final
 
                                     set speech_duration [expr {$last_speech_time - $this_speech_time}]

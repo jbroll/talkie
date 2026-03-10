@@ -69,7 +69,6 @@ array set ::config {
     vad_device                CPU
     vad_threshold             0.5
     vad_end_threshold         0.35
-    vad_silence_seconds       0.15
 }
 
 # UI initializaiton and callbacks -----------------------------------
@@ -182,9 +181,7 @@ proc build_config_spec {} {
         lappend config_spec @ "VAD Start Threshold" @ :config(vad_threshold) -width 10 \
             <--> config(vad_threshold) -from 0.0 -to 1.0 -resolution 0.05 &
         lappend config_spec @ "VAD End Threshold" @ :config(vad_end_threshold) -width 10 \
-            <--> config(vad_end_threshold) -from 0.0 -to 1.0 -resolution 0.05 &
-        lappend config_spec @ "VAD Silence (s)" @ :config(vad_silence_seconds) -width 10 \
-            <--> config(vad_silence_seconds) -from 0.05 -to 1.0 -resolution 0.05
+            <--> config(vad_end_threshold) -from 0.0 -to 1.0 -resolution 0.05
     }
 
     return $config_spec
