@@ -202,6 +202,14 @@ proc config_dialog_refresh {args} {
 }
 
 proc config {} {
+    # Refresh what the dialog shows from disk every time it opens:
+    #   - config_reload picks up external edits to talkie.conf (e.g.
+    #     build-custom-vosk.sh --switch writing a new vosk_modelfile).
+    #   - config_refresh_models re-scans models/vosk + models/sherpa-onnx so
+    #     newly-built model dirs appear in the dropdown without a restart.
+    config_reload
+    config_refresh_models
+
     # Set up trace to rebuild dialog when engine or VAD engine changes
     if {![info exists ::config_dialog_trace_set]} {
         trace add variable ::config(speech_engine) write config_dialog_refresh

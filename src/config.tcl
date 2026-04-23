@@ -4,6 +4,7 @@ proc config_init {} {
     config_load
     config_trace
     state_file_watcher
+    config_file_watcher
 
     ::audio::refresh_devices
 
@@ -240,4 +241,31 @@ proc state_save {transcribing} {
 
 proc state_file_watcher {} {
     filewatch [state_file] {set ::transcribing [state_load]} 500
+}
+
+proc config_file_watcher {} {
+    filewatch [config_file] config_reload 1000
+}
+
+proc config_reload {} {
+    # External edits to ~/.talkie.conf (e.g. build-custom-vosk.sh --switch)
+    # land here. We apply only the changed keys so per-key traces like
+    # config_model_change fire and hot-swap the engine. The auto-save
+    # trace is suspended during the apply to avoid a rewrite loop.
+    set file [config_file]
+    if {![file exists $file]} return
+    if {[catch {json::json2dict [cat $file]} new]} {
+        puts stderr "config_reload: parse error: $new"
+        return
+    }
+    trace remove variable ::config write config_save
+    try {
+        foreach {k v} $new {
+            if {![info exists ::config($k)] || $::config($k) ne $v} {
+                set ::config($k) $v
+            }
+        }
+    } finally {
+        trace add variable ::config write config_save
+    }
 }

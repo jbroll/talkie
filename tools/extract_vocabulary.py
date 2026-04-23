@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Extract words from markdown files that are not in the Vosk vocabulary.
+Extract words from markdown/text files that are not in the Vosk vocabulary.
 Outputs missing words and their context sentences for LM training.
 
 Usage:
@@ -30,8 +30,12 @@ except ImportError:
     HAVE_PHONETISAURUS = False
 
 # Configuration
-VOCAB_PATH = os.path.expanduser("~/Downloads/vosk-model-en-us-0.22-lgraph/graph/words.txt")
-G2P_MODEL = os.path.expanduser("~/Downloads/vosk-model-en-us-0.22-compile/db/en-g2p/en.fst")
+DEFAULT_MODEL = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'models/vosk/vosk-model-en-us-0.22-lgraph')
+DEFAULT_G2P = os.path.join(DEFAULT_MODEL, 'compile/db/en-g2p/en.fst')
+G2P_MODEL = DEFAULT_G2P  # legacy module-level fallback
+TEXT_EXTENSIONS = ('.md', '.txt')
 MIN_WORD_LENGTH = 2
 MIN_OCCURRENCES = 1  # Minimum times a word must appear to be included
 
@@ -115,22 +119,24 @@ def find_git_repos(path):
 
     return repos
 
-def find_markdown_files(paths):
-    """Find markdown files respecting .gitignore patterns."""
-    md_files = []
+def find_text_files(paths, extensions=TEXT_EXTENSIONS):
+    """Find text files (by extension) under given paths, respecting .gitignore
+    when inside git repos."""
+    out = []
     seen_repos = set()
+    ext_lower = tuple(e.lower() for e in extensions)
+    git_patterns = [f'*{e}' for e in extensions]
 
     for path in paths:
         p = Path(path).resolve()
 
-        if p.is_file() and p.suffix.lower() == '.md':
-            md_files.append(p)
+        if p.is_file() and p.suffix.lower() in ext_lower:
+            out.append(p)
             continue
 
         if not p.is_dir():
             continue
 
-        # Find all git repos under this path
         repos = find_git_repos(p)
 
         for repo in repos:
@@ -138,26 +144,30 @@ def find_markdown_files(paths):
                 continue
             seen_repos.add(repo)
 
-            # Use git ls-files to get tracked files (respects .gitignore)
+            # git ls-files respects .gitignore
             try:
                 result = subprocess.run(
-                    ['git', 'ls-files', '*.md'],
+                    ['git', 'ls-files', *git_patterns],
                     cwd=repo,
                     capture_output=True,
-                    text=True
+                    text=True,
                 )
                 if result.returncode == 0:
                     for line in result.stdout.strip().split('\n'):
                         if line:
-                            md_files.append(repo / line)
-            except:
+                            out.append(repo / line)
+            except Exception:
                 pass
 
-        # If no git repos found, fallback to glob
         if not repos:
-            md_files.extend(p.rglob("*.md"))
+            for ext in extensions:
+                out.extend(p.rglob(f'*{ext}'))
 
-    return list(set(md_files))  # Deduplicate
+    return list(set(out))
+
+
+# Backwards-compatible alias
+find_markdown_files = find_text_files
 
 def strip_code_blocks(text):
     """Remove fenced code blocks and inline code from markdown."""
@@ -252,9 +262,8 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description='Extract missing vocabulary from corpus for Vosk model')
     parser.add_argument('corpus', nargs='+', help='Directories to scan for .md/.txt files')
-    parser.add_argument('--model', '-m', default=os.path.expanduser(
-        '~/Downloads/vosk-model-en-us-0.22-lgraph'),
-        help='Base Vosk model directory (default: ~/Downloads/vosk-model-en-us-0.22-lgraph)')
+    parser.add_argument('--model', '-m', default=DEFAULT_MODEL,
+        help=f'Base Vosk model directory (default: {DEFAULT_MODEL})')
     parser.add_argument('--output', '-o', default='.',
         help='Output directory for generated files (default: current directory)')
     parser.add_argument('--top', '-n', type=int, default=500,
@@ -284,9 +293,9 @@ def main():
     vocab = load_vocabulary(vocab_path)
     print(f"Loaded {len(vocab):,} words", file=sys.stderr)
 
-    print(f"Finding markdown files...", file=sys.stderr)
-    md_files = find_markdown_files(search_paths)
-    print(f"Found {len(md_files)} markdown files", file=sys.stderr)
+    print(f"Finding text files ({', '.join(TEXT_EXTENSIONS)})...", file=sys.stderr)
+    md_files = find_text_files(search_paths)
+    print(f"Found {len(md_files)} text files", file=sys.stderr)
 
     print(f"Processing files...", file=sys.stderr)
     missing_words, word_contexts = process_files(md_files, vocab)
@@ -330,10 +339,15 @@ def main():
 
     # Generate pronunciations for top words using batch API
     print(f"Generating pronunciations for top {top_words} words...", file=sys.stderr)
-    words_to_pronounce = [word for word, count in sorted_words[:top_words]]
-    g2p_model = os.path.join(args.model.replace('lgraph', 'compile'), 'db/en-g2p/en.fst')
-    if not os.path.exists(g2p_model):
-        g2p_model = G2P_MODEL  # Fall back to default
+    words_to_pronounce = [word for word, _ in sorted_words[:top_words]]
+    # Prefer the G2P shipped alongside the model (compile/db/en-g2p/), then
+    # fall back to the older sibling-package layout, then the module default.
+    g2p_candidates = [
+        os.path.join(args.model, 'compile/db/en-g2p/en.fst'),
+        os.path.join(args.model.replace('lgraph', 'compile'), 'db/en-g2p/en.fst'),
+        G2P_MODEL,
+    ]
+    g2p_model = next((p for p in g2p_candidates if os.path.exists(p)), G2P_MODEL)
     pronunciations = generate_pronunciations_batch(words_to_pronounce, g2p_model)
 
     # Display first 50

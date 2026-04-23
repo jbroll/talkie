@@ -61,8 +61,9 @@ make build          # Build all critcl packages
 ## Model Data
 
 ### Vosk Models
-- Base model: `models/vosk/vosk-model-en-us-0.22-lgraph/`
-- Custom model: `models/vosk/lm-test/` (with domain vocabulary)
+- Base model: `models/vosk/vosk-model-en-us-0.22-lgraph/` (with `compile/` staging tree for rebuilds)
+- Custom builds: `models/vosk/vosk-model-en-us-0.22-lgraph-YYYY-MM-DD/` (date-stamped, produced by `tools/build-custom-vosk.sh`)
+- Historical custom: `models/vosk/lm-test/` (early SRILM-era build; kept for regression comparison, not canonical)
 
 ### GEC Models (in `models/gec/`)
 - Punctuation/capitalization: `distilbert-punct-cap.onnx`
