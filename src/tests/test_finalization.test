@@ -1,0 +1,32 @@
+# test_finalization.test - unit tests for the capability-driven finalization
+# decision. Pure logic, no native deps, so it runs in the shared mock suite.
+
+package require tcltest
+namespace import ::tcltest::*
+
+set here [file dirname [file normalize [info script]]]
+source [file join $here .. finalization.tcl]
+
+# self-endpoint engines: finalize iff the engine reports endpoint
+test self-endpoint-fires {self engine finalizes when endpoint=1} -body {
+    engine::should_finalize 1 1 0 0.0 0.15 0.0 0.6
+} -result 1
+
+test self-no-endpoint {self engine never finalizes on quiet alone} -body {
+    engine::should_finalize 1 0 1 9.9 0.15 9.9 0.6
+} -result 0
+
+# external engines: finalize on energy-silence OR partial-stability
+test external-energy-silence {external finalizes when silence exceeds timeout} -body {
+    engine::should_finalize 0 0 0 0.20 0.15 0.0 0.6
+} -result 1
+
+test external-partial-stability {external finalizes when partial is stable long enough} -body {
+    engine::should_finalize 0 0 0 0.05 0.15 0.70 0.6
+} -result 1
+
+test external-keep-going {external keeps going when neither condition holds} -body {
+    engine::should_finalize 0 0 0 0.05 0.15 0.10 0.6
+} -result 0
+
+cleanupTests

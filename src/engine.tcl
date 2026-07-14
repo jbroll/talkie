@@ -169,11 +169,20 @@ namespace eval ::engine {
             # Last Silero VAD probability (-1.0 = not using Silero)
             variable last_vad_prob -1.0
 
+            # Finalization state
+            variable self_endpoint 0          ;# 1 if engine self-detects end-of-utterance
+            variable last_partial_text ""     ;# last partial seen (for stability endpoint)
+            variable last_partial_change_ms 0 ;# when the partial last changed
+
+            # Unified engine handle for stt:: dispatch (recognizer cmd, or engine name for coprocess)
+            variable stt_handle ""
+
             proc init {main_tid_arg engine_name_arg engine_type_arg model_path sample_rate script_dir_arg config_dict} {
                 variable main_tid $main_tid_arg
                 variable engine_name $engine_name_arg
                 variable engine_type $engine_type_arg
                 variable recognizer
+                variable stt_handle
                 variable script_dir $script_dir_arg
                 variable config
 
@@ -193,6 +202,10 @@ namespace eval ::engine {
 
                 # Common STT dispatch layer (used by both critcl and coprocess paths)
                 source [file join $script_dir stt.tcl]
+                source [file join $script_dir finalization.tcl]
+
+                # Capability: does this engine self-detect end-of-utterance?
+                variable self_endpoint [expr {[info exists config(endpointing)] && $config(endpointing) eq "self"}]
 
                 # Load ov and Silero VAD if configured
                 if {[info exists config(vad_engine)] && $config(vad_engine) eq "silero"} {
@@ -228,6 +241,7 @@ namespace eval ::engine {
                     if {[file exists $model_path]} {
                         set model [vosk::load_model -path $model_path]
                         set recognizer [$model create_recognizer -rate $sample_rate -alternatives 1]
+                        set stt_handle $recognizer
                         return [json::dict2json {status ok message "Processing worker initialized"}]
                     } else {
                         return [json::dict2json [list status error error "Model not found: $model_path"]]
@@ -239,6 +253,7 @@ namespace eval ::engine {
                     set model_path_only [lindex $model_path 1]
 
                     set response [::coprocess::start $engine_name $cmd_path $model_path_only $sample_rate]
+                    set stt_handle $engine_name
                     return $response
                 } else {
                     return [json::dict2json [list status error error "Unknown engine type: $engine_type"]]
@@ -411,25 +426,39 @@ namespace eval ::engine {
                             set last_speech_time $timestamp
                         } elseif {$last_speech_time} {
                             # Ongoing speech - process current chunk
-                            process_chunk $data
+                            variable self_endpoint
+                            variable last_partial_text
+                            variable last_partial_change_ms
+                            set pr [process_chunk $data]
+                            set endpoint [dict get $pr endpoint]
 
-                            if {$speech} {
-                                set last_speech_time $timestamp
-                            } else {
-                                # In silence - check for timeout
-                                set silence_elapsed [expr {$timestamp - $last_speech_time}]
-                                if {$silence_elapsed > $config(silence_seconds)} {
-                                    process_final
+                            # Track partial-text stability (for external-endpoint engines)
+                            set now_ms [clock milliseconds]
+                            if {[dict get $pr partial] ne $last_partial_text} {
+                                set last_partial_text [dict get $pr partial]
+                                set last_partial_change_ms $now_ms
+                            }
 
-                                    set speech_duration [expr {$last_speech_time - $this_speech_time}]
-                                    if {$speech_duration <= $config(min_duration)} {
-                                        puts stderr "SEGMENT-SHORT: duration=$speech_duration <= min=$config(min_duration), clearing"
-                                        thread::send -async $main_tid [list after idle [list partial_text ""]]
-                                    }
+                            if {$speech} { set last_speech_time $timestamp }
 
-                                    set last_speech_time 0
-                                    set audio_buffer_list {}
+                            set silence_elapsed [expr {$timestamp - $last_speech_time}]
+                            set stable_elapsed [expr {($now_ms - $last_partial_change_ms) / 1000.0}]
+                            set partial_stable_seconds [expr {[info exists config(partial_stable_seconds)] ? $config(partial_stable_seconds) : 0.6}]
+
+                            if {[engine::should_finalize $self_endpoint $endpoint 0 \
+                                    $silence_elapsed $config(silence_seconds) \
+                                    $stable_elapsed $partial_stable_seconds]} {
+                                process_final
+
+                                set speech_duration [expr {$last_speech_time - $this_speech_time}]
+                                if {$speech_duration <= $config(min_duration)} {
+                                    puts stderr "SEGMENT-SHORT: duration=$speech_duration <= min=$config(min_duration), clearing"
+                                    thread::send -async $main_tid [list after idle [list partial_text ""]]
                                 }
+
+                                set last_speech_time 0
+                                set audio_buffer_list {}
+                                set last_partial_text ""
                             }
                         }
                     }
@@ -438,30 +467,22 @@ namespace eval ::engine {
                 }
             }
 
+            # Feed one chunk to the recognizer. Returns dict {partial <s> endpoint 0|1}.
             proc process_chunk {chunk} {
-                variable recognizer
+                variable stt_handle
                 variable engine_type
-                variable engine_name
                 variable main_tid
 
                 try {
-                    set start_us [clock microseconds]
-                    if {$engine_type eq "critcl"} {
-                        set result [$recognizer process $chunk]
-                    } else {
-                        set result [::coprocess::process $engine_name $chunk]
+                    set result [stt::process $stt_handle $engine_type $chunk]
+                    set partial [dict get $result partial]
+                    if {$partial ne ""} {
+                        thread::send -async $main_tid [list ::audio::display_partial $partial]
                     }
-
-                    # Extract partial text and send to main thread for display
-                    if {$result ne ""} {
-                        set result_dict [json::json2dict $result]
-                        if {[dict exists $result_dict partial]} {
-                            set partial_text [dict get $result_dict partial]
-                            thread::send -async $main_tid [list ::audio::display_partial $partial_text]
-                        }
-                    }
+                    return $result
                 } on error {err info} {
                     puts stderr "Processing worker process error: $err"
+                    return {partial {} endpoint 0}
                 }
             }
 
@@ -667,6 +688,7 @@ namespace eval ::engine {
         # Include audio_chunk_seconds which is a separate global
         set config_dict [array get ::config]
         lappend config_dict audio_chunk_seconds $::audio_chunk_seconds
+        lappend config_dict endpointing [get_property $engine_name endpointing]
 
         # Initialize processing worker with engine
         set response [::worker::send $processing_worker_name [list ::processing::worker::init \
