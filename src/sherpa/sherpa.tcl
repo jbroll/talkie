@@ -177,10 +177,144 @@ static int SherpaCreateRecognizerCmd(ClientData cd, Tcl_Interp *interp, int objc
     return TCL_OK;
 }
 
+/* ---- Offline (non-streaming) recognizer: Parakeet, Whisper, etc. --------
+ * Batch engine: `process` buffers the utterance's audio and emits no partial
+ * or endpoint; `final-result` runs one decode over the whole buffer. Endpoint
+ * detection is the app's job (VAD / partial-stability). */
+typedef struct {
+    const SherpaOnnxOfflineRecognizer *recognizer;
+    Tcl_Interp *interp;
+    Tcl_Obj *cmdname;
+    int sample_rate;
+    float *buf; int buf_len; int buf_cap;  /* accumulated waveform */
+    int closed;
+} SherpaOfflineCtx;
+
+static void sherpa_offline_delete(ClientData cd) {
+    SherpaOfflineCtx *ctx = (SherpaOfflineCtx*)cd;
+    if (!ctx) return;
+    ctx->closed = 1;
+    if (ctx->recognizer) { SherpaOnnxDestroyOfflineRecognizer(ctx->recognizer); ctx->recognizer = NULL; }
+    if (ctx->buf)        { ckfree((char*)ctx->buf); ctx->buf = NULL; }
+    if (ctx->cmdname)    { Tcl_DecrRefCount(ctx->cmdname); ctx->cmdname = NULL; }
+    ckfree((char*)ctx);
+}
+
+static int SherpaOfflineObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    SherpaOfflineCtx *ctx = (SherpaOfflineCtx*)cd;
+    if (!ctx || ctx->closed) { Tcl_AppendResult(interp,"recognizer closed",NULL); return TCL_ERROR; }
+    if (objc < 2) { Tcl_WrongNumArgs(interp,1,objv,"subcommand ?args?"); return TCL_ERROR; }
+    const char *sub = Tcl_GetString(objv[1]);
+
+    if (strcmp(sub,"process")==0) {
+        if (objc != 3) { Tcl_WrongNumArgs(interp,2,objv,"audio_data"); return TCL_ERROR; }
+        Tcl_Size length;
+        unsigned char *data = Tcl_GetByteArrayFromObj(objv[2], &length);
+        int n = (int)(length / 2);
+        if (data && n > 0) {
+            if (ctx->buf_len + n > ctx->buf_cap) {
+                int newcap = (ctx->buf_len + n) * 2;
+                ctx->buf = (float*)ckrealloc((char*)ctx->buf, newcap * sizeof(float));
+                ctx->buf_cap = newcap;
+            }
+            const short *pcm = (const short*)data;
+            for (int i = 0; i < n; i++) ctx->buf[ctx->buf_len + i] = pcm[i] / 32768.0f;
+            ctx->buf_len += n;
+        }
+        Tcl_Obj *dict = Tcl_NewDictObj();
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("partial",-1), Tcl_NewStringObj("",-1));
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("endpoint",-1), Tcl_NewIntObj(0));
+        Tcl_SetObjResult(interp, dict);
+        return TCL_OK;
+
+    } else if (strcmp(sub,"final-result")==0) {
+        static char textbuf[16384]; textbuf[0]='\0';
+        if (ctx->buf_len > 0) {
+            const SherpaOnnxOfflineStream *stream = SherpaOnnxCreateOfflineStream(ctx->recognizer);
+            SherpaOnnxAcceptWaveformOffline(stream, ctx->sample_rate, ctx->buf, ctx->buf_len);
+            SherpaOnnxDecodeOfflineStream(ctx->recognizer, stream);
+            const SherpaOnnxOfflineRecognizerResult *res = SherpaOnnxGetOfflineStreamResult(stream);
+            if (res && res->text) { strncpy(textbuf, res->text, sizeof(textbuf)-1); textbuf[sizeof(textbuf)-1]='\0'; }
+            if (res) SherpaOnnxDestroyOfflineRecognizerResult(res);
+            SherpaOnnxDestroyOfflineStream(stream);
+        }
+        ctx->buf_len = 0;
+        Tcl_Obj *dict = Tcl_NewDictObj();
+        Tcl_DictObjPut(interp, dict, Tcl_NewStringObj("text",-1), Tcl_NewStringObj(textbuf,-1));
+        Tcl_SetObjResult(interp, dict);
+        return TCL_OK;
+
+    } else if (strcmp(sub,"reset")==0) {
+        ctx->buf_len = 0;
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok",-1));
+        return TCL_OK;
+    } else if (strcmp(sub,"close")==0) {
+        Tcl_DeleteCommand(interp, Tcl_GetString(objv[0]));
+        Tcl_SetObjResult(interp, Tcl_NewStringObj("ok",-1));
+        return TCL_OK;
+    }
+    Tcl_AppendResult(interp,"unknown subcommand \"",sub,"\"",NULL);
+    return TCL_ERROR;
+}
+
+static int SherpaCreateOfflineRecognizerCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    (void)cd;
+    const char *encoder=NULL,*decoder=NULL,*joiner=NULL,*tokens=NULL;
+    const char *provider="cpu",*model_type="",*decoding_method="greedy_search";
+    int sample_rate = 16000, num_threads = 2, max_active_paths = 4;
+    for (int i = 1; i < objc; i++) {
+        const char *opt = Tcl_GetString(objv[i]);
+        double d;
+        if      (strcmp(opt,"-encoder")==0 && i+1<objc) encoder = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-decoder")==0 && i+1<objc) decoder = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-joiner")==0  && i+1<objc) joiner  = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-tokens")==0  && i+1<objc) tokens  = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-provider")==0 && i+1<objc) provider = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-model-type")==0 && i+1<objc) model_type = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-decoding-method")==0 && i+1<objc) decoding_method = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-rate")==0        && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; sample_rate=(int)d; }
+        else if (strcmp(opt,"-num-threads")==0 && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; num_threads=(int)d; }
+        else if (strcmp(opt,"-max-active-paths")==0 && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; max_active_paths=(int)d; }
+        else { Tcl_AppendResult(interp,"unknown option ",opt,NULL); return TCL_ERROR; }
+    }
+    if (!encoder||!decoder||!joiner||!tokens) { Tcl_AppendResult(interp,"missing -encoder/-decoder/-joiner/-tokens",NULL); return TCL_ERROR; }
+
+    SherpaOnnxOfflineRecognizerConfig config;
+    memset(&config, 0, sizeof(config));
+    config.model_config.transducer.encoder = encoder;
+    config.model_config.transducer.decoder = decoder;
+    config.model_config.transducer.joiner  = joiner;
+    config.model_config.tokens = tokens;
+    config.model_config.num_threads = num_threads;
+    config.model_config.provider = provider;
+    config.model_config.debug = 0;
+    config.model_config.model_type = model_type;
+    config.decoding_method = decoding_method;
+    config.max_active_paths = max_active_paths;
+
+    const SherpaOnnxOfflineRecognizer *recognizer = SherpaOnnxCreateOfflineRecognizer(&config);
+    if (!recognizer) { Tcl_AppendResult(interp,"failed to create sherpa-onnx offline recognizer",NULL); return TCL_ERROR; }
+
+    SherpaOfflineCtx *ctx = (SherpaOfflineCtx*)ckalloc(sizeof(SherpaOfflineCtx));
+    memset(ctx,0,sizeof(*ctx));
+    ctx->recognizer = recognizer; ctx->interp = interp; ctx->sample_rate = sample_rate; ctx->closed = 0;
+
+    static int ocounter = 0;
+    char namebuf[64];
+    sprintf(namebuf,"sherpa_offline%d",++ocounter);
+    Tcl_Obj *nameObj = Tcl_NewStringObj(namebuf,-1);
+    Tcl_IncrRefCount(nameObj);
+    ctx->cmdname = nameObj;
+    Tcl_CreateObjCommand(interp, namebuf, SherpaOfflineObjCmd, (ClientData)ctx, sherpa_offline_delete);
+    Tcl_SetObjResult(interp, nameObj);
+    return TCL_OK;
+}
+
 }
 
 critcl::cinit {
     Tcl_CreateObjCommand(interp, "sherpa::create_recognizer", SherpaCreateRecognizerCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "sherpa::create_offline_recognizer", SherpaCreateOfflineRecognizerCmd, NULL, NULL);
 } ""
 
 # Runtime Tcl procs (bundled into the package; plain procs in this build

@@ -52,6 +52,7 @@ proc config_load {} {
         sherpa_max_active_paths    4
         confidence_threshold       100
         sherpa_modelfile           sherpa-onnx-streaming-zipformer-en-2023-06-26
+        parakeet_modelfile         sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
         speech_floor_percentile    70
         speech_max_multiplier      1.3
         spike_suppression_seconds  0.3
@@ -79,9 +80,11 @@ proc config_refresh_models {} {
     # Refresh model lists for both engines
     set vosk_dir [file join [file dirname $::script_dir] models vosk]
     set sherpa_dir [file join [file dirname $::script_dir] models sherpa-onnx]
+    set parakeet_dir [file join [file dirname $::script_dir] models parakeet]
 
     set ::vosk_model_files [lsort [lmap item [glob -nocomplain -directory $vosk_dir -type d *] {file tail $item}]]
     set ::sherpa_model_files [lsort [lmap item [glob -nocomplain -directory $sherpa_dir -type d *] {file tail $item}]]
+    set ::parakeet_model_files [lsort [lmap item [glob -nocomplain -directory $parakeet_dir -type d *] {file tail $item}]]
 
     # Legacy: keep ::model_files for backwards compatibility
     if {$::config(speech_engine) eq "vosk"} {
@@ -96,6 +99,7 @@ proc config_trace {} {
     trace add variable ::config(speech_engine) write config_engine_change
     trace add variable ::config(vosk_modelfile) write config_model_change
     trace add variable ::config(sherpa_modelfile) write config_model_change
+    trace add variable ::config(parakeet_modelfile) write config_model_change
     trace add variable ::config(typing_delay_ms) write config_typing_delay_change
     trace add variable ::config(input_device) write config_input_device_change
     trace add variable ::config(confidence_threshold) write config_output_change

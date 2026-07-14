@@ -36,7 +36,7 @@ set buffer_overflows 0
 set vad_prob -1.0
 
 # Available speech engines (global list for config dialog)
-set ::speech_engines {vosk sherpa-onnx sherpa faster-whisper}
+set ::speech_engines {vosk sherpa-onnx parakeet sherpa faster-whisper}
 
 # Available VAD engines and devices
 set ::vad_engines {threshold silero}
@@ -61,6 +61,7 @@ array set ::config {
     vosk_modelfile            vosk-model-en-us-0.22-lgraph
     sherpa_max_active_paths   4
     sherpa_modelfile          sherpa-onnx-streaming-zipformer-en-2023-06-26
+    parakeet_modelfile        sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
     faster_whisper_modelfile  ""
     vad_engine                threshold
     vad_device                CPU
@@ -154,6 +155,8 @@ proc build_config_spec {} {
     } elseif {$::config(speech_engine) in {sherpa-onnx sherpa}} {
         lappend config_spec @ "Max Active Paths" @ :config(sherpa_max_active_paths) -width 10 <--> config(sherpa_max_active_paths) -from 1 -to 10 &
         lappend config_spec @ "Model" x ? config(sherpa_modelfile) -listvariable sherpa_model_files &
+    } elseif {$::config(speech_engine) eq "parakeet"} {
+        lappend config_spec @ "Model" x ? config(parakeet_modelfile) -listvariable parakeet_model_files &
     } elseif {$::config(speech_engine) eq "faster-whisper"} {
         lappend config_spec @ "Model" @ :config(faster_whisper_modelfile) -width 20 &
     }

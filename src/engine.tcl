@@ -31,6 +31,13 @@ namespace eval ::engine {
         sherpa-onnx,endpointing    "self"
         sherpa-onnx,emits_partials "yes"
 
+        parakeet,command        ""
+        parakeet,type           "critcl"
+        parakeet,model_dir      "parakeet"
+        parakeet,model_config   "parakeet_modelfile"
+        parakeet,endpointing    "external"
+        parakeet,emits_partials "no"
+
         sherpa,command      "engines/sherpa_wrapper.sh"
         sherpa,type         "coprocess"
         sherpa,model_dir    "sherpa-onnx"
@@ -644,6 +651,12 @@ namespace eval ::engine {
                 set model_path [get_model_path $::config(sherpa_modelfile)]
                 if {$model_path eq "" || ![file exists $model_path]} {
                     puts "ERROR: sherpa-onnx model not found"
+                    return false
+                }
+            } elseif {$engine_name eq "parakeet"} {
+                set model_path [get_model_path $::config(parakeet_modelfile)]
+                if {$model_path eq "" || ![file exists $model_path]} {
+                    puts "ERROR: parakeet model not found"
                     return false
                 }
             } else {

@@ -41,6 +41,17 @@ proc ::stt::create {engine_name type model_path rate {cfg {}}} {
                     }
                     return [sherpa::load_model -path $model_path {*}$opts]
                 }
+                parakeet {
+                    package require sherpa
+                    set opts [list -rate $rate]
+                    foreach {key flag} {
+                        sherpa_num_threads -num-threads
+                        sherpa_provider    -provider
+                    } {
+                        if {[dict exists $cfg $key]} { lappend opts $flag [dict get $cfg $key] }
+                    }
+                    return [sherpa::load_offline_model -path $model_path {*}$opts]
+                }
                 default { error "::stt::create: unknown critcl engine $engine_name" }
             }
         }

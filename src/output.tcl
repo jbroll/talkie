@@ -70,9 +70,13 @@ namespace eval ::output {
                     return
                 }
 
-                # Recognizers (vosk lgraph, sherpa Zipformer) emit ALL-CAPS;
-                # lowercase so textproc's sentence-capitalization yields normal case.
-                set text [string tolower $text]
+                # Vosk lgraph and the streaming Zipformer emit ALL-CAPS; lowercase
+                # those so textproc's sentence-capitalization yields normal case.
+                # Parakeet emits proper case + punctuation, so only lowercase text
+                # that has no lowercase letters already.
+                if {$text eq [string toupper $text]} {
+                    set text [string tolower $text]
+                }
 
                 # Text processing (spacing, voice commands)
                 set text [textproc $text]
