@@ -184,11 +184,15 @@ namespace eval ::engine {
                     lappend ::auto_path "$::env(HOME)/.local/lib/tcllib2.0"
                 }
                 lappend ::auto_path [file join $script_dir vosk lib vosk]
+                lappend ::auto_path [file join $script_dir sherpa lib sherpa]
                 lappend ::auto_path [file join $script_dir audio lib audio]
                 lappend ::auto_path [file join $script_dir ov lib ov]
 
                 package require json
                 package require audio
+
+                # Common STT dispatch layer (used by both critcl and coprocess paths)
+                source [file join $script_dir stt.tcl]
 
                 # Load ov and Silero VAD if configured
                 if {[info exists config(vad_engine)] && $config(vad_engine) eq "silero"} {

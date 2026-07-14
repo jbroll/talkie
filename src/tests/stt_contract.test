@@ -1,0 +1,62 @@
+# stt_contract.test - the "all engines meet the API" guarantee.
+#
+# Integration test: exercises the real sherpa-onnx critcl binding through the
+# stt:: dispatch layer and asserts the common contract's return shapes.
+# Gated by the sherpaReady constraint so it SKIPS (not fails) under the mock
+# suite; run standalone for real coverage:
+#   LD_LIBRARY_PATH=$HOME/.local/lib tclsh src/tests/stt_contract.test
+
+package require tcltest
+namespace import ::tcltest::*
+
+set here [file dirname [file normalize [info script]]]
+lappend auto_path [file join $here .. sherpa lib]
+lappend auto_path [file join $here .. vosk lib]
+lappend auto_path "$::env(HOME)/.local/lib/tcllib2.0"
+source [file join $here .. stt.tcl]
+
+set model_dir [file normalize [file join $here ../../models/sherpa-onnx/sherpa-onnx-streaming-zipformer-en-2023-06-26]]
+
+testConstraint sherpaReady [expr {![catch {package require sherpa}] && [file isdirectory $model_dir]}]
+
+proc read_pcm {path} {
+    set f [open $path rb]; set d [read $f]; close $f
+    return [string range $d 44 end]
+}
+
+test create-process-shape {stt::process returns {partial, endpoint} for sherpa-onnx} -constraints sherpaReady -body {
+    set h [stt::create sherpa-onnx critcl $model_dir 16000]
+    set pcm [read_pcm [file join $model_dir test_wavs 0.wav]]
+    set shape_ok 1
+    for {set i 0} {$i < [string length $pcm]} {incr i 3200} {
+        set r [stt::process $h critcl [string range $pcm $i [expr {$i+3199}]]]
+        if {![dict exists $r partial] || ![dict exists $r endpoint]} { set shape_ok 0 }
+    }
+    stt::destroy $h critcl
+    set shape_ok
+} -result 1
+
+test final-shape-and-text {stt::final returns {text} with a plausible transcript} -constraints sherpaReady -body {
+    set h [stt::create sherpa-onnx critcl $model_dir 16000]
+    set pcm [read_pcm [file join $model_dir test_wavs 0.wav]]
+    for {set i 0} {$i < [string length $pcm]} {incr i 3200} {
+        stt::process $h critcl [string range $pcm $i [expr {$i+3199}]]
+    }
+    set fin [stt::final $h critcl]
+    stt::destroy $h critcl
+    list [dict exists $fin text] [string match "AFTER EARLY NIGHTFALL*" [string trim [dict get $fin text]]]
+} -result {1 1}
+
+test endpoint-propagates {endpoint flag surfaces through stt::process after trailing silence} -constraints sherpaReady -body {
+    set h [stt::create sherpa-onnx critcl $model_dir 16000]
+    set pcm [read_pcm [file join $model_dir test_wavs 0.wav]]
+    append pcm [binary format c* [lrepeat [expr {16000 * 3 * 2}] 0]]
+    set saw 0
+    for {set i 0} {$i < [string length $pcm]} {incr i 3200} {
+        if {[dict get [stt::process $h critcl [string range $pcm $i [expr {$i+3199}]]] endpoint]} { set saw 1 }
+    }
+    stt::destroy $h critcl
+    set saw
+} -result 1
+
+cleanupTests
