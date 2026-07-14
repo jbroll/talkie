@@ -56,6 +56,17 @@ test recognize-endpoint {endpoint fires after trailing silence} -constraints she
     set saw_endpoint
 } -result 1
 
+test create-float-rate {a float device rate like 44100.0 must not crash (parsed as int)} -constraints sherpaReady -body {
+    # Regression: -rate parsed with Tcl_GetSizeIntFromObj crashed on "44100.0".
+    set rec [sherpa::load_model -path $model_dir -rate 44100.0]
+    set ok [string match "sherpa_recognizer*" $rec]
+    # 44.1kHz input must still resample and decode 16kHz test audio sensibly:
+    # feeding the 16kHz wav while claiming 44100 is wrong, so just assert no crash + a dict.
+    set r [$rec process [binary format c* [lrepeat 4410 0]]]
+    $rec close
+    list $ok [dict exists $r partial] [dict exists $r endpoint]
+} -result {1 1 1}
+
 test process-shape {process returns a dict with partial and endpoint keys} -constraints sherpaReady -body {
     set rec [sherpa::load_model -path $model_dir -rate 16000]
     set r [$rec process [binary format c* [lrepeat 3200 0]]]

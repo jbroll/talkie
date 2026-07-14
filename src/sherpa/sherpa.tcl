@@ -116,14 +116,17 @@ static int SherpaCreateRecognizerCmd(ClientData cd, Tcl_Interp *interp, int objc
         else if (strcmp(opt,"-decoder")==0 && i+1<objc) decoder = Tcl_GetString(objv[++i]);
         else if (strcmp(opt,"-joiner")==0  && i+1<objc) joiner  = Tcl_GetString(objv[++i]);
         else if (strcmp(opt,"-tokens")==0  && i+1<objc) tokens  = Tcl_GetString(objv[++i]);
-        else if (strcmp(opt,"-rate")==0    && i+1<objc) { Tcl_Size t; Tcl_GetSizeIntFromObj(interp,objv[++i],&t); sample_rate=(int)t; }
+        /* -rate is the INPUT audio rate; parse as double so "44100.0" works. */
+        else if (strcmp(opt,"-rate")==0    && i+1<objc) { double r; if (Tcl_GetDoubleFromObj(interp,objv[++i],&r)!=TCL_OK) return TCL_ERROR; sample_rate=(int)r; }
         else { Tcl_AppendResult(interp,"unknown option ",opt,NULL); return TCL_ERROR; }
     }
     if (!encoder||!decoder||!joiner||!tokens) { Tcl_AppendResult(interp,"missing -encoder/-decoder/-joiner/-tokens",NULL); return TCL_ERROR; }
 
     SherpaOnnxOnlineRecognizerConfig config;
     memset(&config, 0, sizeof(config));
-    config.feat_config.sample_rate = sample_rate;
+    /* Model expects 16 kHz features. AcceptWaveform is given the input rate
+     * (ctx->sample_rate) and sherpa resamples input -> 16 kHz internally. */
+    config.feat_config.sample_rate = 16000;
     config.feat_config.feature_dim = 80;
     config.model_config.transducer.encoder = encoder;
     config.model_config.transducer.decoder = decoder;

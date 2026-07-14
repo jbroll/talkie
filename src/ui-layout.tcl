@@ -36,7 +36,7 @@ set buffer_overflows 0
 set vad_prob -1.0
 
 # Available speech engines (global list for config dialog)
-set ::speech_engines {vosk sherpa faster-whisper}
+set ::speech_engines {vosk sherpa-onnx sherpa faster-whisper}
 
 # Available VAD engines and devices
 set ::vad_engines {threshold silero}
@@ -154,7 +154,7 @@ proc build_config_spec {} {
         lappend config_spec @ "Vosk Beam" @ :config(vosk_beam) -width 10 <--> config(vosk_beam) -from 0 -to 50 &
         lappend config_spec @ "Lattice Beam" @ :config(vosk_lattice) -width 10 <--> config(vosk_lattice) -from 0 -to 20 &
         lappend config_spec @ "Model" x ? config(vosk_modelfile) -listvariable vosk_model_files &
-    } elseif {$::config(speech_engine) eq "sherpa"} {
+    } elseif {$::config(speech_engine) in {sherpa-onnx sherpa}} {
         lappend config_spec @ "Max Active Paths" @ :config(sherpa_max_active_paths) -width 10 <--> config(sherpa_max_active_paths) -from 1 -to 10 &
         lappend config_spec @ "Model" x ? config(sherpa_modelfile) -listvariable sherpa_model_files &
     } elseif {$::config(speech_engine) eq "faster-whisper"} {
