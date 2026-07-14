@@ -109,38 +109,53 @@ static int SherpaRecObjCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj 
 static int SherpaCreateRecognizerCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
     (void)cd;
     const char *encoder=NULL,*decoder=NULL,*joiner=NULL,*tokens=NULL;
-    int sample_rate = 16000;
+    const char *provider="cpu";
+    /* Model-intrinsic constants for this streaming Zipformer (16kHz, 80-dim
+     * fbank); the rest are tuning knobs, overridable via options / config. */
+    int model_rate = 16000, feature_dim = 80;
+    int sample_rate = 16000;      /* INPUT audio rate (device rate) */
+    int num_threads = 2, max_active_paths = 4;
+    double rule1 = 2.4, rule2 = 1.2, rule3 = 20.0;
     for (int i = 1; i < objc; i++) {
         const char *opt = Tcl_GetString(objv[i]);
+        double d;  /* checked scratch for numeric options */
         if      (strcmp(opt,"-encoder")==0 && i+1<objc) encoder = Tcl_GetString(objv[++i]);
         else if (strcmp(opt,"-decoder")==0 && i+1<objc) decoder = Tcl_GetString(objv[++i]);
         else if (strcmp(opt,"-joiner")==0  && i+1<objc) joiner  = Tcl_GetString(objv[++i]);
         else if (strcmp(opt,"-tokens")==0  && i+1<objc) tokens  = Tcl_GetString(objv[++i]);
-        /* -rate is the INPUT audio rate; parse as double so "44100.0" works. */
-        else if (strcmp(opt,"-rate")==0    && i+1<objc) { double r; if (Tcl_GetDoubleFromObj(interp,objv[++i],&r)!=TCL_OK) return TCL_ERROR; sample_rate=(int)r; }
+        else if (strcmp(opt,"-provider")==0 && i+1<objc) provider = Tcl_GetString(objv[++i]);
+        /* Numerics parsed as double (so "44100.0"/"4.0" from JSON config work). */
+        else if (strcmp(opt,"-rate")==0        && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; sample_rate=(int)d; }
+        else if (strcmp(opt,"-model-rate")==0  && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; model_rate=(int)d; }
+        else if (strcmp(opt,"-feature-dim")==0 && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; feature_dim=(int)d; }
+        else if (strcmp(opt,"-num-threads")==0 && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; num_threads=(int)d; }
+        else if (strcmp(opt,"-max-active-paths")==0 && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; max_active_paths=(int)d; }
+        else if (strcmp(opt,"-rule1")==0 && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&rule1)!=TCL_OK) return TCL_ERROR; }
+        else if (strcmp(opt,"-rule2")==0 && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&rule2)!=TCL_OK) return TCL_ERROR; }
+        else if (strcmp(opt,"-rule3")==0 && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&rule3)!=TCL_OK) return TCL_ERROR; }
         else { Tcl_AppendResult(interp,"unknown option ",opt,NULL); return TCL_ERROR; }
     }
     if (!encoder||!decoder||!joiner||!tokens) { Tcl_AppendResult(interp,"missing -encoder/-decoder/-joiner/-tokens",NULL); return TCL_ERROR; }
 
     SherpaOnnxOnlineRecognizerConfig config;
     memset(&config, 0, sizeof(config));
-    /* Model expects 16 kHz features. AcceptWaveform is given the input rate
-     * (ctx->sample_rate) and sherpa resamples input -> 16 kHz internally. */
-    config.feat_config.sample_rate = 16000;
-    config.feat_config.feature_dim = 80;
+    /* AcceptWaveform gets the input rate (ctx->sample_rate); sherpa resamples
+     * input -> model_rate internally. */
+    config.feat_config.sample_rate = model_rate;
+    config.feat_config.feature_dim = feature_dim;
     config.model_config.transducer.encoder = encoder;
     config.model_config.transducer.decoder = decoder;
     config.model_config.transducer.joiner  = joiner;
     config.model_config.tokens = tokens;
-    config.model_config.num_threads = 2;
-    config.model_config.provider = "cpu";
+    config.model_config.num_threads = num_threads;
+    config.model_config.provider = provider;
     config.model_config.debug = 0;
     config.decoding_method = "greedy_search";
-    config.max_active_paths = 4;
+    config.max_active_paths = max_active_paths;
     config.enable_endpoint = 1;
-    config.rule1_min_trailing_silence = 2.4f;
-    config.rule2_min_trailing_silence = 1.2f;
-    config.rule3_min_utterance_length = 20.0f;
+    config.rule1_min_trailing_silence = (float)rule1;
+    config.rule2_min_trailing_silence = (float)rule2;
+    config.rule3_min_utterance_length = (float)rule3;
 
     const SherpaOnnxOnlineRecognizer *recognizer = SherpaOnnxCreateOnlineRecognizer(&config);
     if (!recognizer) { Tcl_AppendResult(interp,"failed to create sherpa-onnx recognizer",NULL); return TCL_ERROR; }

@@ -14,7 +14,8 @@ namespace eval ::stt {}
 
 # Create a recognizer handle for an engine.
 #   type: "critcl" | "coprocess"
-proc ::stt::create {engine_name type model_path rate} {
+#   cfg : config dict (array get) used to pass engine tuning knobs
+proc ::stt::create {engine_name type model_path rate {cfg {}}} {
     switch -- $type {
         critcl {
             switch -- $engine_name {
@@ -26,7 +27,19 @@ proc ::stt::create {engine_name type model_path rate} {
                 }
                 sherpa-onnx {
                     package require sherpa
-                    return [sherpa::load_model -path $model_path -rate $rate]
+                    set opts [list -rate $rate]
+                    # Map config keys -> binding options (only when present).
+                    foreach {key flag} {
+                        sherpa_max_active_paths -max-active-paths
+                        sherpa_num_threads      -num-threads
+                        sherpa_provider         -provider
+                        sherpa_endpoint_rule1   -rule1
+                        sherpa_endpoint_rule2   -rule2
+                        sherpa_endpoint_rule3   -rule3
+                    } {
+                        if {[dict exists $cfg $key]} { lappend opts $flag [dict get $cfg $key] }
+                    }
+                    return [sherpa::load_model -path $model_path {*}$opts]
                 }
                 default { error "::stt::create: unknown critcl engine $engine_name" }
             }

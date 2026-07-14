@@ -236,7 +236,7 @@ namespace eval ::engine {
                     if {![file exists $model_path]} {
                         return [json::dict2json [list status error error "Model not found: $model_path"]]
                     }
-                    set recognizer [stt::create $engine_name critcl $model_path $sample_rate]
+                    set recognizer [stt::create $engine_name critcl $model_path $sample_rate [array get config]]
                     set stt_handle $recognizer
                     return [json::dict2json {status ok message "Processing worker initialized"}]
                 } elseif {$engine_type eq "coprocess"} {

@@ -5,7 +5,7 @@
 proc sherpa::load_model {args} {
     array set opt {-rate 16000}
     array set opt $args
-    set dir $opt(-path)
+    set dir $opt(-path); unset opt(-path)
     set enc [lindex [glob -nocomplain -directory $dir encoder-*.int8.onnx] 0]
     set dec [lindex [glob -nocomplain -directory $dir decoder-*.int8.onnx] 0]
     set joi [lindex [glob -nocomplain -directory $dir joiner-*.int8.onnx] 0]
@@ -13,5 +13,6 @@ proc sherpa::load_model {args} {
     foreach {name val} [list encoder $enc decoder $dec joiner $joi tokens $tok] {
         if {$val eq "" || ![file exists $val]} { error "sherpa::load_model: missing $name in $dir" }
     }
-    return [sherpa::create_recognizer -encoder $enc -decoder $dec -joiner $joi -tokens $tok -rate $opt(-rate)]
+    # Forward every remaining option (-rate, -max-active-paths, -rule*, ...).
+    return [sherpa::create_recognizer -encoder $enc -decoder $dec -joiner $joi -tokens $tok {*}[array get opt]]
 }
