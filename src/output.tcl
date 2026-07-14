@@ -70,6 +70,10 @@ namespace eval ::output {
                     return
                 }
 
+                # Recognizers (vosk lgraph, sherpa Zipformer) emit ALL-CAPS;
+                # lowercase so textproc's sentence-capitalization yields normal case.
+                set text [string tolower $text]
+
                 # Text processing (spacing, voice commands)
                 set text [textproc $text]
 
