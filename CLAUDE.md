@@ -9,20 +9,32 @@ Talkie is a modular speech-to-text application for Linux. See [README.md](README
 ## Quick Reference
 
 ### Key Files
-- `src/engine.tcl` - Audio + Processing workers (PortAudio capture, VAD, Vosk)
-- `src/gec_worker.tcl` - GEC pipeline worker thread
+- `src/engine.tcl` - Audio + Processing workers (PortAudio capture, VAD, STT)
+- `src/stt.tcl` - Common `stt::` engine dispatch (critcl vs coprocess)
+- `src/finalization.tcl` - `engine::should_finalize` (self-endpoint vs partial-stability)
+- `src/sherpa/` - sherpa-onnx critcl binding (streaming Zipformer)
+- `src/output.tcl` - Post-processing (filters, textproc) + uinput typing
 - `src/audio.tcl` - Result display, transcription state, device enumeration
 - `src/worker.tcl` - Reusable worker thread abstraction
-- `src/gec/` - Grammar error correction (OpenVINO bindings, punctuation, homophones)
 
-### Threading Model (4 threads)
+### Threading Model
 - **Audio Worker**: PortAudio callbacks, queues to Processing (never blocks)
-- **Processing Worker**: VAD + speech recognition (40Hz)
-- **GEC Worker**: Grammar correction via OpenVINO (Intel NPU)
-- **Output Worker**: Keyboard simulation via uinput
+- **Processing Worker**: VAD + speech recognition (40Hz), forwards finals to Output
+- **Output Worker**: post-processing (killword + confidence filter, `textproc`) + keyboard simulation via uinput
 - **Main Thread**: GUI (5Hz updates), result display
-- Pipeline: Audio → Processing → GEC → Output
+- Pipeline: Audio → Processing → Output
 - Communication via `thread::send -async`
+
+> The GEC/homophone pipeline (grammar/punctuation/homophone correction via
+> OpenVINO) was removed — the experiments were not reliable. `src/gec/`,
+> `src/gec_worker.tcl` history, and `models/gec/` are retired; the punct/cap
+> and homophone stages no longer run. Engines emit their own text.
+
+### Engine abstraction
+- Common contract in `src/stt.tcl` (`stt::` namespace): `create`, `process`→`{partial endpoint}`, `final`→`{text confidence}`, `reset`, `destroy`. One place branches `critcl` (in-process) vs `coprocess`.
+- Registry (`engine.tcl`) declares per-engine `endpointing` (`self`|`external`) and `emits_partials`.
+- End-of-utterance: `self`-endpoint engines (sherpa-onnx) finalize on the recognizer's `endpoint`; `external` engines use `engine::should_finalize` (energy-silence OR partial-stability) in `src/finalization.tcl`.
+- Engines: `vosk` (critcl), `sherpa-onnx` (critcl, streaming Zipformer, `src/sherpa/`), `sherpa`/`faster-whisper` (coprocess).
 
 ### State Management
 - `::transcribing` global variable controls transcription state
@@ -65,9 +77,10 @@ make build          # Build all critcl packages
 - Custom builds: `models/vosk/vosk-model-en-us-0.22-lgraph-YYYY-MM-DD/` (date-stamped, produced by `tools/build-custom-vosk.sh`)
 - Historical custom: `models/vosk/lm-test/` (early SRILM-era build; kept for regression comparison, not canonical)
 
-### GEC Models (in `models/gec/`)
-- Punctuation/capitalization: `distilbert-punct-cap.onnx`
-- Homophone correction: `electra-small-generator.onnx`
-- Homophones dictionary: `data/homophones.json`
+### sherpa-onnx Model
+- Streaming Zipformer: `models/sherpa-onnx/sherpa-onnx-streaming-zipformer-en-2023-06-26/` (use `.int8.onnx` variants). Install the C lib with `tools/install-sherpa-onnx-lib.sh <url>`.
+
+### GEC Models (retired)
+- `models/gec/` (`distilbert-punct-cap.onnx`, `electra-small-generator.onnx`) and `data/homophones.json` are no longer used — the GEC pipeline was removed. Files remain on disk but nothing loads them.
 
 See `tools/BUILD-CUSTOM-LGRAPH.md` for building custom language models.
