@@ -59,26 +59,30 @@ proc stt::process {handle type chunk} {
     }
 }
 
+# Finalize the utterance. Returns dict {text <s> confidence <0-100>}.
+# Confidence is utterance-level: vosk (alternatives mode) reports it directly;
+# engines without a confidence (sherpa-onnx) return 100 (never filtered).
 proc stt::final {handle type} {
     switch -- $type {
         critcl    { set raw [$handle final-result] }
         coprocess { set raw [::coprocess::final $handle] }
     }
-    if {![catch {dict exists $raw text} has] && $has} { return [list text [dict get $raw text]] }
-    set d [json::json2dict $raw]
-    return [list text [expr {[dict exists $d text] ? [dict get $d text] : ""}]]
-}
-
-# Final result as a JSON string for the GEC worker.
-# vosk/coprocess already return rich JSON (with word-level confidence) — pass
-# it through untouched. sherpa-onnx returns a native Tcl dict — convert to JSON.
-proc stt::final_json {handle type} {
-    switch -- $type {
-        critcl    { set raw [$handle final-result] }
-        coprocess { set raw [::coprocess::final $handle] }
+    # sherpa-onnx returns a native Tcl dict {text ...}; no confidence.
+    if {![catch {dict exists $raw text} has] && $has} {
+        return [list text [dict get $raw text] confidence 100]
     }
-    if {[string index [string trimleft $raw] 0] eq "\{"} { return $raw }
-    return [json::dict2json $raw]
+    # vosk / coprocess return JSON.
+    set d [json::json2dict $raw]
+    if {[dict exists $d alternatives]} {
+        set alt [lindex [dict get $d alternatives] 0]
+        set text [expr {[dict exists $alt text] ? [dict get $alt text] : ""}]
+        set conf [expr {[dict exists $alt confidence] ? [dict get $alt confidence] : 100}]
+    } else {
+        set text [expr {[dict exists $d text] ? [dict get $d text] : ""}]
+        set conf 100
+    }
+    if {$conf <= 1.0} { set conf [expr {$conf * 100}] }
+    return [list text $text confidence $conf]
 }
 
 proc stt::reset {handle type} {

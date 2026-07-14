@@ -1,9 +1,9 @@
 # engine.tcl - Decoupled audio capture and speech processing
 # Two worker threads:
 #   1. Audio worker: captures audio, queues to processing (never blocks)
-#   2. Processing worker: VAD, Vosk, sends results to GEC
+#   2. Processing worker: VAD, STT, forwards finals to the Output worker
 #
-# This architecture ensures audio capture is never blocked by Vosk latency.
+# This architecture ensures audio capture is never blocked by STT latency.
 
 source [file join [file dirname [info script]] worker.tcl]
 source [file join [file dirname [info script]] coprocess.tcl]
@@ -139,7 +139,7 @@ namespace eval ::engine {
             variable engine_type ""
             variable recognizer ""
             variable main_tid ""
-            variable gec_tid ""
+            variable output_tid ""
             variable script_dir ""
 
             # Audio state
@@ -483,18 +483,21 @@ namespace eval ::engine {
                 variable stt_handle
                 variable engine_type
                 variable main_tid
-                variable gec_tid
+                variable output_tid
 
                 puts stderr "SEGMENT-END: calling final-result"
 
                 try {
                     set start_us [clock microseconds]
-                    set result [stt::final_json $stt_handle $engine_type]
+                    set final [stt::final $stt_handle $engine_type]
                     set vosk_ms [expr {([clock microseconds] - $start_us) / 1000.0}]
+                    set text [dict get $final text]
+                    set conf [dict get $final confidence]
 
-                    if {$result ne ""} {
-                        # Send final results to GEC thread (required)
-                        thread::send -async $gec_tid [list ::gec_worker::worker::process_json $result $vosk_ms]
+                    if {$text ne ""} {
+                        # Forward to output worker (post-processing + typing)
+                        thread::send -async $output_tid \
+                            [list ::output::worker::submit_final $text $conf $vosk_ms]
                     } else {
                         puts stderr "SEGMENT-END: empty result from recognizer"
                     }
@@ -508,9 +511,9 @@ namespace eval ::engine {
                 }
             }
 
-            proc set_gec_tid {tid} {
-                variable gec_tid
-                set gec_tid $tid
+            proc set_output_tid {tid} {
+                variable output_tid
+                set output_tid $tid
             }
 
             proc set_transcribing {value} {
@@ -728,10 +731,10 @@ namespace eval ::engine {
     }
 
     # Set GEC worker thread ID (for pipeline: Processing → GEC → Output)
-    proc set_gec_tid {tid} {
+    proc set_output_tid {tid} {
         variable processing_worker_name
         if {[::worker::exists $processing_worker_name]} {
-            ::worker::send_async $processing_worker_name [list ::processing::worker::set_gec_tid $tid]
+            ::worker::send_async $processing_worker_name [list ::processing::worker::set_output_tid $tid]
         }
     }
 
