@@ -484,7 +484,10 @@ namespace eval ::engine {
                     set result [stt::process $stt_handle $engine_type $chunk]
                     set partial [dict get $result partial]
                     if {$partial ne ""} {
-                        thread::send -async $main_tid [list ::audio::display_partial $partial]
+                        # Lowercase ALL-CAPS partials for display (vosk/zipformer);
+                        # leave the returned dict raw for stability tracking.
+                        set disp [expr {$partial eq [string toupper $partial] ? [string tolower $partial] : $partial}]
+                        thread::send -async $main_tid [list ::audio::display_partial $disp]
                     }
                     return $result
                 } on error {err info} {
