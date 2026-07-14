@@ -11,4 +11,4 @@ clean:
 	rm -rf lib
 
 test: all
-	LD_LIBRARY_PATH=$(HOME)/.local/lib tclsh tests/test_load.tcl
+	LD_LIBRARY_PATH=$(HOME)/.local/lib tclsh tests/sherpa.test

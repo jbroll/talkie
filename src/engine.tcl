@@ -21,16 +21,29 @@ namespace eval ::engine {
         vosk,type         "critcl"
         vosk,model_dir    "vosk"
         vosk,model_config "vosk_modelfile"
+        vosk,endpointing  "external"
+        vosk,emits_partials "yes"
+
+        sherpa-onnx,command        ""
+        sherpa-onnx,type           "critcl"
+        sherpa-onnx,model_dir      "sherpa-onnx"
+        sherpa-onnx,model_config   "sherpa_onnx_modelfile"
+        sherpa-onnx,endpointing    "self"
+        sherpa-onnx,emits_partials "yes"
 
         sherpa,command      "engines/sherpa_wrapper.sh"
         sherpa,type         "coprocess"
         sherpa,model_dir    "sherpa-onnx"
         sherpa,model_config "sherpa_modelfile"
+        sherpa,endpointing  "external"
+        sherpa,emits_partials "yes"
 
         faster-whisper,command      "engines/faster_whisper_wrapper.sh"
         faster-whisper,type         "coprocess"
         faster-whisper,model_dir    "faster-whisper"
         faster-whisper,model_config "faster_whisper_modelfile"
+        faster-whisper,endpointing  "external"
+        faster-whisper,emits_partials "no"
     }
 
     # Check if engine is registered

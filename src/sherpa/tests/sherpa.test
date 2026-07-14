@@ -1,0 +1,66 @@
+# sherpa.test - tcltest suite for the sherpa-onnx critcl binding.
+# Run: LD_LIBRARY_PATH=$HOME/.local/lib tclsh sherpa.test
+# Requires the built package (make all) and the staged streaming Zipformer model.
+
+package require tcltest
+namespace import ::tcltest::*
+
+set here [file dirname [file normalize [info script]]]
+lappend auto_path [file join $here .. lib]
+
+set model_dir [file normalize [file join $here ../../../models/sherpa-onnx/sherpa-onnx-streaming-zipformer-en-2023-06-26]]
+
+# Constraint: only run if the package loads and the model is present.
+testConstraint sherpaReady [expr {![catch {package require sherpa}] && [file isdirectory $model_dir]}]
+
+# Read 16kHz mono 16-bit PCM from a WAV, skipping the 44-byte header.
+proc read_pcm {path} {
+    set f [open $path rb]; set d [read $f]; close $f
+    return [string range $d 44 end]
+}
+
+test version {reports the sherpa-onnx version string} -constraints sherpaReady -body {
+    expr {[string length [sherpa::version]] > 0}
+} -result 1
+
+test load_model-globs-files {load_model resolves encoder/decoder/joiner/tokens from a dir} -constraints sherpaReady -body {
+    set rec [sherpa::load_model -path $model_dir -rate 16000]
+    set ok [string match "sherpa_recognizer*" $rec]
+    $rec close
+    set ok
+} -result 1
+
+test recognize-transcript {produces a plausible transcript for a known clip} -constraints sherpaReady -body {
+    set rec [sherpa::load_model -path $model_dir -rate 16000]
+    set pcm [read_pcm [file join $model_dir test_wavs 0.wav]]
+    set text ""
+    for {set i 0} {$i < [string length $pcm]} {incr i 3200} {
+        $rec process [string range $pcm $i [expr {$i+3199}]]
+    }
+    set text [string trim [dict get [$rec final-result] text]]
+    $rec close
+    # Known transcript begins with these words.
+    string match "AFTER EARLY NIGHTFALL*" $text
+} -result 1
+
+test recognize-endpoint {endpoint fires after trailing silence} -constraints sherpaReady -body {
+    set rec [sherpa::load_model -path $model_dir -rate 16000]
+    set pcm [read_pcm [file join $model_dir test_wavs 0.wav]]
+    append pcm [binary format c* [lrepeat [expr {16000 * 3 * 2}] 0]]
+    set saw_endpoint 0
+    for {set i 0} {$i < [string length $pcm]} {incr i 3200} {
+        set r [$rec process [string range $pcm $i [expr {$i+3199}]]]
+        if {[dict get $r endpoint]} { set saw_endpoint 1 }
+    }
+    $rec close
+    set saw_endpoint
+} -result 1
+
+test process-shape {process returns a dict with partial and endpoint keys} -constraints sherpaReady -body {
+    set rec [sherpa::load_model -path $model_dir -rate 16000]
+    set r [$rec process [binary format c* [lrepeat 3200 0]]]
+    $rec close
+    list [dict exists $r partial] [dict exists $r endpoint]
+} -result {1 1}
+
+cleanupTests

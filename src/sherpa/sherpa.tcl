@@ -165,4 +165,8 @@ critcl::cinit {
     Tcl_CreateObjCommand(interp, "sherpa::create_recognizer", SherpaCreateRecognizerCmd, NULL, NULL);
 } ""
 
+# Runtime Tcl procs (bundled into the package; plain procs in this build
+# script would otherwise run at build time only, not ship with the package).
+critcl::tsources sherpa_procs.tcl
+
 package provide sherpa 1.0
