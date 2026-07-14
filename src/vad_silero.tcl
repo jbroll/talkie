@@ -10,8 +10,9 @@
 #
 # Frame accumulation: PortAudio delivers 400 samples/callback (25ms).
 # Silero needs 512 samples (32ms) at 16kHz. If audio is at a higher rate
-# (e.g. 44100 or 48000), samples are decimated by factor N = round(rate/16000).
-# Accumulator holds raw (pre-decimation) samples; window_bytes reflects this.
+# (e.g. 44100 or 48000), the raw samples spanning one 32ms window are linearly
+# resampled to exactly 512 (integer decimation of 44100 would give 14700Hz).
+# Accumulator holds raw (pre-resample) samples; window_bytes reflects this.
 
 namespace eval ::vad::silero {
     variable model ""
@@ -26,8 +27,8 @@ namespace eval ::vad::silero {
     variable window_samples 512
 
     # Set by init based on actual sample rate
-    variable decimate   1       ;# decimation factor (1 = no decimation)
-    variable window_bytes 1024  ;# window_samples * decimate * 2 bytes
+    variable raw_per_window 512 ;# raw input samples spanning one 16kHz window
+    variable window_bytes 1024  ;# raw_per_window * 2 bytes
 
     # Last actual inference result; returned during accumulation so callers
     # see a stable probability and don't mistake "not ready yet" for speech.
@@ -42,17 +43,19 @@ namespace eval ::vad::silero {
         variable threshold
         variable end_threshold
         variable window_samples
-        variable decimate
+        variable raw_per_window
         variable window_bytes
 
         set threshold $threshold_val
         set end_threshold $end_threshold_val
 
-        # Compute decimation factor so we always feed 32ms worth of audio
-        set decimate [expr {max(1, round($sample_rate / 16000.0))}]
-        set window_bytes [expr {$window_samples * $decimate * 2}]
-        if {$decimate > 1} {
-            puts stderr "vad::silero: ${sample_rate}Hz input, decimating by $decimate → 16kHz"
+        # Silero needs exactly window_samples at 16kHz. 44100/48000 are not
+        # integer multiples of 16000, so accumulate the raw samples spanning one
+        # 32ms window and linearly resample them to window_samples (see process).
+        set raw_per_window [expr {max($window_samples, round($window_samples * $sample_rate / 16000.0))}]
+        set window_bytes [expr {$raw_per_window * 2}]
+        if {$raw_per_window != $window_samples} {
+            puts stderr "vad::silero: ${sample_rate}Hz input, resampling ${raw_per_window}→${window_samples} samples/window (→16kHz)"
         }
 
         if {[catch {
@@ -68,18 +71,26 @@ namespace eval ::vad::silero {
         set initialized 1
     }
 
-    # Convert binary int16 PCM bytes to list of normalized f32 values [-1,1],
-    # decimating by factor N (keeping every Nth sample).
-    proc _to_float {bytes {N 1}} {
+    # Convert binary int16 PCM bytes to a list of exactly `out_n` normalized
+    # f32 values [-1,1], linearly resampling from however many input samples are
+    # present. This gives a true 16kHz window (integer decimation of 44100 would
+    # yield 14700Hz and skew the model).
+    proc _resample_to_float {bytes out_n} {
         binary scan $bytes s* samples
-        if {$N == 1} {
+        set in_n [llength $samples]
+        if {$in_n == $out_n} {
             return [lmap s $samples {expr {$s / 32768.0}}]
         }
         set out {}
-        set i 0
-        foreach s $samples {
-            if {$i % $N == 0} { lappend out [expr {$s / 32768.0}] }
-            incr i
+        set ratio [expr {double($in_n - 1) / ($out_n - 1)}]
+        for {set j 0} {$j < $out_n} {incr j} {
+            set pos [expr {$j * $ratio}]
+            set i0  [expr {int($pos)}]
+            set i1  [expr {$i0 + 1 < $in_n ? $i0 + 1 : $i0}]
+            set frac [expr {$pos - $i0}]
+            set s0 [lindex $samples $i0]
+            set s1 [lindex $samples $i1]
+            lappend out [expr {($s0 + ($s1 - $s0) * $frac) / 32768.0}]
         }
         return $out
     }
@@ -94,7 +105,6 @@ namespace eval ::vad::silero {
         variable initialized
         variable window_bytes
         variable window_samples
-        variable decimate
         variable last_prob
         variable end_threshold
 
@@ -113,8 +123,8 @@ namespace eval ::vad::silero {
         set window [string range $accumulator 0 [expr {$window_bytes - 1}]]
         set accumulator [string range $accumulator $window_bytes end]
 
-        # Convert int16 → float list, decimating to 16kHz
-        set audio_floats [_to_float $window $decimate]
+        # Convert int16 → float list, resampling to exactly window_samples @16kHz
+        set audio_floats [_resample_to_float $window $window_samples]
 
         # Run inference
         $request set_input 0 $audio_floats -type f32 -shape [list 1 $window_samples]
