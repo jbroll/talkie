@@ -42,6 +42,7 @@ proc config_load {} {
         window_y                   100
         typing_delay_ms            5
         silence_seconds            0.3
+        partial_stable_seconds     0.6
         vosk_modelfile             vosk-model-en-us-0.22-lgraph
         speech_engine              vosk
         faster_whisper_modelfile   ""

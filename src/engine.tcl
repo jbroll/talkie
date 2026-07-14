@@ -27,7 +27,7 @@ namespace eval ::engine {
         sherpa-onnx,command        ""
         sherpa-onnx,type           "critcl"
         sherpa-onnx,model_dir      "sherpa-onnx"
-        sherpa-onnx,model_config   "sherpa_onnx_modelfile"
+        sherpa-onnx,model_config   "sherpa_modelfile"
         sherpa-onnx,endpointing    "self"
         sherpa-onnx,emits_partials "yes"
 
@@ -233,19 +233,12 @@ namespace eval ::engine {
                 }
 
                 if {$engine_type eq "critcl"} {
-                    package require vosk
-                    if {[info commands vosk::set_log_level] ne ""} {
-                        vosk::set_log_level -1
-                    }
-
-                    if {[file exists $model_path]} {
-                        set model [vosk::load_model -path $model_path]
-                        set recognizer [$model create_recognizer -rate $sample_rate -alternatives 1]
-                        set stt_handle $recognizer
-                        return [json::dict2json {status ok message "Processing worker initialized"}]
-                    } else {
+                    if {![file exists $model_path]} {
                         return [json::dict2json [list status error error "Model not found: $model_path"]]
                     }
+                    set recognizer [stt::create $engine_name critcl $model_path $sample_rate]
+                    set stt_handle $recognizer
+                    return [json::dict2json {status ok message "Processing worker initialized"}]
                 } elseif {$engine_type eq "coprocess"} {
                     source [file join $script_dir coprocess.tcl]
 
@@ -487,9 +480,8 @@ namespace eval ::engine {
             }
 
             proc process_final {} {
-                variable recognizer
+                variable stt_handle
                 variable engine_type
-                variable engine_name
                 variable main_tid
                 variable gec_tid
 
@@ -497,11 +489,7 @@ namespace eval ::engine {
 
                 try {
                     set start_us [clock microseconds]
-                    if {$engine_type eq "critcl"} {
-                        set result [$recognizer final-result]
-                    } else {
-                        set result [::coprocess::final $engine_name]
-                    }
+                    set result [stt::final_json $stt_handle $engine_type]
                     set vosk_ms [expr {([clock microseconds] - $start_us) / 1000.0}]
 
                     if {$result ne ""} {
@@ -529,7 +517,8 @@ namespace eval ::engine {
                 variable transcribing
                 variable last_speech_time
                 variable audio_buffer_list
-                variable recognizer
+                variable stt_handle
+                variable engine_type
                 variable backlog_skip_count
 
                 set transcribing $value
@@ -542,20 +531,15 @@ namespace eval ::engine {
                     if {[namespace exists ::vad::silero] && $::vad::silero::initialized} {
                         ::vad::silero::reset
                     }
-                    if {$recognizer ne ""} {
-                        catch {
-                            if {[info commands $recognizer] ne ""} {
-                                $recognizer reset
-                            }
-                        }
+                    if {$stt_handle ne ""} {
+                        catch {stt::reset $stt_handle $engine_type}
                     }
                 }
             }
 
             proc reset {} {
-                variable recognizer
+                variable stt_handle
                 variable engine_type
-                variable engine_name
                 variable last_speech_time
                 variable audio_buffer_list
                 variable backlog_skip_count
@@ -565,11 +549,7 @@ namespace eval ::engine {
                 set backlog_skip_count 0
 
                 try {
-                    if {$engine_type eq "critcl"} {
-                        $recognizer reset
-                    } else {
-                        ::coprocess::reset $engine_name
-                    }
+                    stt::reset $stt_handle $engine_type
                 } on error {err info} {
                     puts stderr "Processing worker reset error: $err"
                 }
@@ -600,18 +580,11 @@ namespace eval ::engine {
             }
 
             proc close {} {
-                variable recognizer
+                variable stt_handle
                 variable engine_type
-                variable engine_name
 
                 try {
-                    if {$engine_type eq "critcl"} {
-                        if {$recognizer ne "" && [info commands $recognizer] ne ""} {
-                            catch {rename $recognizer ""}
-                        }
-                    } else {
-                        ::coprocess::stop $engine_name
-                    }
+                    stt::destroy $stt_handle $engine_type
                 } on error {err info} {
                     puts stderr "Processing worker close error: $err"
                 }
@@ -655,6 +628,12 @@ namespace eval ::engine {
                 set model_path [get_model_path $::config(vosk_modelfile)]
                 if {$model_path eq "" || ![file exists $model_path]} {
                     puts "ERROR: Vosk model not found"
+                    return false
+                }
+            } elseif {$engine_name eq "sherpa-onnx"} {
+                set model_path [get_model_path $::config(sherpa_modelfile)]
+                if {$model_path eq "" || ![file exists $model_path]} {
+                    puts "ERROR: sherpa-onnx model not found"
                     return false
                 }
             } else {

@@ -18,9 +18,17 @@ proc stt::create {engine_name type model_path rate} {
     switch -- $type {
         critcl {
             switch -- $engine_name {
-                vosk        { set m [vosk::load_model -path $model_path]; return [$m create_recognizer -rate $rate -alternatives 1] }
-                sherpa-onnx { return [sherpa::load_model -path $model_path -rate $rate] }
-                default     { error "stt::create: unknown critcl engine $engine_name" }
+                vosk {
+                    package require vosk
+                    if {[info commands vosk::set_log_level] ne ""} { vosk::set_log_level -1 }
+                    set m [vosk::load_model -path $model_path]
+                    return [$m create_recognizer -rate $rate -alternatives 1]
+                }
+                sherpa-onnx {
+                    package require sherpa
+                    return [sherpa::load_model -path $model_path -rate $rate]
+                }
+                default { error "stt::create: unknown critcl engine $engine_name" }
             }
         }
         coprocess {
@@ -59,6 +67,18 @@ proc stt::final {handle type} {
     if {![catch {dict exists $raw text} has] && $has} { return [list text [dict get $raw text]] }
     set d [json::json2dict $raw]
     return [list text [expr {[dict exists $d text] ? [dict get $d text] : ""}]]
+}
+
+# Final result as a JSON string for the GEC worker.
+# vosk/coprocess already return rich JSON (with word-level confidence) — pass
+# it through untouched. sherpa-onnx returns a native Tcl dict — convert to JSON.
+proc stt::final_json {handle type} {
+    switch -- $type {
+        critcl    { set raw [$handle final-result] }
+        coprocess { set raw [::coprocess::final $handle] }
+    }
+    if {[string index [string trimleft $raw] 0] eq "\{"} { return $raw }
+    return [json::dict2json $raw]
 }
 
 proc stt::reset {handle type} {
