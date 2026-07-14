@@ -12,12 +12,16 @@ proc config_init {} {
     # Order matters: the processing worker needs the output thread ID
     ::output::initialize
 
-    ::audio::initialize
-
-    # Connect engine to output worker (Processing → Output pipeline)
-    ::engine::set_output_tid [::output::tid]
-    ::output::sync_config
-    puts "Pipeline connected: Processing → Output"
+    # A failed speech engine must not abort startup — bring the GUI up anyway
+    # so the user can choose a working engine in Settings.
+    if {[::audio::initialize]} {
+        # Connect engine to output worker (Processing → Output pipeline)
+        ::engine::set_output_tid [::output::tid]
+        ::output::sync_config
+        puts "Pipeline connected: Processing → Output"
+    } else {
+        puts "WARNING: speech engine '[set ::config(speech_engine)]' unavailable — open Settings to choose another (e.g. sherpa-onnx or vosk)."
+    }
 
     config_refresh_models
 }

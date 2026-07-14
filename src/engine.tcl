@@ -673,8 +673,15 @@ namespace eval ::engine {
         lappend config_dict endpointing [get_property $engine_name endpointing]
 
         # Initialize processing worker with engine
-        set response [::worker::send $processing_worker_name [list ::processing::worker::init \
-            $main_tid $engine_name $engine_type $model_path $::device_sample_rate $::script_dir $config_dict]]
+        # The worker init may THROW (e.g. a coprocess engine that never responds).
+        # Treat any failure as a graceful "engine unavailable" so the GUI still
+        # comes up and the user can pick a working engine in Settings.
+        if {[catch {::worker::send $processing_worker_name [list ::processing::worker::init \
+                $main_tid $engine_name $engine_type $model_path $::device_sample_rate $::script_dir $config_dict]} response]} {
+            puts "ERROR: Speech engine '$engine_name' failed to initialize: $response"
+            catch {::worker::destroy $processing_worker_name}
+            return false
+        }
 
         # Parse response
         set response_dict [json::json2dict $response]
@@ -730,7 +737,7 @@ namespace eval ::engine {
         }
     }
 
-    # Set GEC worker thread ID (for pipeline: Processing → GEC → Output)
+    # Set output worker thread ID (for pipeline: Processing → Output)
     proc set_output_tid {tid} {
         variable processing_worker_name
         if {[::worker::exists $processing_worker_name]} {
