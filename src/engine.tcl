@@ -411,8 +411,14 @@ namespace eval ::engine {
 
                         # Rising edge of speech - send lookback buffer
                         if {$speech && !$last_speech_time} {
+                            variable last_partial_text
+                            variable last_partial_change_ms
                             puts stderr "SEGMENT-START: level=$audiolevel threshold=$config(audio_threshold)"
                             set this_speech_time $timestamp
+                            # Reset partial-stability tracking so the new segment
+                            # doesn't inherit a stale/zero change timestamp.
+                            set last_partial_text ""
+                            set last_partial_change_ms [clock milliseconds]
                             foreach chunk $audio_buffer_list {
                                 process_chunk $chunk
                             }
@@ -437,8 +443,9 @@ namespace eval ::engine {
                             set silence_elapsed [expr {$timestamp - $last_speech_time}]
                             set stable_elapsed [expr {($now_ms - $last_partial_change_ms) / 1000.0}]
                             set partial_stable_seconds [expr {[info exists config(partial_stable_seconds)] ? $config(partial_stable_seconds) : 0.6}]
+                            set have_partial [expr {$last_partial_text ne ""}]
 
-                            if {[engine::should_finalize $self_endpoint $endpoint 0 \
+                            if {[engine::should_finalize $self_endpoint $endpoint $have_partial \
                                     $silence_elapsed $config(silence_seconds) \
                                     $stable_elapsed $partial_stable_seconds]} {
                                 process_final
