@@ -33,8 +33,64 @@ namespace eval ::output {
                     return [list status error message "Failed to set typing delay: $err"]
                 }
 
+                # Post-processing setup (textproc + feedback), formerly the GEC worker's job
+                array set ::config { confidence_threshold 100 }
+                if {[lsearch -exact $::auto_path "$::env(HOME)/.local/lib/tcllib2.0"] < 0} {
+                    lappend ::auto_path "$::env(HOME)/.local/lib/tcllib2.0"
+                }
+                ::tcl::tm::path add "$::env(HOME)/lib/tcl8/site-tcl"
+                package require json
+                source [file join $script_dir textproc.tcl]
+                source [file join $script_dir feedback.tcl]
+                ::feedback::init
+
                 set initialized 1
                 return [list status ok message "Output worker initialized"]
+            }
+
+            # Post-process and type a final utterance.
+            # Formerly split across the GEC worker's process_json/process_result.
+            proc submit_final {text confidence vosk_ms} {
+                variable initialized
+                variable main_tid
+                if {!$initialized} { return }
+
+                # Killword filter (cheap, text-only)
+                if {$text in [list "" "the" "hm"]} {
+                    thread::send -async $main_tid [list ::audio::display_partial ""]
+                    return
+                }
+
+                # Utterance-level confidence filter
+                if {$confidence < $::config(confidence_threshold)} {
+                    puts stderr "OUTPUT-FILTER: conf $confidence < threshold $::config(confidence_threshold): $text"
+                    thread::send -async $main_tid [list ::audio::display_partial ""]
+                    return
+                }
+
+                # Text processing (spacing, voice commands)
+                set text [textproc $text]
+
+                if {$text ne ""} {
+                    ::feedback::inject $text
+                    try {
+                        uinput::type $text
+                    } on error {err info} {
+                        puts stderr "Output worker: typing error: $err"
+                    }
+                }
+
+                thread::send -async $main_tid [list ::audio::display_final $text $confidence $vosk_ms {}]
+            }
+
+            # Reset textproc state (called when starting a new transcription)
+            proc reset_textproc {} {
+                catch { textproc_reset }
+            }
+
+            # Update a config value (e.g. confidence_threshold) from the main thread
+            proc update_config {key value} {
+                set ::config($key) $value
             }
 
             proc type_text {text} {
@@ -153,6 +209,43 @@ namespace eval ::output {
         }
 
         ::worker::send $worker_name [list ::output::worker::set_delay $delay_ms]
+    }
+
+    # Worker thread ID (for the processing worker to send finals to)
+    proc tid {} {
+        variable worker_name
+        return [::worker::tid $worker_name]
+    }
+
+    # Reset textproc state in the worker (new transcription starting)
+    proc reset_textproc {} {
+        variable worker_name
+        if {[::worker::exists $worker_name]} {
+            ::worker::send_async $worker_name {::output::worker::reset_textproc}
+        }
+    }
+
+    # Push post-processing config (confidence_threshold) to the worker
+    proc sync_config {} {
+        variable worker_name
+        if {![::worker::exists $worker_name]} {
+            return
+        }
+        foreach key {confidence_threshold} {
+            if {[info exists ::config($key)]} {
+                ::worker::send_async $worker_name \
+                    [list ::output::worker::update_config $key $::config($key)]
+            }
+        }
+    }
+
+    # Forward a single config change to the worker
+    proc on_config_change {key value} {
+        variable worker_name
+        if {[::worker::exists $worker_name]} {
+            ::worker::send_async $worker_name \
+                [list ::output::worker::update_config $key $value]
+        }
     }
 
     # Cleanup output thread
