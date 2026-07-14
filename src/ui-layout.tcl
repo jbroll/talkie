@@ -62,9 +62,6 @@ array set ::config {
     sherpa_max_active_paths   4
     sherpa_modelfile          sherpa-onnx-streaming-zipformer-en-2023-06-26
     faster_whisper_modelfile  ""
-    gec_homophone             1
-    gec_punctcap              1
-    gec_grammar               0
     vad_engine                threshold
     vad_device                CPU
     vad_threshold             0.5
@@ -168,10 +165,6 @@ proc build_config_spec {} {
     lappend config_spec @ "Speech Min Multiplier" @ :config(speech_min_multiplier) -width 10 <--> config(speech_min_multiplier) -from 0.0 -to 1.0 -resolution 0.1 &
     lappend config_spec @ "Speech Max Multiplier" @ :config(speech_max_multiplier) -width 10 <--> config(speech_max_multiplier) -from 1.0 -to 2.0 -resolution 0.1 &
     lappend config_spec @ "Max Confidence Penalty" @ :config(max_confidence_penalty) -width 10 <--> config(max_confidence_penalty) -from 0 -to 200
-
-    # GEC (Grammar Error Correction) options
-    lappend config_spec @ "" - &
-    lappend config_spec @ "GEC Stages" ~ "Homophones" -variable config(gec_homophone) ~ "Punct/Caps" -variable config(gec_punctcap) ~ "Grammar" -variable config(gec_grammar)
 
     # VAD Engine options
     lappend config_spec @ "" - &
