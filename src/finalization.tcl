@@ -3,7 +3,7 @@
 # Extracted as pure logic so it is unit-testable without audio or threads.
 # Used by the processing worker to decide when to finalize a segment.
 
-namespace eval engine {}
+namespace eval ::engine {}
 
 # Decide whether the current utterance should be finalized.
 #   self_endpoint          : 1 if the engine self-detects end-of-utterance
@@ -17,7 +17,7 @@ namespace eval engine {}
 # self-endpoint engines (sherpa-onnx) defer entirely to the recognizer.
 # external engines (whisper.cpp, OpenVINO GenAI, energy-VAD Vosk) finalize on
 # energy-silence OR partial-stability, whichever fires first.
-proc engine::should_finalize {self_endpoint endpoint partial_changed \
+proc ::engine::should_finalize {self_endpoint endpoint partial_changed \
         silence_elapsed silence_seconds stable_elapsed partial_stable_seconds} {
     if {$self_endpoint} {
         return [expr {$endpoint ? 1 : 0}]

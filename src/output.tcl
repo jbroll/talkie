@@ -40,6 +40,8 @@ namespace eval ::output {
                 }
                 ::tcl::tm::path add "$::env(HOME)/lib/tcl8/site-tcl"
                 package require json
+                package require jbr::unix   ;# provides `cat` used by textproc_load_map
+                package require jbr::pipe   ;# provides `pipe`/`|` used by textproc
                 source [file join $script_dir textproc.tcl]
                 source [file join $script_dir feedback.tcl]
                 ::feedback::init
