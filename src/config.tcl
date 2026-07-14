@@ -53,6 +53,7 @@ proc config_load {} {
         confidence_threshold       100
         sherpa_modelfile           sherpa-onnx-streaming-zipformer-en-2023-06-26
         parakeet_modelfile         sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
+        sherpa_num_threads         4
         speech_floor_percentile    70
         speech_max_multiplier      1.3
         spike_suppression_seconds  0.3

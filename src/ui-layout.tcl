@@ -60,6 +60,7 @@ array set ::config {
     vosk_lattice              5
     vosk_modelfile            vosk-model-en-us-0.22-lgraph
     sherpa_max_active_paths   4
+    sherpa_num_threads        4
     sherpa_modelfile          sherpa-onnx-streaming-zipformer-en-2023-06-26
     parakeet_modelfile        sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
     faster_whisper_modelfile  ""
