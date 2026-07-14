@@ -21,7 +21,7 @@ namespace eval ::audio {
 
     proc start_transcription {} {
         ::engine::set_transcribing 1
-        ::gec_worker::reset_textproc
+        ::output::reset_textproc
 
         set ::transcribing 1
         state_save $::transcribing

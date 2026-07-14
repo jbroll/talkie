@@ -68,7 +68,6 @@ set ::buffer_overflows 0
 set ::vad_prob -1.0
 
 proc quit {} {
-    try { ::gec_worker::cleanup } on error message {}
     try { ::output::cleanup } on error message {}
     try { ::engine::cleanup } on error message {}
     try { pa::terminate } on error message {}
@@ -95,7 +94,7 @@ source [file join $script_dir vosk.tcl]
 
 # All other engines (Sherpa, Faster-Whisper) are coprocess - no loading needed
 
-# Feedback logging (must load before gec.tcl and output.tcl)
+# Feedback logging (must load before output.tcl)
 source [file join $script_dir feedback.tcl]
 ::feedback::init
 
@@ -103,7 +102,6 @@ source [file join $script_dir feedback.tcl]
 source [file join $script_dir engine.tcl]
 source [file join $script_dir output.tcl]
 source [file join $script_dir audio.tcl]
-source [file join $script_dir gec_worker.tcl]
 
 # Model paths - see CLAUDE.md "Vosk Model Data" section
 set models_dir [file join [file dirname $::script_dir] models vosk]

@@ -8,20 +8,16 @@ proc config_init {} {
 
     ::audio::refresh_devices
 
-    # Initialize pipeline: Output → GEC → Engine
-    # Order matters: each stage needs the next stage's thread ID
+    # Initialize pipeline: Output → Engine
+    # Order matters: the processing worker needs the output thread ID
     ::output::initialize
-
-    if {![::gec_worker::initialize]} {
-        puts stderr "FATAL: GEC worker initialization failed"
-        exit 1
-    }
 
     ::audio::initialize
 
-    # Connect engine to GEC worker (Engine → GEC → Output pipeline)
-    ::engine::set_gec_tid [::gec_worker::tid]
-    puts "Pipeline connected: Processing → GEC → Output"
+    # Connect engine to output worker (Processing → Output pipeline)
+    ::engine::set_output_tid [::output::tid]
+    ::output::sync_config
+    puts "Pipeline connected: Processing → Output"
 
     config_refresh_models
 }
@@ -60,9 +56,6 @@ proc config_load {} {
         vosk_beam                  10
         input_device               default
         max_confidence_penalty     75
-        gec_homophone              1
-        gec_punctcap               1
-        gec_grammar                0
         vad_engine                 threshold
         vad_device                 CPU
         vad_threshold              0.5
@@ -101,10 +94,7 @@ proc config_trace {} {
     trace add variable ::config(sherpa_modelfile) write config_model_change
     trace add variable ::config(typing_delay_ms) write config_typing_delay_change
     trace add variable ::config(input_device) write config_input_device_change
-    trace add variable ::config(gec_homophone) write config_gec_change
-    trace add variable ::config(gec_punctcap) write config_gec_change
-    trace add variable ::config(gec_grammar) write config_gec_change
-    trace add variable ::config(confidence_threshold) write config_gec_change
+    trace add variable ::config(confidence_threshold) write config_output_change
     trace add variable ::transcribing write state_transcribing_change
 
     # Processing worker config (VAD, timing parameters)
@@ -121,11 +111,11 @@ proc config_trace {} {
     trace add variable ::config(vad_device) write config_vad_change
 }
 
-proc config_gec_change {name1 name2 op} {
-    # Propagate GEC config changes to worker thread
+proc config_output_change {name1 name2 op} {
+    # Propagate post-processing config (confidence_threshold) to the output worker
     if {$name2 ne ""} {
-        if {[catch { ::gec_worker::on_config_change $name2 $::config($name2) } err]} {
-            puts stderr "config_gec_change: failed to propagate $name2: $err"
+        if {[catch { ::output::on_config_change $name2 $::config($name2) } err]} {
+            puts stderr "config_output_change: failed to propagate $name2: $err"
         }
     }
 }
@@ -156,8 +146,8 @@ proc config_engine_change {args} {
     ::engine::cleanup
     ::engine::initialize
 
-    # Reconnect GEC worker to new processing thread
-    ::engine::set_gec_tid [::gec_worker::tid]
+    # Reconnect output worker to the new processing thread
+    ::engine::set_output_tid [::output::tid]
 
     # Restore transcription state if it was active
     if {$was_transcribing} {
@@ -176,8 +166,8 @@ proc config_model_change {args} {
     ::engine::cleanup
     ::engine::initialize
 
-    # Reconnect GEC worker to new processing thread
-    ::engine::set_gec_tid [::gec_worker::tid]
+    # Reconnect output worker to the new processing thread
+    ::engine::set_output_tid [::output::tid]
 
     # Restore transcription state
     if {$was_transcribing} {
