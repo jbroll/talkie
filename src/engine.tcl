@@ -6,7 +6,6 @@
 # This architecture ensures audio capture is never blocked by STT latency.
 
 source [file join [file dirname [info script]] worker.tcl]
-source [file join [file dirname [info script]] coprocess.tcl]
 
 namespace eval ::engine {
     variable recognizer_cmd ""
@@ -30,13 +29,6 @@ namespace eval ::engine {
         sherpa-onnx,model_config   "sherpa_modelfile"
         sherpa-onnx,endpointing    "detect"
         sherpa-onnx,emits_partials "detect"
-
-        faster-whisper,command      "engines/faster_whisper_wrapper.sh"
-        faster-whisper,type         "coprocess"
-        faster-whisper,model_dir    "faster-whisper"
-        faster-whisper,model_config "faster_whisper_modelfile"
-        faster-whisper,endpointing  "external"
-        faster-whisper,emits_partials "no"
     }
 
     # Check if engine is registered
@@ -167,7 +159,7 @@ namespace eval ::engine {
             variable last_partial_text ""     ;# last partial seen (for stability endpoint)
             variable last_partial_change_ms 0 ;# when the partial last changed
 
-            # Unified engine handle for stt:: dispatch (recognizer cmd, or engine name for coprocess)
+            # Engine handle for stt:: dispatch (the recognizer command)
             variable stt_handle ""
 
             proc init {main_tid_arg engine_name_arg engine_type_arg model_path sample_rate script_dir_arg config_dict} {
@@ -193,7 +185,7 @@ namespace eval ::engine {
                 package require json
                 package require audio
 
-                # Common STT dispatch layer (used by both critcl and coprocess paths)
+                # Common STT dispatch layer
                 source [file join $script_dir stt.tcl]
                 source [file join $script_dir finalization.tcl]
 
@@ -233,25 +225,12 @@ namespace eval ::engine {
                     }
                 }
 
-                if {$engine_type eq "critcl"} {
-                    if {![file exists $model_path]} {
-                        return [json::dict2json [list status error error "Model not found: $model_path"]]
-                    }
-                    set recognizer [stt::create $engine_name critcl $model_path $sample_rate [array get config]]
-                    set stt_handle $recognizer
-                    return [json::dict2json {status ok message "Processing worker initialized"}]
-                } elseif {$engine_type eq "coprocess"} {
-                    source [file join $script_dir coprocess.tcl]
-
-                    set cmd_path [file join $script_dir [lindex $model_path 0]]
-                    set model_path_only [lindex $model_path 1]
-
-                    set response [::coprocess::start $engine_name $cmd_path $model_path_only $sample_rate]
-                    set stt_handle $engine_name
-                    return $response
-                } else {
-                    return [json::dict2json [list status error error "Unknown engine type: $engine_type"]]
+                if {![file exists $model_path]} {
+                    return [json::dict2json [list status error error "Model not found: $model_path"]]
                 }
+                set recognizer [stt::create $engine_name $model_path $sample_rate [array get config]]
+                set stt_handle $recognizer
+                return [json::dict2json {status ok message "Processing worker initialized"}]
             }
 
             proc is_speech {audiolevel {data ""}} {
@@ -475,7 +454,7 @@ namespace eval ::engine {
                 variable main_tid
 
                 try {
-                    set result [stt::process $stt_handle $engine_type $chunk]
+                    set result [stt::process $stt_handle $chunk]
                     set partial [dict get $result partial]
                     if {$partial ne ""} {
                         # Lowercase ALL-CAPS partials for display (vosk/zipformer);
@@ -500,7 +479,7 @@ namespace eval ::engine {
 
                 try {
                     set start_us [clock microseconds]
-                    set final [stt::final $stt_handle $engine_type]
+                    set final [stt::final $stt_handle]
                     set vosk_ms [expr {([clock microseconds] - $start_us) / 1000.0}]
                     set text [dict get $final text]
                     set conf [dict get $final confidence]
@@ -546,7 +525,7 @@ namespace eval ::engine {
                         ::vad::silero::reset
                     }
                     if {$stt_handle ne ""} {
-                        catch {stt::reset $stt_handle $engine_type}
+                        catch {stt::reset $stt_handle}
                     }
                 }
             }
@@ -563,7 +542,7 @@ namespace eval ::engine {
                 set backlog_skip_count 0
 
                 try {
-                    stt::reset $stt_handle $engine_type
+                    stt::reset $stt_handle
                 } on error {err info} {
                     puts stderr "Processing worker reset error: $err"
                 }
@@ -598,7 +577,7 @@ namespace eval ::engine {
                 variable engine_type
 
                 try {
-                    stt::destroy $stt_handle $engine_type
+                    stt::destroy $stt_handle
                 } on error {err info} {
                     puts stderr "Processing worker close error: $err"
                 }
@@ -636,39 +615,21 @@ namespace eval ::engine {
 
         puts "Initializing $engine_name engine (type: $engine_type) with decoupled audio..."
 
-        # Prepare model path based on engine type
-        if {$engine_type eq "critcl"} {
-            if {$engine_name eq "vosk"} {
-                set model_path [get_model_path $::config(vosk_modelfile)]
-                if {$model_path eq "" || ![file exists $model_path]} {
-                    puts "ERROR: Vosk model not found"
-                    return false
-                }
-            } elseif {$engine_name eq "sherpa-onnx"} {
-                set model_path [get_model_path $::config(sherpa_modelfile)]
-                if {$model_path eq "" || ![file exists $model_path]} {
-                    puts "ERROR: sherpa-onnx model not found"
-                    return false
-                }
-            } else {
-                puts "ERROR: Unknown critcl engine: $engine_name"
+        # Prepare model path (all engines are in-process critcl)
+        if {$engine_name eq "vosk"} {
+            set model_path [get_model_path $::config(vosk_modelfile)]
+            if {$model_path eq "" || ![file exists $model_path]} {
+                puts "ERROR: Vosk model not found"
                 return false
             }
-        } elseif {$engine_type eq "coprocess"} {
-            set cmd [get_property $engine_name command]
-            set model_config [get_property $engine_name model_config]
-            set model_dir [get_property $engine_name model_dir]
-
-            if {$model_config ne "" && [info exists ::config($model_config)]} {
-                set modelfile $::config($model_config)
-                set model_path_full [file join [file dirname $::script_dir] models $model_dir $modelfile]
-            } else {
-                set model_path_full [file join [file dirname $::script_dir] models $model_dir]
+        } elseif {$engine_name eq "sherpa-onnx"} {
+            set model_path [get_model_path $::config(sherpa_modelfile)]
+            if {$model_path eq "" || ![file exists $model_path]} {
+                puts "ERROR: sherpa-onnx model not found"
+                return false
             }
-
-            set model_path [list $cmd $model_path_full]
         } else {
-            puts "ERROR: Unknown engine type: $engine_type"
+            puts "ERROR: Unknown engine: $engine_name"
             return false
         }
 
@@ -684,7 +645,7 @@ namespace eval ::engine {
         lappend config_dict endpointing [get_property $engine_name endpointing]
 
         # Initialize processing worker with engine
-        # The worker init may THROW (e.g. a coprocess engine that never responds).
+        # The worker init may THROW (e.g. a model that fails to load).
         # Treat any failure as a graceful "engine unavailable" so the GUI still
         # comes up and the user can pick a working engine in Settings.
         if {[catch {::worker::send $processing_worker_name [list ::processing::worker::init \

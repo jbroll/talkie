@@ -45,7 +45,6 @@ proc config_load {} {
         partial_stable_seconds     0.6
         vosk_modelfile             vosk-model-en-us-0.22-lgraph
         speech_engine              vosk
-        faster_whisper_modelfile   ""
         vosk_lattice               5
         min_duration               0.30
         speech_min_multiplier      0.6

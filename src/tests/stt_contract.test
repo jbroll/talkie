@@ -25,25 +25,25 @@ proc read_pcm {path} {
 }
 
 test create-process-shape {stt::process returns {partial, endpoint} for sherpa-onnx} -constraints sherpaReady -body {
-    set h [stt::create sherpa-onnx critcl $model_dir 16000]
+    set h [stt::create sherpa-onnx $model_dir 16000]
     set pcm [read_pcm [file join $model_dir test_wavs 0.wav]]
     set shape_ok 1
     for {set i 0} {$i < [string length $pcm]} {incr i 3200} {
-        set r [stt::process $h critcl [string range $pcm $i [expr {$i+3199}]]]
+        set r [stt::process $h [string range $pcm $i [expr {$i+3199}]]]
         if {![dict exists $r partial] || ![dict exists $r endpoint]} { set shape_ok 0 }
     }
-    stt::destroy $h critcl
+    stt::destroy $h
     set shape_ok
 } -result 1
 
 test final-shape-and-text {stt::final returns {text, confidence} with a plausible transcript} -constraints sherpaReady -body {
-    set h [stt::create sherpa-onnx critcl $model_dir 16000]
+    set h [stt::create sherpa-onnx $model_dir 16000]
     set pcm [read_pcm [file join $model_dir test_wavs 0.wav]]
     for {set i 0} {$i < [string length $pcm]} {incr i 3200} {
-        stt::process $h critcl [string range $pcm $i [expr {$i+3199}]]
+        stt::process $h [string range $pcm $i [expr {$i+3199}]]
     }
-    set fin [stt::final $h critcl]
-    stt::destroy $h critcl
+    set fin [stt::final $h]
+    stt::destroy $h
     list [dict exists $fin text] [dict exists $fin confidence] \
          [string match "AFTER EARLY NIGHTFALL*" [string trim [dict get $fin text]]] \
          [dict get $fin confidence]
@@ -52,24 +52,24 @@ test final-shape-and-text {stt::final returns {text, confidence} with a plausibl
 # Confidence extraction from JSON is engine-agnostic; test it without native libs.
 test final-confidence-vosk-alternatives {utterance confidence from vosk alternatives JSON} -body {
     proc fake_vosk_alt {sub} { return {{"alternatives" : [{"text" : "hello there", "confidence" : 0.87}]}} }
-    set r [stt::final fake_vosk_alt critcl]
+    set r [stt::final fake_vosk_alt]
     list [dict get $r text] [dict get $r confidence]
 } -result {{hello there} 87.0}
 
 test final-confidence-plaintext-defaults-100 {plain text result defaults to confidence 100} -body {
     proc fake_vosk_txt {sub} { return {{"text" : "just text"}} }
-    dict get [stt::final fake_vosk_txt critcl] confidence
+    dict get [stt::final fake_vosk_txt] confidence
 } -result 100
 
 test endpoint-propagates {endpoint flag surfaces through stt::process after trailing silence} -constraints sherpaReady -body {
-    set h [stt::create sherpa-onnx critcl $model_dir 16000]
+    set h [stt::create sherpa-onnx $model_dir 16000]
     set pcm [read_pcm [file join $model_dir test_wavs 0.wav]]
     append pcm [binary format c* [lrepeat [expr {16000 * 3 * 2}] 0]]
     set saw 0
     for {set i 0} {$i < [string length $pcm]} {incr i 3200} {
-        if {[dict get [stt::process $h critcl [string range $pcm $i [expr {$i+3199}]]] endpoint]} { set saw 1 }
+        if {[dict get [stt::process $h [string range $pcm $i [expr {$i+3199}]]] endpoint]} { set saw 1 }
     }
-    stt::destroy $h critcl
+    stt::destroy $h
     set saw
 } -result 1
 

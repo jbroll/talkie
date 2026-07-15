@@ -92,7 +92,7 @@ lappend auto_path [file join $script_dir vosk lib vosk]
 package require vosk
 source [file join $script_dir vosk.tcl]
 
-# All other engines (Sherpa, Faster-Whisper) are coprocess - no loading needed
+# sherpa-onnx is loaded on demand by the processing worker.
 
 # Feedback logging (must load before output.tcl)
 source [file join $script_dir feedback.tcl]
@@ -109,9 +109,7 @@ set base_model_dir [file join $models_dir vosk-model-en-us-0.22-lgraph]  ;# Base
 set custom_model_dir [file join $models_dir lm-test]                     ;# Custom model with domain words
 
 proc get_model_path {modelfile} {
-    # Generic model path lookup - delegates to engine.tcl
-    # This is kept for backward compatibility with vosk.tcl and sherpa.tcl
-    # New coprocess engines use engine::get_property directly
+    # Generic model path lookup - delegates to engine.tcl registry model_dir
 
     set model_dir [::engine::get_property $::config(speech_engine) model_dir]
     if {$model_dir eq ""} {

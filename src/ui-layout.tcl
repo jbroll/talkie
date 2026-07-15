@@ -36,7 +36,7 @@ set buffer_overflows 0
 set vad_prob -1.0
 
 # Available speech engines (global list for config dialog)
-set ::speech_engines {vosk sherpa-onnx faster-whisper}
+set ::speech_engines {vosk sherpa-onnx}
 
 # Available VAD engines and devices
 set ::vad_engines {threshold silero}
@@ -61,7 +61,6 @@ array set ::config {
     vosk_modelfile            vosk-model-en-us-0.22-lgraph
     sherpa_num_threads        4
     sherpa_modelfile          sherpa-onnx-streaming-zipformer-en-2023-06-26
-    faster_whisper_modelfile  ""
     vad_engine                threshold
     vad_device                CPU
     vad_threshold             0.5
@@ -154,8 +153,6 @@ proc build_config_spec {} {
     } elseif {$::config(speech_engine) eq "sherpa-onnx"} {
         lappend config_spec @ "Threads" @ :config(sherpa_num_threads) -width 10 <--> config(sherpa_num_threads) -from 1 -to 16 &
         lappend config_spec @ "Model" x ? config(sherpa_modelfile) -listvariable sherpa_model_files &
-    } elseif {$::config(speech_engine) eq "faster-whisper"} {
-        lappend config_spec @ "Model" @ :config(faster_whisper_modelfile) -width 20 &
     }
 
     lappend config_spec @ "" - &
