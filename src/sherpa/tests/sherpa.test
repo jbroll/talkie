@@ -147,4 +147,22 @@ test moonshine-transcribe {Moonshine decodes with punctuation/case via load_auto
     list [expr {[string length $text] > 20}] [expr {$text ne [string toupper $text]}]
 } -result {1 1}
 
+set wh_dir [lindex [lsort [glob -nocomplain [file join $models_root sherpa-onnx-whisper*]]] 0]
+testConstraint whReady [expr {[testConstraint sherpaReady] && $wh_dir ne "" && [file isdirectory $wh_dir]}]
+
+test detect-whisper {Whisper detected by dir name} -constraints whReady -body {
+    sherpa::detect_kind $wh_dir
+} -result whisper
+
+test whisper-transcribe {Whisper decodes with punctuation/case via load_auto} -constraints whReady -body {
+    set rec [sherpa::load_auto -path $wh_dir -rate 16000 -num-threads 4]
+    set pcm [read_pcm [lindex [lsort [glob [file join $wh_dir test_wavs *.wav]]] 0]]
+    for {set i 0} {$i < [string length $pcm]} {incr i 6400} {
+        $rec process [string range $pcm $i [expr {$i+6399}]]
+    }
+    set text [string trim [dict get [$rec final-result] text]]
+    $rec close
+    list [expr {[string length $text] > 20}] [expr {$text ne [string toupper $text]}]
+} -result {1 1}
+
 cleanupTests

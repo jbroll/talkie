@@ -27,7 +27,8 @@ proc sherpa::detect_kind {dir} {
     set name [string tolower [file tail $dir]]
     if {[string match *sense-voice* $name] || [string match *sensevoice* $name]} { return sense-voice }
     if {[string match *moonshine* $name]} { return moonshine }
-    # (whisper/canary added in their own turns)
+    if {[string match *whisper* $name]}   { return whisper }
+    # (canary added in its own turn)
 
     set has_enc [expr {[llength [glob -nocomplain -directory $dir encoder*.onnx]] > 0}]
     set has_joi [expr {[llength [glob -nocomplain -directory $dir joiner*.onnx]] > 0}]
@@ -54,6 +55,7 @@ proc sherpa::load_auto {args} {
         offline-ctc        { return [sherpa::load_offline_ctc_model {*}$args] }
         sense-voice        { return [sherpa::load_sensevoice_model {*}$args] }
         moonshine          { return [sherpa::load_moonshine_model {*}$args] }
+        whisper            { return [sherpa::load_whisper_model {*}$args] }
     }
 }
 
@@ -126,4 +128,20 @@ proc sherpa::load_moonshine_model {args} {
     }
     return [sherpa::create_offline_moonshine_recognizer -preprocessor $pre -encoder $enc \
         -uncached-decoder $unc -cached-decoder $cac -tokens $tok {*}[array get opt]]
+}
+
+# Whisper model (encoder + decoder). Tokens file is named "<prefix>-tokens.txt".
+proc sherpa::load_whisper_model {args} {
+    array set opt {-rate 16000}
+    array set opt $args
+    set dir $opt(-path); unset opt(-path)
+    set enc [lindex [lsort [glob -nocomplain -directory $dir *encoder*int8*.onnx]] 0]
+    if {$enc eq ""} { set enc [lindex [lsort [glob -nocomplain -directory $dir *encoder*.onnx]] 0] }
+    set dec [lindex [lsort [glob -nocomplain -directory $dir *decoder*int8*.onnx]] 0]
+    if {$dec eq ""} { set dec [lindex [lsort [glob -nocomplain -directory $dir *decoder*.onnx]] 0] }
+    set tok [lindex [glob -nocomplain -directory $dir *tokens.txt] 0]
+    foreach {name val} [list encoder $enc decoder $dec tokens $tok] {
+        if {$val eq "" || ![file exists $val]} { error "sherpa::load_whisper_model: missing $name in $dir" }
+    }
+    return [sherpa::create_offline_whisper_recognizer -encoder $enc -decoder $dec -tokens $tok {*}[array get opt]]
 }
