@@ -10,9 +10,9 @@
 ## Architecture
 - **Language**: Tcl/Tk with C extensions (via critcl)
 - **Entry Point**: `src/talkie.tcl`
-- **Core Modules**: config.tcl, audio.tcl, engine.tcl, stt.tcl (engine dispatch), finalization.tcl, output.tcl, coprocess.tcl, ui-layout.tcl
+- **Core Modules**: config.tcl, audio.tcl, engine.tcl, stt.tcl (engine dispatch), finalization.tcl, output.tcl, ui-layout.tcl
 - **C Bindings**: pa/ (PortAudio), vosk/ (Vosk), sherpa/ (sherpa-onnx, online+offline), ov/ (OpenVINO for Silero VAD), audio/ (processing), uinput/ (keyboard)
-- **Engines**: vosk (critcl), sherpa-onnx (critcl, auto-detects model kind), faster-whisper (coprocess). Pipeline: Audio → Processing → Output.
+- **Engines**: vosk (critcl), sherpa-onnx (critcl, auto-detects model kind) — all in-process. Pipeline: Audio → Processing → Output.
 - **Config Files**: `~/.talkie.conf` (JSON), `~/.talkie` (state JSON)
 - **State Management**: Trace-based with global `::transcribing` variable
 

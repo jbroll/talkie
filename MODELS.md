@@ -1,7 +1,7 @@
 # Speech Models
 
-Talkie has three engines: **vosk** (Kaldi, streaming, in-process), **sherpa-onnx**
-(in-process, auto-detects the model kind), and **faster-whisper** (Python coprocess).
+Talkie has two in-process engines: **vosk** (Kaldi, streaming) and **sherpa-onnx**
+(auto-detects the model kind).
 
 Put models under `models/<engine>/`. For `sherpa-onnx`, drop **any** supported model
 directory into `models/sherpa-onnx/` — they all appear together in the Settings →

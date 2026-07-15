@@ -16,7 +16,8 @@ The application monitors microphone input, performs voice activity detection, tr
 - Multiple speech recognition engines:
   - **Vosk** (Kaldi, streaming, in-process)
   - **sherpa-onnx** (in-process) — one engine that auto-detects the model kind and runs streaming Zipformer, offline Parakeet (TDT & CTC), Moonshine, Whisper, SenseVoice, and NVIDIA Canary
-  - **faster-whisper** (Python coprocess)
+
+  Both engines run in-process (critcl); there is no external/Python engine.
 - Voice activity detection: energy threshold or **Silero VAD** (OpenVINO, CPU/NPU)
 - Capability-aware endpointing: streaming models finalize on their own end-of-utterance signal; batch models finalize on VAD-silence or partial-stability
 - Utterance-level confidence filtering
@@ -38,13 +39,12 @@ src/
 ├── talkie.sh           # Startup script (library paths, CLI)
 ├── config.tcl          # Configuration management
 ├── engine.tcl          # Audio capture + speech processing workers, engine registry
-├── stt.tcl             # Common stt:: engine dispatch (critcl vs coprocess)
+├── stt.tcl             # Common stt:: engine dispatch (in-process critcl engines)
 ├── finalization.tcl    # engine::should_finalize (self-endpoint vs partial-stability)
 ├── audio.tcl           # Result display, transcription state, device enumeration
 ├── worker.tcl          # Reusable worker thread abstraction
 ├── output.tcl          # Post-processing (filters, textproc) + uinput typing
 ├── textproc.tcl        # Macro-based text preprocessing and voice commands
-├── coprocess.tcl       # External engine communication (stdin/stdout)
 ├── ui-layout.tcl       # Tk interface
 ├── feedback.tcl        # Feedback logging
 ├── vad_silero.tcl      # Silero VAD (OpenVINO, CPU/NPU) with resampling
@@ -55,7 +55,6 @@ src/
 ├── sherpa/             # sherpa-onnx critcl bindings (online + offline recognizers)
 ├── ov/                 # OpenVINO inference bindings (for Silero VAD)
 ├── uinput/             # uinput critcl bindings
-├── engines/            # External engine wrappers (Faster-Whisper)
 └── tests/              # Test suite (tcltest)
 ```
 
@@ -102,7 +101,7 @@ Pipeline: Audio → Processing → Output   (Output also notifies Main for displ
 
 ### Engine abstraction
 
-The common contract lives in `src/stt.tcl` (`stt::` namespace): `create`, `process` → `{partial endpoint}`, `final` → `{text confidence}`, `reset`, `destroy`. One place branches `critcl` (in-process) vs `coprocess` (external process). Engines are declared in `engine_registry` (`engine.tcl`) with per-engine `endpointing` and `emits_partials`.
+The common contract lives in `src/stt.tcl` (`stt::` namespace): `create`, `process` → `{partial endpoint}`, `final` → `{text confidence}`, `reset`, `destroy`. Engines are declared in `engine_registry` (`engine.tcl`) with per-engine `endpointing` and `emits_partials`.
 
 The `sherpa-onnx` engine inspects the selected model directory (`sherpa::detect_kind`) and dispatches to the right recognizer:
 
@@ -141,7 +140,6 @@ Batch (offline) recognizers buffer the utterance's audio during `process` and de
 Place under the `models/` directory:
 - **Vosk**: `models/vosk/vosk-model-en-us-0.22-lgraph`
 - **sherpa-onnx**: `models/sherpa-onnx/<any supported model>` — all sherpa models (streaming, Parakeet, Moonshine, Whisper, SenseVoice, Canary) live here and appear together in the Model dropdown; the engine auto-detects the kind. See [MODELS.md](MODELS.md).
-- **Faster-Whisper**: `models/faster-whisper/` (CTranslate2 models)
 
 ### Data Files
 - `talkie.map` — voice command macro definitions
@@ -244,7 +242,7 @@ Configuration file: `$XDG_CONFIG_HOME/talkie.conf` or `~/.talkie.conf` (JSON, au
 
 ### Key Parameters
 
-- **speech_engine**: `"vosk"`, `"sherpa-onnx"`, or `"faster-whisper"`.
+- **speech_engine**: `"vosk"` or `"sherpa-onnx"`.
 - **sherpa_modelfile**: model directory under `models/sherpa-onnx/`; the kind (streaming/offline/CTC/whisper/...) is auto-detected.
 - **sherpa_num_threads**: CPU threads for sherpa inference (default 4). Strongly affects offline decode latency on multi-core machines.
 - **vad_engine**: `"threshold"` (energy) or `"silero"`. **vad_device**: `CPU`/`NPU` (Silero only). **vad_threshold** / **vad_end_threshold**: Silero Schmitt-trigger thresholds.
@@ -288,7 +286,7 @@ cd src/tests && tclsh all_tests.tcl
 
 ### Adding a Speech Engine
 1. Add an entry to `engine_registry` in `src/engine.tcl`.
-2. For coprocess engines: add a wrapper in `src/engines/`.
+2. For a new in-process engine: add a package under `src/` and a `stt::create` branch in `src/stt.tcl`.
 3. For critcl engines: add a package under `src/` and a `stt::create` branch in `src/stt.tcl`.
 
 ### Adding a sherpa-onnx model type

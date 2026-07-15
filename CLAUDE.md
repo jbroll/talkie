@@ -10,7 +10,7 @@ Talkie is a modular speech-to-text application for Linux. See [README.md](README
 
 ### Key Files
 - `src/engine.tcl` - Audio + Processing workers (PortAudio capture, VAD, STT)
-- `src/stt.tcl` - Common `stt::` engine dispatch (critcl vs coprocess)
+- `src/stt.tcl` - Common `stt::` engine dispatch (in-process critcl engines)
 - `src/finalization.tcl` - `engine::should_finalize` (self-endpoint vs partial-stability)
 - `src/sherpa/` - sherpa-onnx critcl binding (streaming Zipformer)
 - `src/output.tcl` - Post-processing (filters, textproc) + uinput typing
@@ -31,10 +31,10 @@ Talkie is a modular speech-to-text application for Linux. See [README.md](README
 > and homophone stages no longer run. Engines emit their own text.
 
 ### Engine abstraction
-- Common contract in `src/stt.tcl` (`stt::` namespace): `create`, `process`→`{partial endpoint}`, `final`→`{text confidence}`, `reset`, `destroy`. One place branches `critcl` (in-process) vs `coprocess`.
+- Common contract in `src/stt.tcl` (`stt::` namespace): `create`, `process`→`{partial endpoint}`, `final`→`{text confidence}`, `reset`, `destroy`. All engines are in-process (critcl).
 - Registry (`engine.tcl`) declares per-engine `endpointing` (`self`|`external`) and `emits_partials`.
 - End-of-utterance: `self`-endpoint engines (sherpa-onnx) finalize on the recognizer's `endpoint`; `external` engines use `engine::should_finalize` (energy-silence OR partial-stability) in `src/finalization.tcl`.
-- Engines: `vosk` (critcl), `sherpa-onnx` (critcl, `src/sherpa/`), `faster-whisper` (coprocess).
+- Engines: `vosk` (critcl), `sherpa-onnx` (critcl, `src/sherpa/`) — all in-process.
 - `sherpa-onnx` auto-detects the model kind from the model dir (`sherpa::detect_kind`): streaming Zipformer (online, self-endpoint) / offline transducer (Parakeet TDT) / offline CTC (Parakeet CTC, NeMo). All sherpa models live under `models/sherpa-onnx/`. The old Python `sherpa` coprocess was removed.
 
 ### State Management
