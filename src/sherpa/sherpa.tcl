@@ -519,6 +519,61 @@ static int SherpaCreateOfflineWhisperRecognizerCmd(ClientData cd, Tcl_Interp *in
     return TCL_OK;
 }
 
+/* Offline Canary recognizer (NVIDIA): encoder + decoder, multilingual,
+ * punctuation+capitalization via use_pnc. */
+static int SherpaCreateOfflineCanaryRecognizerCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    (void)cd;
+    const char *encoder=NULL,*decoder=NULL,*tokens=NULL,*provider="cpu";
+    const char *src_lang="en",*tgt_lang="en";
+    int sample_rate = 16000, num_threads = 2, use_pnc = 1;
+    for (int i = 1; i < objc; i++) {
+        const char *opt = Tcl_GetString(objv[i]);
+        double d;
+        if      (strcmp(opt,"-encoder")==0  && i+1<objc) encoder  = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-decoder")==0  && i+1<objc) decoder  = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-tokens")==0   && i+1<objc) tokens   = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-src-lang")==0 && i+1<objc) src_lang = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-tgt-lang")==0 && i+1<objc) tgt_lang = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-provider")==0 && i+1<objc) provider = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-rate")==0        && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; sample_rate=(int)d; }
+        else if (strcmp(opt,"-num-threads")==0 && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; num_threads=(int)d; }
+        else if (strcmp(opt,"-use-pnc")==0     && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; use_pnc=(int)d; }
+        else { Tcl_AppendResult(interp,"unknown option ",opt,NULL); return TCL_ERROR; }
+    }
+    if (!encoder||!decoder||!tokens) { Tcl_AppendResult(interp,"missing -encoder/-decoder/-tokens",NULL); return TCL_ERROR; }
+
+    SherpaOnnxOfflineRecognizerConfig config;
+    memset(&config, 0, sizeof(config));
+    config.model_config.canary.encoder = encoder;
+    config.model_config.canary.decoder = decoder;
+    config.model_config.canary.src_lang = src_lang;
+    config.model_config.canary.tgt_lang = tgt_lang;
+    config.model_config.canary.use_pnc = use_pnc;
+    config.model_config.tokens = tokens;
+    config.model_config.num_threads = num_threads;
+    config.model_config.provider = provider;
+    config.model_config.debug = 0;
+    config.decoding_method = "greedy_search";
+    config.max_active_paths = 4;
+
+    const SherpaOnnxOfflineRecognizer *recognizer = SherpaOnnxCreateOfflineRecognizer(&config);
+    if (!recognizer) { Tcl_AppendResult(interp,"failed to create sherpa-onnx Canary recognizer",NULL); return TCL_ERROR; }
+
+    SherpaOfflineCtx *ctx = (SherpaOfflineCtx*)ckalloc(sizeof(SherpaOfflineCtx));
+    memset(ctx,0,sizeof(*ctx));
+    ctx->recognizer = recognizer; ctx->interp = interp; ctx->sample_rate = sample_rate; ctx->closed = 0;
+
+    static int cycounter = 0;
+    char namebuf[64];
+    sprintf(namebuf,"sherpa_canary%d",++cycounter);
+    Tcl_Obj *nameObj = Tcl_NewStringObj(namebuf,-1);
+    Tcl_IncrRefCount(nameObj);
+    ctx->cmdname = nameObj;
+    Tcl_CreateObjCommand(interp, namebuf, SherpaOfflineObjCmd, (ClientData)ctx, sherpa_offline_delete);
+    Tcl_SetObjResult(interp, nameObj);
+    return TCL_OK;
+}
+
 }
 
 critcl::cinit {
@@ -528,6 +583,7 @@ critcl::cinit {
     Tcl_CreateObjCommand(interp, "sherpa::create_offline_sensevoice_recognizer", SherpaCreateOfflineSenseVoiceRecognizerCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "sherpa::create_offline_moonshine_recognizer", SherpaCreateOfflineMoonshineRecognizerCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "sherpa::create_offline_whisper_recognizer", SherpaCreateOfflineWhisperRecognizerCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "sherpa::create_offline_canary_recognizer", SherpaCreateOfflineCanaryRecognizerCmd, NULL, NULL);
 } ""
 
 # Runtime Tcl procs (bundled into the package; plain procs in this build

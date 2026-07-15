@@ -165,4 +165,24 @@ test whisper-transcribe {Whisper decodes with punctuation/case via load_auto} -c
     list [expr {[string length $text] > 20}] [expr {$text ne [string toupper $text]}]
 } -result {1 1}
 
+set cy_dir [lindex [lsort [glob -nocomplain [file join $models_root sherpa-onnx-nemo-canary*]]] 0]
+testConstraint cyReady [expr {[testConstraint sherpaReady] && $cy_dir ne "" && [file isdirectory $cy_dir]}]
+
+test detect-canary {Canary detected by dir name} -constraints cyReady -body {
+    sherpa::detect_kind $cy_dir
+} -result canary
+
+test canary-transcribe {Canary decodes English (src_lang=en default) with punctuation/case} -constraints cyReady -body {
+    set rec [sherpa::load_auto -path $cy_dir -rate 16000 -num-threads 4]
+    set wav [lindex [glob -nocomplain [file join $cy_dir test_wavs *en.wav]] 0]
+    if {$wav eq ""} { set wav [lindex [lsort [glob [file join $cy_dir test_wavs *.wav]]] 0] }
+    set pcm [read_pcm $wav]
+    for {set i 0} {$i < [string length $pcm]} {incr i 6400} {
+        $rec process [string range $pcm $i [expr {$i+6399}]]
+    }
+    set text [string trim [dict get [$rec final-result] text]]
+    $rec close
+    list [expr {[string length $text] > 20}] [expr {$text ne [string toupper $text]}]
+} -result {1 1}
+
 cleanupTests

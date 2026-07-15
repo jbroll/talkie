@@ -28,7 +28,7 @@ proc sherpa::detect_kind {dir} {
     if {[string match *sense-voice* $name] || [string match *sensevoice* $name]} { return sense-voice }
     if {[string match *moonshine* $name]} { return moonshine }
     if {[string match *whisper* $name]}   { return whisper }
-    # (canary added in its own turn)
+    if {[string match *canary* $name]}    { return canary }
 
     set has_enc [expr {[llength [glob -nocomplain -directory $dir encoder*.onnx]] > 0}]
     set has_joi [expr {[llength [glob -nocomplain -directory $dir joiner*.onnx]] > 0}]
@@ -56,6 +56,7 @@ proc sherpa::load_auto {args} {
         sense-voice        { return [sherpa::load_sensevoice_model {*}$args] }
         moonshine          { return [sherpa::load_moonshine_model {*}$args] }
         whisper            { return [sherpa::load_whisper_model {*}$args] }
+        canary             { return [sherpa::load_canary_model {*}$args] }
     }
 }
 
@@ -144,4 +145,18 @@ proc sherpa::load_whisper_model {args} {
         if {$val eq "" || ![file exists $val]} { error "sherpa::load_whisper_model: missing $name in $dir" }
     }
     return [sherpa::create_offline_whisper_recognizer -encoder $enc -decoder $dec -tokens $tok {*}[array get opt]]
+}
+
+# Canary model (encoder + decoder + tokens.txt).
+proc sherpa::load_canary_model {args} {
+    array set opt {-rate 16000}
+    array set opt $args
+    set dir $opt(-path); unset opt(-path)
+    set enc [sherpa::_pick_onnx $dir encoder]
+    set dec [sherpa::_pick_onnx $dir decoder]
+    set tok [file join $dir tokens.txt]
+    foreach {name val} [list encoder $enc decoder $dec tokens $tok] {
+        if {$val eq "" || ![file exists $val]} { error "sherpa::load_canary_model: missing $name in $dir" }
+    }
+    return [sherpa::create_offline_canary_recognizer -encoder $enc -decoder $dec -tokens $tok {*}[array get opt]]
 }
