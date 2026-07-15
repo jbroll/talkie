@@ -34,7 +34,8 @@ Talkie is a modular speech-to-text application for Linux. See [README.md](README
 - Common contract in `src/stt.tcl` (`stt::` namespace): `create`, `process`→`{partial endpoint}`, `final`→`{text confidence}`, `reset`, `destroy`. One place branches `critcl` (in-process) vs `coprocess`.
 - Registry (`engine.tcl`) declares per-engine `endpointing` (`self`|`external`) and `emits_partials`.
 - End-of-utterance: `self`-endpoint engines (sherpa-onnx) finalize on the recognizer's `endpoint`; `external` engines use `engine::should_finalize` (energy-silence OR partial-stability) in `src/finalization.tcl`.
-- Engines: `vosk` (critcl), `sherpa-onnx` (critcl, streaming Zipformer, `src/sherpa/`), `sherpa`/`faster-whisper` (coprocess).
+- Engines: `vosk` (critcl), `sherpa-onnx` (critcl, `src/sherpa/`), `faster-whisper` (coprocess).
+- `sherpa-onnx` auto-detects the model kind from the model dir (`sherpa::detect_kind`): streaming Zipformer (online, self-endpoint) / offline transducer (Parakeet TDT) / offline CTC (Parakeet CTC, NeMo). All sherpa models live under `models/sherpa-onnx/`. The old Python `sherpa` coprocess was removed.
 
 ### State Management
 - `::transcribing` global variable controls transcription state
