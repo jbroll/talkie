@@ -2,7 +2,7 @@
 # Download the sherpa-onnx NeMo Parakeet TDT 0.6b-v2 (int8) offline model
 # into models/parakeet/. ~631MB. Parakeet emits proper case + punctuation.
 set -euo pipefail
-DEST="$(cd "$(dirname "$0")/.." && pwd)/models/parakeet"
+DEST="$(cd "$(dirname "$0")/.." && pwd)/models/sherpa-onnx"
 URL="https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8.tar.bz2"
 mkdir -p "$DEST"
 cd "$DEST"

@@ -74,21 +74,40 @@ test process-shape {process returns a dict with partial and endpoint keys} -cons
     list [dict exists $r partial] [dict exists $r endpoint]
 } -result {1 1}
 
-set parakeet_dir [file normalize [file join $here ../../../models/parakeet/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8]]
+set models_root [file normalize [file join $here ../../../models/sherpa-onnx]]
+set parakeet_dir [file join $models_root sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8]
+set ctc_dir      [file join $models_root sherpa-onnx-nemo-parakeet_tdt_ctc_110m-en-36000-int8]
 testConstraint parakeetReady [expr {[testConstraint sherpaReady] && [file isdirectory $parakeet_dir]}]
+testConstraint ctcReady      [expr {[testConstraint sherpaReady] && [file isdirectory $ctc_dir]}]
 
-test offline-parakeet-transcribe {offline recognizer decodes a full utterance with punctuation/case} -constraints parakeetReady -body {
-    set rec [sherpa::load_offline_model -path $parakeet_dir -rate 16000]
+test detect-kind {model kind is detected from the directory contents} -constraints sherpaReady -body {
+    set r [list [sherpa::detect_kind $model_dir]]
+    if {[file isdirectory $parakeet_dir]} { lappend r [sherpa::detect_kind $parakeet_dir] }
+    if {[file isdirectory $ctc_dir]}      { lappend r [sherpa::detect_kind $ctc_dir] }
+    set r
+} -result {online-transducer offline-transducer offline-ctc}
+
+test offline-parakeet-transcribe {offline transducer decodes a full utterance with punctuation/case} -constraints parakeetReady -body {
+    set rec [sherpa::load_auto -path $parakeet_dir -rate 16000 -num-threads 4]
     set pcm [read_pcm [file join $parakeet_dir test_wavs 0.wav]]
-    # Batch: buffer chunks, decode on final
     for {set i 0} {$i < [string length $pcm]} {incr i 6400} {
         set r [$rec process [string range $pcm $i [expr {$i+6399}]]]
         if {[dict get $r partial] ne "" || [dict get $r endpoint] != 0} { error "offline must not emit partial/endpoint" }
     }
     set text [dict get [$rec final-result] text]
     $rec close
-    # Proper-case output with punctuation (not ALL-CAPS)
     list [expr {[string length $text] > 20}] [expr {$text ne [string toupper $text]}]
 } -result {1 1}
+
+test offline-ctc-transcribe {CTC model decodes via load_auto} -constraints ctcReady -body {
+    set rec [sherpa::load_auto -path $ctc_dir -rate 16000 -num-threads 4]
+    set pcm [read_pcm [file join $ctc_dir test_wavs 0.wav]]
+    for {set i 0} {$i < [string length $pcm]} {incr i 6400} {
+        $rec process [string range $pcm $i [expr {$i+6399}]]
+    }
+    set text [string trim [dict get [$rec final-result] text]]
+    $rec close
+    expr {[string length $text] > 10}
+} -result 1
 
 cleanupTests

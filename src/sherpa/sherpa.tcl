@@ -310,11 +310,65 @@ static int SherpaCreateOfflineRecognizerCmd(ClientData cd, Tcl_Interp *interp, i
     return TCL_OK;
 }
 
+/* Offline CTC recognizer: a single model file (NeMo/Zipformer/WeNet CTC).
+ * Reuses the same buffering context/dispatch as the offline transducer. */
+static int SherpaCreateOfflineCtcRecognizerCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    (void)cd;
+    const char *model=NULL,*tokens=NULL;
+    const char *provider="cpu",*model_type="",*ctc_type="nemo",*decoding_method="greedy_search";
+    int sample_rate = 16000, num_threads = 2;
+    for (int i = 1; i < objc; i++) {
+        const char *opt = Tcl_GetString(objv[i]);
+        double d;
+        if      (strcmp(opt,"-model")==0    && i+1<objc) model    = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-tokens")==0   && i+1<objc) tokens   = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-provider")==0 && i+1<objc) provider = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-model-type")==0 && i+1<objc) model_type = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-ctc-type")==0 && i+1<objc) ctc_type = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-decoding-method")==0 && i+1<objc) decoding_method = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-rate")==0        && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; sample_rate=(int)d; }
+        else if (strcmp(opt,"-num-threads")==0 && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; num_threads=(int)d; }
+        else { Tcl_AppendResult(interp,"unknown option ",opt,NULL); return TCL_ERROR; }
+    }
+    if (!model||!tokens) { Tcl_AppendResult(interp,"missing -model/-tokens",NULL); return TCL_ERROR; }
+
+    SherpaOnnxOfflineRecognizerConfig config;
+    memset(&config, 0, sizeof(config));
+    if      (strcmp(ctc_type,"zipformer")==0) config.model_config.zipformer_ctc.model = model;
+    else if (strcmp(ctc_type,"wenet")==0)     config.model_config.wenet_ctc.model = model;
+    else                                      config.model_config.nemo_ctc.model = model;  /* default */
+    config.model_config.tokens = tokens;
+    config.model_config.num_threads = num_threads;
+    config.model_config.provider = provider;
+    config.model_config.debug = 0;
+    config.model_config.model_type = model_type;
+    config.decoding_method = decoding_method;
+    config.max_active_paths = 4;
+
+    const SherpaOnnxOfflineRecognizer *recognizer = SherpaOnnxCreateOfflineRecognizer(&config);
+    if (!recognizer) { Tcl_AppendResult(interp,"failed to create sherpa-onnx offline CTC recognizer",NULL); return TCL_ERROR; }
+
+    SherpaOfflineCtx *ctx = (SherpaOfflineCtx*)ckalloc(sizeof(SherpaOfflineCtx));
+    memset(ctx,0,sizeof(*ctx));
+    ctx->recognizer = recognizer; ctx->interp = interp; ctx->sample_rate = sample_rate; ctx->closed = 0;
+
+    static int ccounter = 0;
+    char namebuf[64];
+    sprintf(namebuf,"sherpa_offlinectc%d",++ccounter);
+    Tcl_Obj *nameObj = Tcl_NewStringObj(namebuf,-1);
+    Tcl_IncrRefCount(nameObj);
+    ctx->cmdname = nameObj;
+    Tcl_CreateObjCommand(interp, namebuf, SherpaOfflineObjCmd, (ClientData)ctx, sherpa_offline_delete);
+    Tcl_SetObjResult(interp, nameObj);
+    return TCL_OK;
+}
+
 }
 
 critcl::cinit {
     Tcl_CreateObjCommand(interp, "sherpa::create_recognizer", SherpaCreateRecognizerCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "sherpa::create_offline_recognizer", SherpaCreateOfflineRecognizerCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "sherpa::create_offline_ctc_recognizer", SherpaCreateOfflineCtcRecognizerCmd, NULL, NULL);
 } ""
 
 # Runtime Tcl procs (bundled into the package; plain procs in this build

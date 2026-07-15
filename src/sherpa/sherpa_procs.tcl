@@ -17,6 +17,37 @@ proc sherpa::load_model {args} {
     return [sherpa::create_recognizer -encoder $enc -decoder $dec -joiner $joi -tokens $tok {*}[array get opt]]
 }
 
+# Detect the kind of sherpa-onnx model in a directory:
+#   online-transducer  - streaming Zipformer (encoder/decoder/joiner, "chunk"/"streaming")
+#   offline-transducer - non-streaming transducer (encoder/decoder/joiner)
+#   offline-ctc        - single-file CTC model (NeMo/Zipformer/WeNet)
+proc sherpa::detect_kind {dir} {
+    set has_enc [expr {[llength [glob -nocomplain -directory $dir encoder*.onnx]] > 0}]
+    set has_joi [expr {[llength [glob -nocomplain -directory $dir joiner*.onnx]] > 0}]
+    if {!($has_enc && $has_joi)} { return offline-ctc }
+    set encname [file tail [lindex [glob -nocomplain -directory $dir encoder*.onnx] 0]]
+    if {[string match -nocase *streaming* [file tail $dir]] || [string match *chunk* $encname]} {
+        return online-transducer
+    }
+    return offline-transducer
+}
+
+# 1 if the model in $dir is a streaming (self-endpointing) recognizer.
+proc sherpa::is_self_endpoint {dir} {
+    return [expr {[sherpa::detect_kind $dir] eq "online-transducer"}]
+}
+
+# Load whichever recognizer the model directory calls for. -path is the model
+# dir; remaining options (-rate/-num-threads/-provider) forward to the loader.
+proc sherpa::load_auto {args} {
+    array set opt $args
+    switch -- [sherpa::detect_kind $opt(-path)] {
+        online-transducer  { return [sherpa::load_model {*}$args] }
+        offline-transducer { return [sherpa::load_offline_model {*}$args] }
+        offline-ctc        { return [sherpa::load_offline_ctc_model {*}$args] }
+    }
+}
+
 # Pick a model file by base name, preferring an int8 variant.
 proc sherpa::_pick_onnx {dir base} {
     set i8 [lindex [lsort [glob -nocomplain -directory $dir ${base}*int8*.onnx]] 0]
@@ -38,4 +69,21 @@ proc sherpa::load_offline_model {args} {
         if {$val eq "" || ![file exists $val]} { error "sherpa::load_offline_model: missing $name in $dir" }
     }
     return [sherpa::create_offline_recognizer -encoder $enc -decoder $dec -joiner $joi -tokens $tok {*}[array get opt]]
+}
+
+# Offline CTC model (single ONNX file): NeMo/Zipformer/WeNet CTC.
+proc sherpa::load_offline_ctc_model {args} {
+    array set opt {-rate 16000}
+    array set opt $args
+    set dir $opt(-path); unset opt(-path)
+    set model [sherpa::_pick_onnx $dir model]
+    if {$model eq ""} {
+        set model [lindex [lsort [glob -nocomplain -directory $dir *int8*.onnx]] 0]
+        if {$model eq ""} { set model [lindex [lsort [glob -nocomplain -directory $dir *.onnx]] 0] }
+    }
+    set tok [file join $dir tokens.txt]
+    foreach {name val} [list model $model tokens $tok] {
+        if {$val eq "" || ![file exists $val]} { error "sherpa::load_offline_ctc_model: missing $name in $dir" }
+    }
+    return [sherpa::create_offline_ctc_recognizer -model $model -tokens $tok {*}[array get opt]]
 }

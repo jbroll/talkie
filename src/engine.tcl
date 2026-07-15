@@ -28,22 +28,8 @@ namespace eval ::engine {
         sherpa-onnx,type           "critcl"
         sherpa-onnx,model_dir      "sherpa-onnx"
         sherpa-onnx,model_config   "sherpa_modelfile"
-        sherpa-onnx,endpointing    "self"
-        sherpa-onnx,emits_partials "yes"
-
-        parakeet,command        ""
-        parakeet,type           "critcl"
-        parakeet,model_dir      "parakeet"
-        parakeet,model_config   "parakeet_modelfile"
-        parakeet,endpointing    "external"
-        parakeet,emits_partials "no"
-
-        sherpa,command      "engines/sherpa_wrapper.sh"
-        sherpa,type         "coprocess"
-        sherpa,model_dir    "sherpa-onnx"
-        sherpa,model_config "sherpa_modelfile"
-        sherpa,endpointing  "external"
-        sherpa,emits_partials "yes"
+        sherpa-onnx,endpointing    "detect"
+        sherpa-onnx,emits_partials "detect"
 
         faster-whisper,command      "engines/faster_whisper_wrapper.sh"
         faster-whisper,type         "coprocess"
@@ -212,7 +198,15 @@ namespace eval ::engine {
                 source [file join $script_dir finalization.tcl]
 
                 # Capability: does this engine self-detect end-of-utterance?
-                variable self_endpoint [expr {[info exists config(endpointing)] && $config(endpointing) eq "self"}]
+                # sherpa-onnx is model-dependent (streaming = self, offline = external),
+                # so detect from the model dir; others use the static registry value.
+                variable self_endpoint
+                if {$engine_type eq "critcl" && $engine_name eq "sherpa-onnx"} {
+                    package require sherpa
+                    set self_endpoint [sherpa::is_self_endpoint $model_path]
+                } else {
+                    set self_endpoint [expr {[info exists config(endpointing)] && $config(endpointing) eq "self"}]
+                }
 
                 # Load ov and Silero VAD if configured
                 if {[info exists config(vad_engine)] && $config(vad_engine) eq "silero"} {
@@ -654,12 +648,6 @@ namespace eval ::engine {
                 set model_path [get_model_path $::config(sherpa_modelfile)]
                 if {$model_path eq "" || ![file exists $model_path]} {
                     puts "ERROR: sherpa-onnx model not found"
-                    return false
-                }
-            } elseif {$engine_name eq "parakeet"} {
-                set model_path [get_model_path $::config(parakeet_modelfile)]
-                if {$model_path eq "" || ![file exists $model_path]} {
-                    puts "ERROR: parakeet model not found"
                     return false
                 }
             } else {
