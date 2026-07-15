@@ -286,8 +286,7 @@ cd src/tests && tclsh all_tests.tcl
 
 ### Adding a Speech Engine
 1. Add an entry to `engine_registry` in `src/engine.tcl`.
-2. For a new in-process engine: add a package under `src/` and a `stt::create` branch in `src/stt.tcl`.
-3. For critcl engines: add a package under `src/` and a `stt::create` branch in `src/stt.tcl`.
+2. Add a critcl package under `src/` and a `stt::create` branch in `src/stt.tcl`.
 
 ### Adding a sherpa-onnx model type
 Wire its config struct + a `create_offline_*_recognizer` command in `src/sherpa/sherpa.tcl`, add a `detect_kind` name marker + a `load_*_model` wrapper + a `load_auto` case in `src/sherpa/sherpa_procs.tcl`.
