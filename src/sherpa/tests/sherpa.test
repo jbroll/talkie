@@ -129,4 +129,22 @@ test sensevoice-transcribe {SenseVoice decodes via load_auto} -constraints svRea
     expr {[string length $text] > 5}
 } -result 1
 
+set ms_dir [lindex [lsort [glob -nocomplain [file join $models_root sherpa-onnx-moonshine*]]] end]
+testConstraint msReady [expr {[testConstraint sherpaReady] && $ms_dir ne "" && [file isdirectory $ms_dir]}]
+
+test detect-moonshine {Moonshine detected by dir name} -constraints msReady -body {
+    sherpa::detect_kind $ms_dir
+} -result moonshine
+
+test moonshine-transcribe {Moonshine decodes with punctuation/case via load_auto} -constraints msReady -body {
+    set rec [sherpa::load_auto -path $ms_dir -rate 16000 -num-threads 4]
+    set pcm [read_pcm [lindex [lsort [glob [file join $ms_dir test_wavs *.wav]]] 0]]
+    for {set i 0} {$i < [string length $pcm]} {incr i 6400} {
+        $rec process [string range $pcm $i [expr {$i+6399}]]
+    }
+    set text [string trim [dict get [$rec final-result] text]]
+    $rec close
+    list [expr {[string length $text] > 20}] [expr {$text ne [string toupper $text]}]
+} -result {1 1}
+
 cleanupTests

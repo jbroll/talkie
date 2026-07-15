@@ -26,7 +26,8 @@ proc sherpa::detect_kind {dir} {
     # architectures are otherwise ambiguous by file layout alone.
     set name [string tolower [file tail $dir]]
     if {[string match *sense-voice* $name] || [string match *sensevoice* $name]} { return sense-voice }
-    # (moonshine/whisper/canary added in their own turns)
+    if {[string match *moonshine* $name]} { return moonshine }
+    # (whisper/canary added in their own turns)
 
     set has_enc [expr {[llength [glob -nocomplain -directory $dir encoder*.onnx]] > 0}]
     set has_joi [expr {[llength [glob -nocomplain -directory $dir joiner*.onnx]] > 0}]
@@ -52,6 +53,7 @@ proc sherpa::load_auto {args} {
         offline-transducer { return [sherpa::load_offline_model {*}$args] }
         offline-ctc        { return [sherpa::load_offline_ctc_model {*}$args] }
         sense-voice        { return [sherpa::load_sensevoice_model {*}$args] }
+        moonshine          { return [sherpa::load_moonshine_model {*}$args] }
     }
 }
 
@@ -107,4 +109,21 @@ proc sherpa::load_sensevoice_model {args} {
         if {$val eq "" || ![file exists $val]} { error "sherpa::load_sensevoice_model: missing $name in $dir" }
     }
     return [sherpa::create_offline_sensevoice_recognizer -model $model -tokens $tok {*}[array get opt]]
+}
+
+# Moonshine model (preprocessor + encoder + uncached/cached decoders).
+proc sherpa::load_moonshine_model {args} {
+    array set opt {-rate 16000}
+    array set opt $args
+    set dir $opt(-path); unset opt(-path)
+    set pre [sherpa::_pick_onnx $dir preprocess]
+    set enc [sherpa::_pick_onnx $dir encode]
+    set unc [sherpa::_pick_onnx $dir uncached_decode]
+    set cac [sherpa::_pick_onnx $dir cached_decode]
+    set tok [file join $dir tokens.txt]
+    foreach {name val} [list preprocessor $pre encoder $enc uncached_decoder $unc cached_decoder $cac tokens $tok] {
+        if {$val eq "" || ![file exists $val]} { error "sherpa::load_moonshine_model: missing $name in $dir" }
+    }
+    return [sherpa::create_offline_moonshine_recognizer -preprocessor $pre -encoder $enc \
+        -uncached-decoder $unc -cached-decoder $cac -tokens $tok {*}[array get opt]]
 }

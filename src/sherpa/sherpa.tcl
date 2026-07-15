@@ -413,6 +413,60 @@ static int SherpaCreateOfflineSenseVoiceRecognizerCmd(ClientData cd, Tcl_Interp 
     return TCL_OK;
 }
 
+/* Offline Moonshine recognizer: fast on-device English (preprocessor +
+ * encoder + uncached/cached decoders). */
+static int SherpaCreateOfflineMoonshineRecognizerCmd(ClientData cd, Tcl_Interp *interp, int objc, Tcl_Obj *const objv[]) {
+    (void)cd;
+    const char *preprocessor=NULL,*encoder=NULL,*uncached=NULL,*cached=NULL,*tokens=NULL,*provider="cpu";
+    int sample_rate = 16000, num_threads = 2;
+    for (int i = 1; i < objc; i++) {
+        const char *opt = Tcl_GetString(objv[i]);
+        double d;
+        if      (strcmp(opt,"-preprocessor")==0    && i+1<objc) preprocessor = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-encoder")==0         && i+1<objc) encoder      = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-uncached-decoder")==0 && i+1<objc) uncached    = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-cached-decoder")==0  && i+1<objc) cached       = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-tokens")==0          && i+1<objc) tokens       = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-provider")==0        && i+1<objc) provider     = Tcl_GetString(objv[++i]);
+        else if (strcmp(opt,"-rate")==0        && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; sample_rate=(int)d; }
+        else if (strcmp(opt,"-num-threads")==0 && i+1<objc) { if (Tcl_GetDoubleFromObj(interp,objv[++i],&d)!=TCL_OK) return TCL_ERROR; num_threads=(int)d; }
+        else { Tcl_AppendResult(interp,"unknown option ",opt,NULL); return TCL_ERROR; }
+    }
+    if (!preprocessor||!encoder||!uncached||!cached||!tokens) {
+        Tcl_AppendResult(interp,"missing -preprocessor/-encoder/-uncached-decoder/-cached-decoder/-tokens",NULL); return TCL_ERROR;
+    }
+
+    SherpaOnnxOfflineRecognizerConfig config;
+    memset(&config, 0, sizeof(config));
+    config.model_config.moonshine.preprocessor = preprocessor;
+    config.model_config.moonshine.encoder = encoder;
+    config.model_config.moonshine.uncached_decoder = uncached;
+    config.model_config.moonshine.cached_decoder = cached;
+    config.model_config.tokens = tokens;
+    config.model_config.num_threads = num_threads;
+    config.model_config.provider = provider;
+    config.model_config.debug = 0;
+    config.decoding_method = "greedy_search";
+    config.max_active_paths = 4;
+
+    const SherpaOnnxOfflineRecognizer *recognizer = SherpaOnnxCreateOfflineRecognizer(&config);
+    if (!recognizer) { Tcl_AppendResult(interp,"failed to create sherpa-onnx Moonshine recognizer",NULL); return TCL_ERROR; }
+
+    SherpaOfflineCtx *ctx = (SherpaOfflineCtx*)ckalloc(sizeof(SherpaOfflineCtx));
+    memset(ctx,0,sizeof(*ctx));
+    ctx->recognizer = recognizer; ctx->interp = interp; ctx->sample_rate = sample_rate; ctx->closed = 0;
+
+    static int mscounter = 0;
+    char namebuf[64];
+    sprintf(namebuf,"sherpa_moonshine%d",++mscounter);
+    Tcl_Obj *nameObj = Tcl_NewStringObj(namebuf,-1);
+    Tcl_IncrRefCount(nameObj);
+    ctx->cmdname = nameObj;
+    Tcl_CreateObjCommand(interp, namebuf, SherpaOfflineObjCmd, (ClientData)ctx, sherpa_offline_delete);
+    Tcl_SetObjResult(interp, nameObj);
+    return TCL_OK;
+}
+
 }
 
 critcl::cinit {
@@ -420,6 +474,7 @@ critcl::cinit {
     Tcl_CreateObjCommand(interp, "sherpa::create_offline_recognizer", SherpaCreateOfflineRecognizerCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "sherpa::create_offline_ctc_recognizer", SherpaCreateOfflineCtcRecognizerCmd, NULL, NULL);
     Tcl_CreateObjCommand(interp, "sherpa::create_offline_sensevoice_recognizer", SherpaCreateOfflineSenseVoiceRecognizerCmd, NULL, NULL);
+    Tcl_CreateObjCommand(interp, "sherpa::create_offline_moonshine_recognizer", SherpaCreateOfflineMoonshineRecognizerCmd, NULL, NULL);
 } ""
 
 # Runtime Tcl procs (bundled into the package; plain procs in this build
