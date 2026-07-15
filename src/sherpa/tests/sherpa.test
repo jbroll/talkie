@@ -110,4 +110,23 @@ test offline-ctc-transcribe {CTC model decodes via load_auto} -constraints ctcRe
     expr {[string length $text] > 10}
 } -result 1
 
+set sv_dir [lindex [lsort [glob -nocomplain [file join $models_root sherpa-onnx-sense-voice*]]] end]
+testConstraint svReady [expr {[testConstraint sherpaReady] && $sv_dir ne "" && [file isdirectory $sv_dir]}]
+
+test detect-sensevoice {SenseVoice detected by dir name} -constraints svReady -body {
+    sherpa::detect_kind $sv_dir
+} -result sense-voice
+
+test sensevoice-transcribe {SenseVoice decodes via load_auto} -constraints svReady -body {
+    set rec [sherpa::load_auto -path $sv_dir -rate 16000 -num-threads 4]
+    set wav [lindex [lsort [glob -nocomplain [file join $sv_dir test_wavs *.wav]]] 0]
+    set pcm [read_pcm $wav]
+    for {set i 0} {$i < [string length $pcm]} {incr i 6400} {
+        $rec process [string range $pcm $i [expr {$i+6399}]]
+    }
+    set text [string trim [dict get [$rec final-result] text]]
+    $rec close
+    expr {[string length $text] > 5}
+} -result 1
+
 cleanupTests

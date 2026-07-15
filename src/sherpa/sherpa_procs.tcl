@@ -22,11 +22,17 @@ proc sherpa::load_model {args} {
 #   offline-transducer - non-streaming transducer (encoder/decoder/joiner)
 #   offline-ctc        - single-file CTC model (NeMo/Zipformer/WeNet)
 proc sherpa::detect_kind {dir} {
+    # Name markers first (sherpa-onnx model dirs are consistently named); these
+    # architectures are otherwise ambiguous by file layout alone.
+    set name [string tolower [file tail $dir]]
+    if {[string match *sense-voice* $name] || [string match *sensevoice* $name]} { return sense-voice }
+    # (moonshine/whisper/canary added in their own turns)
+
     set has_enc [expr {[llength [glob -nocomplain -directory $dir encoder*.onnx]] > 0}]
     set has_joi [expr {[llength [glob -nocomplain -directory $dir joiner*.onnx]] > 0}]
     if {!($has_enc && $has_joi)} { return offline-ctc }
     set encname [file tail [lindex [glob -nocomplain -directory $dir encoder*.onnx] 0]]
-    if {[string match -nocase *streaming* [file tail $dir]] || [string match *chunk* $encname]} {
+    if {[string match -nocase *streaming* $name] || [string match *chunk* $encname]} {
         return online-transducer
     }
     return offline-transducer
@@ -45,6 +51,7 @@ proc sherpa::load_auto {args} {
         online-transducer  { return [sherpa::load_model {*}$args] }
         offline-transducer { return [sherpa::load_offline_model {*}$args] }
         offline-ctc        { return [sherpa::load_offline_ctc_model {*}$args] }
+        sense-voice        { return [sherpa::load_sensevoice_model {*}$args] }
     }
 }
 
@@ -86,4 +93,18 @@ proc sherpa::load_offline_ctc_model {args} {
         if {$val eq "" || ![file exists $val]} { error "sherpa::load_offline_ctc_model: missing $name in $dir" }
     }
     return [sherpa::create_offline_ctc_recognizer -model $model -tokens $tok {*}[array get opt]]
+}
+
+# SenseVoice model (single ONNX file): multilingual, fast, ITN.
+proc sherpa::load_sensevoice_model {args} {
+    array set opt {-rate 16000}
+    array set opt $args
+    set dir $opt(-path); unset opt(-path)
+    set model [sherpa::_pick_onnx $dir model]
+    if {$model eq ""} { set model [lindex [lsort [glob -nocomplain -directory $dir *.onnx]] 0] }
+    set tok [file join $dir tokens.txt]
+    foreach {name val} [list model $model tokens $tok] {
+        if {$val eq "" || ![file exists $val]} { error "sherpa::load_sensevoice_model: missing $name in $dir" }
+    }
+    return [sherpa::create_offline_sensevoice_recognizer -model $model -tokens $tok {*}[array get opt]]
 }
